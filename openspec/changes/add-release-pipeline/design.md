@@ -24,6 +24,8 @@ The CI workflow `.github/workflows/ci.yml` runs lint, unit tests (Linux and macO
 
 The job runs `npx -p semantic-release@25.0.9 -p @semantic-release/commit-analyzer@13.0.1 ...`. Exact versions make the run repeatable. There is no `package.json`, because the project is Go.
 
+`conventional-changelog-conventionalcommits` stays on 9.x: version 10 needs `conventional-changelog-writer` 9, but `@semantic-release/release-notes-generator` 14.1.1 loads writer 8, and the `generateNotes` step then fails.
+
 Alternatives: `go-semantic-release` (its action runs on `node20`, and its plugins download at run time); `release-please` (it opens a release PR, thus a merge does not make a version immediately). The maintainer uses semantic-release in other projects.
 
 ### D2. Release rules: each commit type makes a version
@@ -36,7 +38,9 @@ Alternatives: `go-semantic-release` (its action runs on `node20`, and its plugin
 | `feat` | minor |
 | `fix`, `perf`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`, `style`, `revert` | patch |
 
-The commit analyzer uses the highest release of all custom rules that match. A breaking commit matches the `breaking` rule and its type rule, thus it gets major. These types are the same as the types that `pr-title.yml` accepts (plus `style` and `revert`).
+The commit analyzer uses the highest release of all custom rules that match. A breaking commit matches the `breaking` rule and its type rule, thus it gets major.
+
+The release notes have a section for each type, so that a release with only `chore` commits does not have empty notes. These types are the same as the types that `pr-title.yml` accepts (plus `style` and `revert`).
 
 ### D3. The release is a job in `ci.yml`, not a separate workflow
 

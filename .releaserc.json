@@ -1,5 +1,7 @@
 {
-  "branches": ["main"],
+  "branches": [
+    "main"
+  ],
   "tagFormat": "v${version}",
   "plugins": [
     [
@@ -7,28 +9,121 @@
       {
         "preset": "conventionalcommits",
         "releaseRules": [
-          { "breaking": true, "release": "major" },
-          { "type": "feat", "release": "minor" },
-          { "type": "fix", "release": "patch" },
-          { "type": "perf", "release": "patch" },
-          { "type": "refactor", "release": "patch" },
-          { "type": "docs", "release": "patch" },
-          { "type": "chore", "release": "patch" },
-          { "type": "test", "release": "patch" },
-          { "type": "ci", "release": "patch" },
-          { "type": "build", "release": "patch" },
-          { "type": "style", "release": "patch" },
-          { "type": "revert", "release": "patch" }
+          {
+            "breaking": true,
+            "release": "major"
+          },
+          {
+            "type": "feat",
+            "release": "minor"
+          },
+          {
+            "type": "fix",
+            "release": "patch"
+          },
+          {
+            "type": "perf",
+            "release": "patch"
+          },
+          {
+            "type": "refactor",
+            "release": "patch"
+          },
+          {
+            "type": "docs",
+            "release": "patch"
+          },
+          {
+            "type": "chore",
+            "release": "patch"
+          },
+          {
+            "type": "test",
+            "release": "patch"
+          },
+          {
+            "type": "ci",
+            "release": "patch"
+          },
+          {
+            "type": "build",
+            "release": "patch"
+          },
+          {
+            "type": "style",
+            "release": "patch"
+          },
+          {
+            "type": "revert",
+            "release": "patch"
+          }
         ]
       }
     ],
-    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            {
+              "type": "feat",
+              "section": "Features"
+            },
+            {
+              "type": "fix",
+              "section": "Bug Fixes"
+            },
+            {
+              "type": "perf",
+              "section": "Performance"
+            },
+            {
+              "type": "refactor",
+              "section": "Refactoring"
+            },
+            {
+              "type": "docs",
+              "section": "Documentation"
+            },
+            {
+              "type": "test",
+              "section": "Tests"
+            },
+            {
+              "type": "ci",
+              "section": "CI"
+            },
+            {
+              "type": "build",
+              "section": "Build"
+            },
+            {
+              "type": "chore",
+              "section": "Chores"
+            },
+            {
+              "type": "style",
+              "section": "Style"
+            },
+            {
+              "type": "revert",
+              "section": "Reverts"
+            }
+          ]
+        }
+      }
+    ],
     [
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "dist/*.tar.gz" },
-          { "path": "dist/checksums.txt" }
+          {
+            "path": "dist/*.tar.gz"
+          },
+          {
+            "path": "dist/checksums.txt"
+          }
         ],
         "successComment": false,
         "failComment": false,
