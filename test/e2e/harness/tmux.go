@@ -64,7 +64,9 @@ func Start(t *testing.T, outDir, shellCmd string, env map[string]string) *Term {
 		exports = append(exports, fmt.Sprintf("export %s=%s;", k, shellQuote(v)))
 	}
 	// Keep the window open after the command exits, so the test can read the last screen.
-	script := strings.Join(exports, " ") + " " + shellCmd + "; code=$?; echo; echo \"[exit $code]\"; sleep 3600"
+	// "trap : INT" keeps the shell alive when the test sends C-c: dash (sh on Linux)
+	// exits on SIGINT, bash does not. The command itself still gets SIGINT.
+	script := "trap : INT; " + strings.Join(exports, " ") + " " + shellCmd + "; code=$?; echo; echo \"[exit $code]\"; sleep 3600"
 	term.tmux("new-session", "-d", "-s", term.session, "-x", "120", "-y", "40", "sh", "-c", script)
 	t.Cleanup(term.Close)
 	return term
