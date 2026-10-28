@@ -14,4 +14,4 @@
 
 - [x] 3.1 Update `README.md` (install from a release), `CLAUDE.md` (release commands and rules) and the comments in `pr-title.yml`
 - [x] 3.2 Set the repository to squash merge only, with the PR title as the squash commit subject
-- [ ] 3.3 Push to `main`, then confirm that CI passes, the release `v1.0.0` exists with 5 assets, and the downloaded darwin/arm64 binary shows `1.0.0`
+- [x] 3.3 Push to `main`, then confirm that CI passes, the release `v1.0.0` exists with 5 assets, and the downloaded darwin/arm64 binary shows `1.0.0`
