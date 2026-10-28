@@ -1,0 +1,31 @@
+{
+  "id": "17ca3fc3-8e6c-4227-93f4-d7b40dd8221d",
+  "ok": true,
+  "result": {
+    "repo": {
+      "id": "e5ec6d68-b2ef-487f-a225-61f1569338c5",
+      "path": "/home/user/notes",
+      "displayName": "orca-spike",
+      "badgeColor": "#737373",
+      "addedAt": 1793116882153,
+      "kind": "git",
+      "externalWorktreeVisibilityLegacy": false,
+      "upstream": null,
+      "gitRemoteIdentity": null,
+      "gitUsername": "",
+      "hookSettings": {
+        "mode": "auto",
+        "setupRunPolicy": "run-by-default",
+        "setupAgentStartupPolicy": "start-immediately",
+        "scripts": {
+          "setup": "",
+          "archive": ""
+        }
+      },
+      "externalWorktreeVisibility": "hide"
+    }
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

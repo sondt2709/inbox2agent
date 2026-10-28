@@ -1,0 +1,59 @@
+{
+    "order": [
+        "65efg6pey3r79c74iofux7pynw",
+        "y6xr6c65ij8aucx1hco34rnsso"
+    ],
+    "posts": {
+        "65efg6pey3r79c74iofux7pynw": {
+            "id": "65efg6pey3r79c74iofux7pynw",
+            "create_at": 1793119910832,
+            "update_at": 1793119910832,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "8ffy141hmfr7jxy4q9pnf9trsc",
+            "channel_id": "663a3c3tx3dbjnujwpoeeogbjy",
+            "root_id": "",
+            "original_id": "",
+            "message": "bob joined the channel.",
+            "type": "system_join_channel",
+            "props": {
+                "username": "bob"
+            },
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        },
+        "y6xr6c65ij8aucx1hco34rnsso": {
+            "id": "y6xr6c65ij8aucx1hco34rnsso",
+            "create_at": 1793119910760,
+            "update_at": 1793119910760,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "wjh6oedfxpycdxgrdymbd8xymc",
+            "channel_id": "663a3c3tx3dbjnujwpoeeogbjy",
+            "root_id": "",
+            "original_id": "",
+            "message": "alice joined the channel.",
+            "type": "system_join_channel",
+            "props": {
+                "username": "alice"
+            },
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        }
+    },
+    "next_post_id": "",
+    "prev_post_id": "",
+    "first_inaccessible_post_time": 0
+}

@@ -1,0 +1,159 @@
+name: ci
+
+# Runs on each pull request and on each push to main.
+# On a push to main, the release job runs after all other jobs pass.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel old runs of a pull request only. A push to main must not cancel a release.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+      - name: Lint the e2e package
+        run: golangci-lint run --build-tags e2e ./test/...
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Unit tests
+        run: go test -race -count=1 ./...
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -o /tmp/i2a ./cmd/i2a
+          file /tmp/i2a
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  e2e:
+    # The scenarios that need only Docker and tmux. See test/e2e/SCENARIOS.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Start Mattermost
+        run: docker compose -f test/e2e/mattermost/compose.yaml up -d
+      - name: Run the scenarios
+        run: go test -tags e2e -count=1 -timeout 25m -v ./test/e2e/
+      - name: Keep the screen captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screens
+          path: test/e2e/out/
+          if-no-files-found: ignore
+      - name: Mattermost log on failure
+        if: failure()
+        run: docker compose -f test/e2e/mattermost/compose.yaml logs --tail 200
+
+  release:
+    # Makes the next version from the commit subjects (see .releaserc.json),
+    # builds the archives, then makes the tag and the GitHub release.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, build, vulncheck, secrets, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SEMANTIC_RELEASE_PKGS: >-
+        -p semantic-release@25.0.9
+        -p @semantic-release/commit-analyzer@13.0.1
+        -p @semantic-release/release-notes-generator@14.1.1
+        -p @semantic-release/github@12.0.10
+        -p conventional-changelog-conventionalcommits@10.4.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Compute the next version
+        id: version
+        run: |
+          set -o pipefail
+          # shellcheck disable=SC2086 # the package list must split into words
+          npx -y $SEMANTIC_RELEASE_PKGS semantic-release --dry-run | tee /tmp/dry-run.log
+          NEXT=$(grep -Eo 'next release version is [0-9]+\.[0-9]+\.[0-9]+' /tmp/dry-run.log | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' || true)
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          if [ -z "$NEXT" ]; then echo "No new version."; fi
+      - name: Build the archives
+        if: steps.version.outputs.next != ''
+        run: scripts/dist.sh "${{ steps.version.outputs.next }}"
+      - name: Publish the release
+        if: steps.version.outputs.next != ''
+        run: |
+          # shellcheck disable=SC2086 # the package list must split into words
+          npx -y $SEMANTIC_RELEASE_PKGS semantic-release

@@ -1,0 +1,11 @@
+{
+  "id": "9437f0f5-1da3-4181-859a-7c83d2648e63",
+  "ok": false,
+  "error": {
+    "code": "runtime_error",
+    "message": "Not a valid git repository: /home/user/tmp/orca-nogit"
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

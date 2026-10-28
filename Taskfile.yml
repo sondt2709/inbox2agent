@@ -1,0 +1,49 @@
+version: "3"
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  LDFLAGS: -s -w -X main.version={{.VERSION}}
+
+tasks:
+  build:
+    desc: Build bin/i2a
+    env: { CGO_ENABLED: "0" }
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/i2a ./cmd/i2a
+
+  dist:
+    desc: Build the release archives into dist/ (task dist -- 1.2.0)
+    cmds:
+      - scripts/dist.sh {{.CLI_ARGS}}
+
+  test:
+    desc: Run the unit tests
+    cmds:
+      - go test -race ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Format the code
+    cmds:
+      - gofmt -w .
+
+  e2e:
+    desc: Run the end-to-end scenarios (needs Docker and tmux)
+    cmds:
+      - docker compose -f test/e2e/mattermost/compose.yaml up -d
+      - go test -tags e2e -count=1 -timeout 20m -v ./test/e2e/... {{.CLI_ARGS}}
+
+  e2e:down:
+    desc: Stop the end-to-end Mattermost server
+    cmds:
+      - docker compose -f test/e2e/mattermost/compose.yaml down -v
+
+  leakcheck:
+    desc: Search tracked files for forbidden terms in .leakcheck.local
+    cmds:
+      - scripts/leakcheck.sh

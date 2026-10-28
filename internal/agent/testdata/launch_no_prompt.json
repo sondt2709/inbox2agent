@@ -1,0 +1,25 @@
+{
+  "id": "d3705ebd-fdac-4a3e-b20d-1c5d29dd6ded",
+  "ok": true,
+  "result": {
+    "outcome": {
+      "kind": "terminal",
+      "handle": "term_f8323417-9685-4934-a061-20c3fc4ccbff",
+      "paneKey": "d39a49cb-baee-4fc3-a4cc-b0db60bf0c72:9eebb5d5-ebbd-4f11-88ad-bb2856322ccf"
+    },
+    "worktreeId": "e5ec6d68-b2ef-487f-a225-61f1569338c5::/home/user/notes",
+    "receipt": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "requested",
+      "detail": "Started a terminal agent, as requested."
+    },
+    "placement": {
+      "groupId": "2358a48e-a3e2-461a-8b27-17f028b03c66"
+    },
+    "operationId": "1793155022638-bd41625e2bef4109ae799a05f5f7dafa"
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

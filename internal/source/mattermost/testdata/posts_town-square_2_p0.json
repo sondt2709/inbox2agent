@@ -1,0 +1,59 @@
+{
+    "order": [
+        "7a1d1tzm678r7gb6jsewdb15co",
+        "ixksk71dmfnxpjzkdoekth3xfr"
+    ],
+    "posts": {
+        "7a1d1tzm678r7gb6jsewdb15co": {
+            "id": "7a1d1tzm678r7gb6jsewdb15co",
+            "create_at": 1793119910810,
+            "update_at": 1793119910810,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "8ffy141hmfr7jxy4q9pnf9trsc",
+            "channel_id": "64y9zesw3iy13mehnbcy9g1eqr",
+            "root_id": "",
+            "original_id": "",
+            "message": "bob joined the team.",
+            "type": "system_join_team",
+            "props": {
+                "username": "bob"
+            },
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        },
+        "ixksk71dmfnxpjzkdoekth3xfr": {
+            "id": "ixksk71dmfnxpjzkdoekth3xfr",
+            "create_at": 1793119910729,
+            "update_at": 1793119910729,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "wjh6oedfxpycdxgrdymbd8xymc",
+            "channel_id": "64y9zesw3iy13mehnbcy9g1eqr",
+            "root_id": "",
+            "original_id": "",
+            "message": "alice joined the team.",
+            "type": "system_join_team",
+            "props": {
+                "username": "alice"
+            },
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        }
+    },
+    "next_post_id": "",
+    "prev_post_id": "",
+    "first_inaccessible_post_time": 0
+}

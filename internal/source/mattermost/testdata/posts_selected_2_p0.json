@@ -1,0 +1,57 @@
+{
+    "order": [
+        "bzsgiwgf6trrzgxoys5j8oyhjy",
+        "saork6af6jndug3rby777hiifr"
+    ],
+    "posts": {
+        "bzsgiwgf6trrzgxoys5j8oyhjy": {
+            "id": "bzsgiwgf6trrzgxoys5j8oyhjy",
+            "create_at": 1793119911405,
+            "update_at": 1793119911405,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "8ffy141hmfr7jxy4q9pnf9trsc",
+            "channel_id": "ou1ohqct6t87tkffwaceyw643e",
+            "root_id": "",
+            "original_id": "",
+            "message": "selected four",
+            "type": "",
+            "props": {},
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "remote_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        },
+        "saork6af6jndug3rby777hiifr": {
+            "id": "saork6af6jndug3rby777hiifr",
+            "create_at": 1793119911323,
+            "update_at": 1793119911323,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "8ffy141hmfr7jxy4q9pnf9trsc",
+            "channel_id": "ou1ohqct6t87tkffwaceyw643e",
+            "root_id": "",
+            "original_id": "",
+            "message": "selected three",
+            "type": "",
+            "props": {},
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "remote_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        }
+    },
+    "next_post_id": "",
+    "prev_post_id": "pen9om3jkfnmjp6rhstdj6emhc",
+    "first_inaccessible_post_time": 0
+}

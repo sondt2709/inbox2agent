@@ -1,0 +1,15 @@
+# Mattermost server for the end-to-end scenarios.
+# Start: docker compose -f test/e2e/mattermost/compose.yaml up -d
+# The image has no curl, so the harness polls /api/v4/system/ping from the host.
+services:
+  mattermost:
+    image: mattermost/mattermost-preview:latest
+    platform: linux/amd64 # no arm64 image exists; Docker Desktop emulates it
+    ports:
+      - "${I2A_E2E_MM_PORT:-18065}:8065"
+    environment:
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:${I2A_E2E_MM_PORT:-18065}"
+      MM_RATELIMITSETTINGS_ENABLE: "false"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"

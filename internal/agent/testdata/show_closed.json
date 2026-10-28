@@ -1,0 +1,32 @@
+{
+  "id": "95e6e097-9f29-4556-ad14-3a53d70c85be",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578",
+      "ptyId": "e5ec6d68-b2ef-487f-a225-61f1569338c5::/home/user/notes@@5fd79bca",
+      "incarnationId": "9d34a427-25c4-4704-9d66-4fc4681f5cac",
+      "orphaned": true,
+      "recordedPaneKey": "c46104ca-db50-4e27-9d25-d8ae91b2db40:e7ac9872-72e3-4faa-b001-af097afb8b9b",
+      "worktreeId": "e5ec6d68-b2ef-487f-a225-61f1569338c5::/home/user/notes",
+      "worktreePath": "/home/user/notes",
+      "branch": "refs/heads/main",
+      "tabId": "c46104ca-db50-4e27-9d25-d8ae91b2db40",
+      "leafId": "e7ac9872-72e3-4faa-b001-af097afb8b9b",
+      "title": "..ad/orca-spike",
+      "connected": false,
+      "writable": false,
+      "lastOutputAt": 1793120074582,
+      "preview": "",
+      "exitCause": {
+        "kind": "operator_close"
+      },
+      "executionHostId": "local",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0
+    }
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

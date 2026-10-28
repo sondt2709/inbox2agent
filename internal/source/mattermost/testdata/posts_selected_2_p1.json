@@ -1,0 +1,57 @@
+{
+    "order": [
+        "pen9om3jkfnmjp6rhstdj6emhc",
+        "npctcp6bb3yi8jp3kh7gnm4cjh"
+    ],
+    "posts": {
+        "npctcp6bb3yi8jp3kh7gnm4cjh": {
+            "id": "npctcp6bb3yi8jp3kh7gnm4cjh",
+            "create_at": 1793119911061,
+            "update_at": 1793119911061,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "wjh6oedfxpycdxgrdymbd8xymc",
+            "channel_id": "ou1ohqct6t87tkffwaceyw643e",
+            "root_id": "",
+            "original_id": "",
+            "message": "my own post",
+            "type": "",
+            "props": {},
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "remote_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        },
+        "pen9om3jkfnmjp6rhstdj6emhc": {
+            "id": "pen9om3jkfnmjp6rhstdj6emhc",
+            "create_at": 1793119911242,
+            "update_at": 1793119911242,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "8ffy141hmfr7jxy4q9pnf9trsc",
+            "channel_id": "ou1ohqct6t87tkffwaceyw643e",
+            "root_id": "",
+            "original_id": "",
+            "message": "selected two",
+            "type": "",
+            "props": {},
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "remote_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        }
+    },
+    "next_post_id": "saork6af6jndug3rby777hiifr",
+    "prev_post_id": "zmongksjtirzxkjf6wnn31s1dh",
+    "first_inaccessible_post_time": 0
+}

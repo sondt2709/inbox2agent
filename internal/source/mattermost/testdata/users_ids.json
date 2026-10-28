@@ -1,0 +1,76 @@
+[
+    {
+        "id": "8ffy141hmfr7jxy4q9pnf9trsc",
+        "create_at": 1793119909480,
+        "update_at": 1793119910796,
+        "delete_at": 0,
+        "username": "bob",
+        "auth_service": "",
+        "email": "bob@example.com",
+        "nickname": "",
+        "first_name": "",
+        "last_name": "",
+        "position": "",
+        "roles": "system_user",
+        "notify_props": {
+            "channel": "true",
+            "channel_mention_auto_follow_threads": "true",
+            "comments": "never",
+            "desktop": "mention",
+            "desktop_sound": "true",
+            "desktop_threads": "all",
+            "email": "true",
+            "email_threads": "all",
+            "first_name": "false",
+            "mention_keys": "",
+            "push": "mention",
+            "push_status": "online",
+            "push_threads": "all"
+        },
+        "locale": "en",
+        "timezone": {
+            "automaticTimezone": "",
+            "manualTimezone": "",
+            "useAutomaticTimezone": "true"
+        },
+        "remote_id": "",
+        "disable_welcome_email": false
+    },
+    {
+        "id": "wjh6oedfxpycdxgrdymbd8xymc",
+        "create_at": 1793119909086,
+        "update_at": 1793119910716,
+        "delete_at": 0,
+        "username": "alice",
+        "auth_service": "",
+        "email": "alice@example.com",
+        "nickname": "",
+        "first_name": "",
+        "last_name": "",
+        "position": "",
+        "roles": "system_admin system_user",
+        "notify_props": {
+            "channel": "true",
+            "channel_mention_auto_follow_threads": "true",
+            "comments": "never",
+            "desktop": "mention",
+            "desktop_sound": "true",
+            "desktop_threads": "all",
+            "email": "true",
+            "email_threads": "all",
+            "first_name": "false",
+            "mention_keys": "",
+            "push": "mention",
+            "push_status": "online",
+            "push_threads": "all"
+        },
+        "locale": "en",
+        "timezone": {
+            "automaticTimezone": "",
+            "manualTimezone": "",
+            "useAutomaticTimezone": "true"
+        },
+        "remote_id": "",
+        "disable_welcome_email": false
+    }
+]

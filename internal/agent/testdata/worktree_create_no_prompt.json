@@ -1,0 +1,88 @@
+{
+  "id": "123bff06-6eed-4ffb-9283-2ad909102d5a",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "e5ec6d68-b2ef-487f-a225-61f1569338c5::/home/user/orca/workspaces/notes/i2a-fixture-wt",
+      "identity": {
+        "key": "wt2:local:fe33d884-bbb4-4f4a-9522-87a621ab7532",
+        "executionHostId": "local",
+        "instanceId": "fe33d884-bbb4-4f4a-9522-87a621ab7532"
+      },
+      "instanceId": "fe33d884-bbb4-4f4a-9522-87a621ab7532",
+      "repoId": "e5ec6d68-b2ef-487f-a225-61f1569338c5",
+      "projectId": "repo:e5ec6d68-b2ef-487f-a225-61f1569338c5",
+      "hostId": "local",
+      "projectHostSetupId": "e5ec6d68-b2ef-487f-a225-61f1569338c5",
+      "creatorProvenance": {
+        "kind": "host"
+      },
+      "path": "/home/user/orca/workspaces/notes/i2a-fixture-wt",
+      "head": "df859d87a03d73e7f993d44187920110b98ae2da",
+      "branch": "refs/heads/i2a-fixture-wt",
+      "isBare": false,
+      "isMainWorktree": false,
+      "displayName": "i2a-fixture-wt",
+      "displayNameMode": "fixed",
+      "comment": "",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedLinearIssueWorkspaceId": null,
+      "linkedLinearIssueOrganizationUrlKey": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "linkedBitbucketPR": null,
+      "linkedAzureDevOpsPR": null,
+      "linkedGiteaPR": null,
+      "linkedWorkItem": null,
+      "linkedTaskSourceContext": null,
+      "isArchived": false,
+      "isUnread": false,
+      "isPinned": false,
+      "sortOrder": 1793155083783,
+      "lastActivityAt": 1793155086744,
+      "createdAt": 1793155086744,
+      "createdWithAgent": "claude",
+      "cliProvenance": {
+        "kind": "created-by-cli",
+        "createdAt": 1793155086504,
+        "callerTerminalHandle": "term_27b05134-8d45-4923-8bfd-4771a5442a73",
+        "startupAgent": "claude"
+      },
+      "baseRef": "main",
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": null,
+      "childWorktreeIds": [],
+      "lineage": null,
+      "git": {
+        "path": "/home/user/orca/workspaces/notes/i2a-fixture-wt",
+        "head": "df859d87a03d73e7f993d44187920110b98ae2da",
+        "branch": "refs/heads/i2a-fixture-wt",
+        "isBare": false,
+        "isMainWorktree": false
+      },
+      "linkedItems": []
+    },
+    "lineage": null,
+    "workspaceLineage": null,
+    "launch": {
+      "outcome": {
+        "kind": "terminal",
+        "handle": "term_a064be47-dfe2-4514-bc43-db02bbe10606",
+        "paneKey": "bcaac39b-3d37-4ab6-8023-a7692b3a7cba:46b8377a-ce17-4dfc-acaf-48df8a77759b"
+      },
+      "worktreeId": "e5ec6d68-b2ef-487f-a225-61f1569338c5::/home/user/orca/workspaces/notes/i2a-fixture-wt",
+      "receipt": {
+        "mode": "terminal",
+        "preferred": "terminal",
+        "reason": "user_default",
+        "detail": "Started a terminal agent, the default for new agent tabs in your settings."
+      },
+      "operationId": "1793155086500-7d0b52a6d4e340cea9ed0b0fbf821749"
+    }
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

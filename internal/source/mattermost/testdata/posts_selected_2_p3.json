@@ -1,0 +1,34 @@
+{
+    "order": [
+        "z35u6hir63dpufdow3e494n6ir"
+    ],
+    "posts": {
+        "z35u6hir63dpufdow3e494n6ir": {
+            "id": "z35u6hir63dpufdow3e494n6ir",
+            "create_at": 1793119910868,
+            "update_at": 1793119910868,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "wjh6oedfxpycdxgrdymbd8xymc",
+            "channel_id": "ou1ohqct6t87tkffwaceyw643e",
+            "root_id": "",
+            "original_id": "",
+            "message": "alice joined the channel.",
+            "type": "system_join_channel",
+            "props": {
+                "username": "alice"
+            },
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        }
+    },
+    "next_post_id": "3gyra5xudfn43phs74fai7ecmw",
+    "prev_post_id": "",
+    "first_inaccessible_post_time": 0
+}
