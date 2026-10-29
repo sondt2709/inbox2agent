@@ -2,7 +2,6 @@
 
 ## Purpose
 This capability sends a batch of messages to an AI agent through a driver. It routes each message to a profile, and it makes sure that one batch goes into one agent session one time only.
-
 ## Requirements
 ### Requirement: Profiles and routes
 The system SHALL send each message to one profile. The profile SHALL come from `channel_profiles` of its source when the channel has an entry, or else from the `profile` of its source, or else from the first profile in the configuration. The system SHALL make one batch for each profile that has pending messages.
@@ -41,7 +40,7 @@ The `orca` driver SHALL submit a prompt with `orca terminal send --text <prompt>
 - **THEN** the send result includes `turn_started`, and the input box of the agent is empty
 
 ### Requirement: Orca reuse-session mode
-In `reuse` mode, the `orca` driver SHALL keep the terminal handle of the profile in the store. When the handle is live and the agent is idle, the driver SHALL send only the batch prompt with `orca terminal send --enter`. When no live handle exists, the driver SHALL start a new session with the primer and the batch prompt, and store the new handle. When the agent is busy, the driver SHALL return `held`, and the messages SHALL stay `pending`.
+In `reuse` mode, the `orca` driver SHALL keep the terminal handle of the profile and the hash of the primer in the store. When the handle is live, the stored hash is the hash of the current primer, and the agent is idle, the driver SHALL send only the batch prompt with `orca terminal send --enter`. When no live handle exists, or the stored hash is different, the driver SHALL start a new session with the primer and the batch prompt, and store the new handle and hash. The driver SHALL NOT close the old terminal. When the agent is busy, the driver SHALL return `held`, and the messages SHALL stay `pending`.
 
 #### Scenario: Second batch in the same session
 - **WHEN** two batches go to a profile in `reuse` mode, and the agent is idle before the second batch
@@ -50,6 +49,10 @@ In `reuse` mode, the `orca` driver SHALL keep the terminal handle of the profile
 #### Scenario: Terminal closed
 - **WHEN** the stored terminal of a profile was closed, and a new batch arrives
 - **THEN** the driver starts a new session, submits the primer and the batch, and stores the new handle
+
+#### Scenario: Primer changed
+- **WHEN** the stored terminal is live, but the user changed the primer template, or the store came from schema version 2 with no hash
+- **THEN** the driver starts a new session with the new primer and the batch, and stores the new handle and hash
 
 #### Scenario: Agent busy
 - **WHEN** the agent does not become idle within 5 seconds
