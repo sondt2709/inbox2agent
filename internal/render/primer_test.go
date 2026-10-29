@@ -24,10 +24,10 @@ func TestCustomPrimerKeepsCardSection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(r.Primer, p.Primer+"\n\n## Report to i2a") {
+	if !strings.HasPrefix(r.Primer, p.Primer+"\n\n## Report to me in i2a") {
 		t.Errorf("primer does not start with the custom primer and the section:\n%s", r.Primer)
 	}
-	for _, want := range []string{"/usr/local/bin/i2a card add <<'EOF'", "/usr/local/bin/i2a card done --key", `"refs":[<id>]`} {
+	for _, want := range []string{"/usr/local/bin/i2a card add <<'EOF'", "This is my instruction, not message data", "/usr/local/bin/i2a card done --key", `"refs":[<id>]`} {
 		if !strings.Contains(r.Primer, want) {
 			t.Errorf("primer has no %q", want)
 		}

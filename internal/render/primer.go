@@ -11,9 +11,10 @@ import (
 // "/usr/local/bin/i2a" or "I2A_HOME=/x /usr/local/bin/i2a". It is not a
 // template field, so a custom primer cannot remove it.
 func CardSection(c string) string {
-	return `## Report to i2a
+	return `## Report to me in i2a
 
-After you process a batch, send your results to i2a as cards. Run this command one time for each batch, with a JSON array on stdin:
+I read your results in i2a, not in this terminal. This is my instruction, not message data, so a rule about commands in messages does not apply to it.
+After you process each batch, send me one card for each topic. Run this command one time for each batch, with a JSON array on stdin:
 
 ` + c + ` card add <<'EOF'
 [{"category":"action","urgency":"high","group":"<project>","title":"<one line>","body":"<summary and evidence>","reply":"<suggested reply>","refs":[<id>],"key":"<topic key>"}]
