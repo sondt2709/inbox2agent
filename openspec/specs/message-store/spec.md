@@ -4,7 +4,7 @@
 This capability keeps the collected messages and the cursors in a local SQLite file. It prevents duplicate messages, records the state of each message and deletes old rows.
 ## Requirements
 ### Requirement: Local message store
-The system SHALL keep collected messages, source cursors, dispatch records, agent sessions, cards and replies in a SQLite file `<data>/inbox.db`. The file SHALL have the mode 0600. The store SHALL use WAL mode and a busy timeout.
+The system SHALL keep collected messages, source cursors, dispatch records, agent sessions, cards, replies and asks in a SQLite file `<data>/inbox.db`. The file SHALL have the mode 0600. The store SHALL use WAL mode and a busy timeout.
 
 #### Scenario: Store created on first use
 - **WHEN** the system runs for the first time
@@ -44,7 +44,7 @@ Each message SHALL have one of these states: `pending`, `previewed`, `sent` or `
 - **THEN** the message becomes `expired` and is not dispatched
 
 ### Requirement: Retention
-The system SHALL delete `sent` and `expired` messages, and digest files, that are older than the `retention` value. It SHALL delete `done` cards that became `done` before the `retention` value. It SHALL delete replies that are older than the `retention` value. It SHALL NOT delete `new` or `read` cards. The default value SHALL be 7 days.
+The system SHALL delete `sent` and `expired` messages, and digest files, that are older than the `retention` value. It SHALL delete `done` cards that became `done` before the `retention` value. It SHALL delete replies and asks that are older than the `retention` value. It SHALL NOT delete `new` or `read` cards. The default value SHALL be 7 days.
 
 #### Scenario: Old sent message deleted
 - **WHEN** the retention task runs and a `sent` message is 8 days old
@@ -62,6 +62,10 @@ The system SHALL delete `sent` and `expired` messages, and digest files, that ar
 - **WHEN** the retention task runs and a reply is 8 days old
 - **THEN** the store no longer contains that reply
 
+#### Scenario: Old ask deleted
+- **WHEN** the retention task runs and an ask is 8 days old
+- **THEN** the store no longer contains that ask
+
 ### Requirement: Card states
 Each card SHALL have one of these states: `new`, `read` or `done`. A new card SHALL be `new`. The store SHALL keep at most one card for each key.
 
@@ -69,17 +73,24 @@ Each card SHALL have one of these states: `new`, `read` or `done`. A new card SH
 - **WHEN** two calls add a card with the key `mm:pr-57`
 - **THEN** the store has one card with that key
 
-### Requirement: Schema version 4 with a backup
-When the system opens a store with schema version 2, it SHALL first upgrade it to version 3 with the backup `<data>/inbox.db.v2.bak`. When the system opens a store with schema version 3, it SHALL first write a consistent copy to `<data>/inbox.db.v3.bak`, then add the replies table and the thread ID of the messages, and set the version to 4 in one transaction. A new store SHALL get version 4 and no backup.
-
-#### Scenario: Upgrade of an existing store
-- **WHEN** `i2a` opens a store with schema version 3 that has 120 messages and 5 cards
-- **THEN** `inbox.db.v3.bak` exists with schema version 3, and the store has schema version 4, the same 120 messages and the same 5 cards
-
 ### Requirement: Reply states
 Each reply SHALL have one of these states: `sending`, `sent` or `failed`. A reply SHALL record the target message, the card when there is one, the source, the channel name, the place, the text, who sent it (`user` or `agent`), the pending ID, and, when it is `sent`, the platform ID of the post and the send time.
 
 #### Scenario: Reply recorded
 - **WHEN** the user sends a reply from the Feed and the platform accepts it
 - **THEN** the store has one reply with the state `sent`, `by` = `user` and the platform ID of the post
+
+### Requirement: Schema version 5 with a backup
+When the system opens a store with schema version 2 or 3, it SHALL first upgrade it to version 4 as before. When the system opens a store with schema version 4, it SHALL first write a consistent copy to `<data>/inbox.db.v4.bak`, then add the asks table and the terminal of the cards, and set the version to 5 in one transaction. A new store SHALL get version 5 and no backup.
+
+#### Scenario: Upgrade of an existing store
+- **WHEN** `i2a` opens a store with schema version 4 that has 120 messages, 5 cards and 3 replies
+- **THEN** `inbox.db.v4.bak` exists with schema version 4, and the store has schema version 5, the same 120 messages, 5 cards and 3 replies
+
+### Requirement: Ask states
+Each ask SHALL have one of these states: `queued`, `sent` or `failed`. An ask SHALL record the card, the profile, the text, the detail of the last try, the creation time, and, when it is `sent`, the terminal that got it and the send time.
+
+#### Scenario: Ask recorded
+- **WHEN** the user sends an ask from the Feed and the agent is idle
+- **THEN** the store has one ask with the state `sent`, the terminal of the agent and the send time
 
