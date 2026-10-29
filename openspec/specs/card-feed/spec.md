@@ -2,7 +2,6 @@
 
 ## Purpose
 This capability is the return path from the agent to the user. The agent reports its results as cards with `i2a card add`. i2a stores the cards, shows notifications by urgency, and shows the cards in the Feed tab, where the user copies a reply, opens the source thread and closes each card.
-
 ## Requirements
 ### Requirement: Add cards from an agent
 The system SHALL provide `i2a card add`. It SHALL read a JSON array of card objects, or one card object, from stdin. A card object SHALL have the fields `category` (`action`, `question` or `info`, required), `urgency` (`high`, `normal` or `low`, default `normal`), `title` (required), `group`, `body`, `reply`, `refs` (an array of message IDs) and `key`. The command SHALL reject unknown fields. When one card is not valid, the command SHALL save no card, print the card number and the error on stderr, and exit with code 1. The command SHALL save all cards of one call in one transaction. On success, it SHALL print one line with the number of added, updated and unchanged cards.
@@ -105,7 +104,7 @@ The key `s` SHALL switch the sort between `urgency` (high first, then the newest
 - **THEN** the list shows only `question` cards and the filter bar marks "Question"
 
 ### Requirement: Act on a card
-A card SHALL become `read` when the user moves the selection to it or presses `enter`, `c` or `o` on it. The key `c` SHALL copy the suggested reply to the clipboard (`pbcopy` on macOS, OSC 52 on other systems). The key `o` SHALL open the URL of the first reference message that still exists, and only when the URL starts with `http://` or `https://`. The system SHALL NOT open a URL from the card text. The key `d` SHALL set the state `done` and remove the card from the list. The key `u` SHALL set the state `new`.
+A card SHALL become `read` when the user moves the selection to it or presses `enter`, `c`, `o` or `r` on it. The key `c` SHALL copy the suggested reply to the clipboard (`pbcopy` on macOS, OSC 52 on other systems). The key `o` SHALL open the URL of the first reference message that still exists, and only when the URL starts with `http://` or `https://`. The system SHALL NOT open a URL from the card text. The key `r` SHALL open the reply form of the `reply-send` capability. The key `d` SHALL set the state `done` and remove the card from the list. The key `u` SHALL set the state `new`.
 
 #### Scenario: Copy and open
 - **WHEN** the user selects an action card that refers to message 812 and presses `c` and then `o`
@@ -118,4 +117,8 @@ A card SHALL become `read` when the user moves the selection to it or presses `e
 #### Scenario: Done
 - **WHEN** the user presses `d` on a card
 - **THEN** the card leaves the list, and `i2a card list --json` does not contain it
+
+#### Scenario: Reply key
+- **WHEN** the user presses `r` on a `new` card that refers to message 812
+- **THEN** the card is `read` and the reply form shows the target message 812
 

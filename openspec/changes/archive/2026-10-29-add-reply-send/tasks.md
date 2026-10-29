@@ -45,4 +45,4 @@
 - [x] 6.4 e2e S28: a lost answer on the first try through a local proxy, then a retry after 35 s; one post in Mattermost
 - [x] 6.5 Local e2e S29 (`I2A_E2E_ORCA=1`): a real agent with a primer that allows `i2a reply` thanks a sender; the post and the `replies` row exist
 - [x] 6.6 Update `test/e2e/SCENARIOS.md`, `README.md` (send replies, the read-only sentence, `i2a reply`, how to allow the agent) and `CLAUDE.md` (data flow and the Mattermost send facts)
-- [ ] 6.7 Run `task test`, `task lint`, the e2e lint, `task e2e`, `I2A_E2E_ORCA=1 task e2e` and `task leakcheck`
+- [x] 6.7 Run `task test`, `task lint`, the e2e lint, `task e2e`, `I2A_E2E_ORCA=1 task e2e` and `task leakcheck`
