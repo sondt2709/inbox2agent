@@ -366,3 +366,103 @@ func TestRoute(t *testing.T) {
 		}
 	}
 }
+
+// askFor renders an ask about one card for the profile of the setup.
+func askFor(t *testing.T, o *Orca) *render.Rendered {
+	t.Helper()
+	c := inbox.Card{ID: 4, Key: "mm:lena-pf-login", Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh, Title: "Lena"}
+	a, err := render.Ask(o.p, "20260102-030405-triage-ask7", render.AskInput{ID: 7, Card: c, Text: "Research more."}, "/usr/local/bin/i2a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+const cardHandle = "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578" // the handle in show_live.json
+
+func TestAskLiveCardTerminalGetsPromptOnly(t *testing.T) {
+	o, f, sess, _ := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	sess["triage"] = "term_profile"
+	a := askFor(t, o)
+	res, err := o.Ask(context.Background(), cardHandle, 2*time.Minute, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSent || res.Handle != cardHandle {
+		t.Errorf("result = %+v", res)
+	}
+	if show := f.called("terminal show")[0]; flag(show, "--terminal") != cardHandle {
+		t.Errorf("show args = %v", show)
+	}
+	if wait := f.called("terminal wait")[0]; flag(wait, "--terminal") != cardHandle || flag(wait, "--timeout-ms") != "120000" {
+		t.Errorf("wait args = %v", wait)
+	}
+	send := f.called("terminal send")[0]
+	if flag(send, "--terminal") != cardHandle || flag(send, "--text") != a.Prompt {
+		t.Errorf("send args = %v", send)
+	}
+}
+
+func TestAskBusyCardTerminalIsHeld(t *testing.T) {
+	o, f, _, _ := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_live.json"}, "terminal wait": {"wait_timeout.json"},
+	})
+	res, err := o.Ask(context.Background(), cardHandle, 2*time.Minute, askFor(t, o))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusHeld || res.Detail != "agent busy in "+cardHandle {
+		t.Errorf("result = %+v", res)
+	}
+	if len(f.called("terminal send")) != 0 {
+		t.Error("the ask was sent to a busy agent")
+	}
+}
+
+func TestAskClosedCardTerminalGoesToProfileSession(t *testing.T) {
+	o, f, sess, _ := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_closed.json", "show_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	sess["triage"] = "term_profile"
+	a := askFor(t, o)
+	res, err := o.Ask(context.Background(), "term_old", 2*time.Minute, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSent || res.Handle != "term_profile" {
+		t.Errorf("result = %+v", res)
+	}
+	if wait := f.called("terminal wait")[0]; flag(wait, "--terminal") != "term_profile" || flag(wait, "--timeout-ms") != "120000" {
+		t.Errorf("wait args = %v", wait)
+	}
+	if send := f.called("terminal send")[0]; flag(send, "--text") != a.Prompt {
+		t.Errorf("the profile session got the primer again: %v", send)
+	}
+	if o.IdleTimeout != 5*time.Second {
+		t.Errorf("idle timeout = %s after the ask, want 5s for the next batch", o.IdleTimeout)
+	}
+}
+
+func TestAskWithoutSessionStartsOneWithPrimer(t *testing.T) {
+	o, f, sess, _ := setup(t, config.SessionReuse, started(nil))
+	a := askFor(t, o)
+	res, err := o.Ask(context.Background(), "", 2*time.Minute, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSent || res.Handle != launchedHandle || sess["triage"] != launchedHandle {
+		t.Errorf("result = %+v, sessions = %v", res, sess)
+	}
+	prompt := flag(f.called("terminal send")[0], "--text")
+	if !strings.HasPrefix(prompt, strings.TrimSpace(a.Primer)) || !strings.HasSuffix(prompt, strings.TrimSpace(a.Prompt)) {
+		t.Errorf("prompt = %q", prompt)
+	}
+}
+
+func TestDryRunRefusesAsk(t *testing.T) {
+	if _, err := (DryRun{}).Ask(context.Background(), "", time.Minute, &render.Rendered{}); !errors.Is(err, ErrDryRunAsk) {
+		t.Errorf("err = %v", err)
+	}
+}

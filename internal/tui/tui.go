@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,9 @@ import (
 	"charm.land/huh/v2"
 	toml "github.com/pelletier/go-toml/v2"
 
+	"github.com/sondt2709/inbox2agent/internal/agent"
 	i2aapp "github.com/sondt2709/inbox2agent/internal/app"
+	"github.com/sondt2709/inbox2agent/internal/ask"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
@@ -44,6 +47,8 @@ type Store interface {
 	StartReply(ctx context.Context, r inbox.Reply) (int64, error)
 	FinishReply(ctx context.Context, id int64, state, externalID, url, errText string, now time.Time) error
 	SentReplies(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Reply, error)
+	ask.Store
+	Asks(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Ask, error)
 }
 
 // TabID names a tab that Run can open first.
@@ -72,6 +77,11 @@ type Deps struct {
 	Open func(url string) error  // opens a message link; the default runs open or xdg-open
 	// Replier builds the source that sends a reply; the default is source.BuildReplier.
 	Replier func(cfg *config.Config, sourceID string) (source.Replier, error)
+	// AskDriver builds the driver that sends an ask; the default is agent.New.
+	AskDriver func(p config.Profile, s agent.Sessions) (agent.Driver, error)
+	// CardCommand is the command of the card section in the primer of a new
+	// session; the default is this executable, with I2A_HOME when it is set.
+	CardCommand string
 
 	ServiceStatus    func() (service.State, error)
 	InstallService   func() (string, error) // installs or restarts the LaunchAgent; returns its path
@@ -102,6 +112,16 @@ func newUI(d Deps) *ui {
 		d.Replier = func(cfg *config.Config, sourceID string) (source.Replier, error) {
 			return source.BuildReplier(cfg, sourceID, sec, nil)
 		}
+	}
+	if d.AskDriver == nil {
+		d.AskDriver = agent.New
+	}
+	if d.CardCommand == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			exe = "i2a"
+		}
+		d.CardCommand = render.CardCommand(exe, os.Getenv("I2A_HOME"))
 	}
 	return &ui{d: d, cfg: clone(d.Config), theme: huh.ThemeFunc(huh.ThemeCharm)}
 }

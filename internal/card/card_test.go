@@ -165,3 +165,23 @@ func TestPlanCutsLongText(t *testing.T) {
 		t.Errorf("text has %d characters, want 200 and the ellipsis", n)
 	}
 }
+
+func TestHandle(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+		warn     bool
+	}{
+		{"", "", false},
+		{"term_b9f22da8-13d6-49bc-a1ab-53eba56c9578", "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578", false},
+		{"term_", "", true},
+		{"term_a b", "", true},
+		{"term_a\n", "", true},
+		{"pane:1", "", true},
+		{"term_" + strings.Repeat("a", 65), "", true},
+	} {
+		got, w := Handle(tc.in)
+		if got != tc.want || (w != "") != tc.warn {
+			t.Errorf("Handle(%q) = %q, %q; want %q, warning %v", tc.in, got, w, tc.want, tc.warn)
+		}
+	}
+}

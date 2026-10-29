@@ -45,6 +45,19 @@ func (fakeStore) FinishReply(context.Context, int64, string, string, string, str
 func (fakeStore) SentReplies(context.Context, []int64) (map[int64][]inbox.Reply, error) {
 	return nil, nil
 }
+func (fakeStore) Session(context.Context, string) (string, string, error) { return "", "", nil }
+func (fakeStore) SetSession(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (fakeStore) DeleteSession(context.Context, string) error { return nil }
+func (fakeStore) Card(context.Context, int64, string) (inbox.Card, error) {
+	return inbox.Card{}, store.ErrNoCard
+}
+func (fakeStore) StartAsk(context.Context, inbox.Ask) (int64, error) { return 0, nil }
+func (fakeStore) FinishAsk(context.Context, int64, string, string, string, time.Time) error {
+	return nil
+}
+func (fakeStore) Asks(context.Context, []int64) (map[int64][]inbox.Ask, error) { return nil, nil }
 
 // newTestModel returns a dashboard of 120 × 40 with one source and its data loaded.
 func newTestModel(t *testing.T) *model {

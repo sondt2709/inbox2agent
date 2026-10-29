@@ -174,3 +174,48 @@ func TestCardAddUpdateByKeyAndNotifyOff(t *testing.T) {
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func writeFile(path, text string) error { return os.WriteFile(path, []byte(text), 0o600) }
+
+func TestCardAddRecordsTerminal(t *testing.T) {
+	cardEnv(t)
+	cardOf := func(key string) inbox.Card {
+		t.Helper()
+		paths, _ := app.ResolvePaths()
+		st, err := store.Open(paths.DBFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		c, err := st.Card(context.Background(), 0, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	t.Setenv("ORCA_TERMINAL_HANDLE", "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578")
+	if r := i2a(t, `{"category":"info","title":"a","key":"k1"}`, "card", "add"); r.err != nil || r.errOut != "" {
+		t.Fatalf("card add: %v %q", r.err, r.errOut)
+	}
+	if c := cardOf("k1"); c.Handle != "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578" {
+		t.Errorf("handle = %q", c.Handle)
+	}
+
+	t.Setenv("ORCA_TERMINAL_HANDLE", "term_x; rm -rf /")
+	r := i2a(t, `{"category":"info","title":"b","key":"k2"}`, "card", "add")
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if !strings.Contains(r.errOut, "warning: ORCA_TERMINAL_HANDLE is not a terminal handle") {
+		t.Errorf("stderr = %q", r.errOut)
+	}
+	if c := cardOf("k2"); c.Handle != "" {
+		t.Errorf("handle = %q, want none", c.Handle)
+	}
+
+	t.Setenv("ORCA_TERMINAL_HANDLE", "")
+	if r := i2a(t, `{"category":"info","title":"c","key":"k3"}`, "card", "add"); r.err != nil || r.errOut != "" {
+		t.Fatalf("card add without Orca: %v %q", r.err, r.errOut)
+	}
+	if c := cardOf("k3"); c.Handle != "" {
+		t.Errorf("handle = %q, want none", c.Handle)
+	}
+}

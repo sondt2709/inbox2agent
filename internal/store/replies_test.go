@@ -104,8 +104,8 @@ func TestMigrateV3WritesBackupAndKeepsData(t *testing.T) {
 	}
 	defer s.Close()
 	ctx := context.Background()
-	if v, _ := s.Version(ctx); v != 4 {
-		t.Errorf("version = %d, want 4", v)
+	if v, _ := s.Version(ctx); v != SchemaVersion {
+		t.Errorf("version = %d, want %d", v, SchemaVersion)
 	}
 	if counts, _ := s.Counts(ctx); counts[inbox.StateSent] != 120 {
 		t.Errorf("counts = %v, want 120 sent", counts)

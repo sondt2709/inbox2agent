@@ -53,6 +53,7 @@ type Card struct {
 	Reply     string
 	Refs      []int64
 	State     string
+	Handle    string // the Orca terminal of the agent that wrote the card; "" when not known
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

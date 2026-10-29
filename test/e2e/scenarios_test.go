@@ -71,6 +71,8 @@ func newPerson(t *testing.T, id string) *person {
 	home := t.TempDir()
 	return &person{t: t, id: id, home: home, env: map[string]string{
 		"I2A_HOME": home, "I2A_SECRET_BACKEND": "file", "I2A_NOTIFY": "off", "TERM": "xterm-256color", "PATH": os.Getenv("PATH"),
+		// The tests can run in an Orca terminal. A card of a scenario must not record that terminal.
+		"ORCA_TERMINAL_HANDLE": "",
 	}}
 }
 

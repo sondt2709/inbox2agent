@@ -108,12 +108,22 @@ func NewNonce() string {
 // Block returns the fenced data block. Each line between the fences is one
 // JSON object, so each line starts with "{" and a message cannot close the fence.
 func Block(items []Item, nonce string) string {
+	lines := make([]any, len(items))
+	for i, it := range items {
+		lines[i] = it
+	}
+	return block(lines, nonce)
+}
+
+// block writes each value as one JSON line inside a fence. Each value must
+// encode as a JSON object, so each data line starts with "{".
+func block(lines []any, nonce string) string {
 	var b bytes.Buffer
 	b.WriteString("```" + FencePrefix + nonce + "\n")
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
-	for _, it := range items {
-		_ = enc.Encode(it) // Encode writes one line and a newline; Item always encodes
+	for _, v := range lines {
+		_ = enc.Encode(v) // Encode writes one line and a newline; the values always encode
 	}
 	b.WriteString("```")
 	return b.String()

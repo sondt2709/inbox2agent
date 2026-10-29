@@ -99,6 +99,8 @@ type model struct {
 	feedAll    bool                    // show the done cards too
 	replies    map[int64][]inbox.Reply // the sent replies of the cards, by card ID
 	replyCard  int64                   // the card of the open reply form; 0 when no reply form is open
+	asks       map[int64][]inbox.Ask   // the asks of the cards, by card ID
+	askCard    int64                   // the card of the open ask form; 0 when no ask form is open
 
 	// form is the form of the detail panel; formFor names what it edits.
 	form    *form
@@ -235,7 +237,10 @@ func (m *model) formTarget() (string, func() *form) {
 		if c, ok := m.selectedCard(); ok && c.ID == m.replyCard {
 			return fmt.Sprintf("reply:%d", c.ID), func() *form { return m.replyForm(c) }
 		}
-		m.replyCard = 0 // the selection moved away from the card of the reply
+		if c, ok := m.selectedCard(); ok && c.ID == m.askCard {
+			return fmt.Sprintf("ask:%d", c.ID), func() *form { return m.askForm(c) }
+		}
+		m.replyCard, m.askCard = 0, 0 // the selection moved away from the card of the form
 	}
 	return "", nil
 }
@@ -323,10 +328,16 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			m.cancelReply()
 			return nil
 		}
+		if m.askCard != 0 {
+			m.cancelAsk()
+			return nil
+		}
 		m.leaveForm()
 		return nil
 	case replyDoneMsg:
 		return m.replyDone(msg)
+	case askDoneMsg:
+		return m.askDone(msg)
 	}
 
 	if d := m.topDialog(); d != nil {
@@ -518,6 +529,7 @@ Quit        q or ctrl+c
 Refresh     ctrl+r
 
 Feed        r reply (ctrl+s sends, esc cancels) · c copy the reply
+            t ask the agent about the card (ctrl+s sends, esc cancels)
             o open the thread · d done · u unread
             s sort (urgency or newest) · f filter · a show done cards
 Sources     enter edit · D direct on/off · m mentions on/off · x remove
@@ -612,7 +624,7 @@ func (m *model) renderTabs() string {
 	}
 	left := b.String()
 	right := ""
-	if m.form != nil && m.form.dirty() && m.replyCard == 0 {
+	if m.form != nil && m.form.dirty() && m.replyCard == 0 && m.askCard == 0 {
 		right = dirtyStyle.Render("● unsaved changes") + faint.Render(" · ctrl+s save · esc discard ")
 	}
 	gap := max(1, m.w-lipgloss.Width(left)-lipgloss.Width(right))
@@ -635,7 +647,7 @@ func (m *model) renderFooter() string {
 			st = errStyle
 		}
 		left = st.Render(truncate(m.status, m.w-lipgloss.Width(right)-4))
-	case formActive && m.replyCard != 0:
+	case formActive && (m.replyCard != 0 || m.askCard != 0):
 		left = renderHints([]hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}})
 	case formActive:
 		left = renderHints([]hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}})

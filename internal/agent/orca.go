@@ -175,7 +175,7 @@ func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) 
 		if err != nil {
 			return Result{}, err
 		}
-		return Result{Status: StatusSent, Detail: "new session " + h + ", " + detail}, nil
+		return Result{Status: StatusSent, Detail: "new session " + h + ", " + detail, Handle: h}, nil
 	case config.SessionWorktree:
 		return o.worktree(ctx, b)
 	default:
@@ -308,22 +308,46 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		if err := o.sessions.SetSession(ctx, o.p.Name, h, b.PrimerHash, o.Now()); err != nil {
 			return Result{}, err
 		}
-		return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail}, nil
+		return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail, Handle: h}, nil
 	}
+	return o.sendIdle(ctx, handle, o.IdleTimeout, b.Prompt)
+}
 
-	err = o.call(ctx, nil, "terminal", "wait", "--terminal", handle, "--for", "tui-idle",
-		"--timeout-ms", fmt.Sprint(o.IdleTimeout.Milliseconds()))
+// sendIdle waits up to wait for the agent in a live terminal to be idle, then
+// sends the prompt. A busy agent gives held.
+func (o *Orca) sendIdle(ctx context.Context, handle string, wait time.Duration, prompt string) (Result, error) {
+	err := o.call(ctx, nil, "terminal", "wait", "--terminal", handle, "--for", "tui-idle",
+		"--timeout-ms", fmt.Sprint(wait.Milliseconds()))
 	if isCode(err, "timeout") {
 		return Result{Status: StatusHeld, Detail: "agent busy in " + handle}, nil
 	}
 	if err != nil {
 		return Result{}, err
 	}
-	detail, err := o.send(ctx, handle, b.Prompt)
+	detail, err := o.send(ctx, handle, prompt)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Status: StatusSent, Detail: "sent to " + handle + ", " + detail}, nil
+	return Result{Status: StatusSent, Detail: "sent to " + handle + ", " + detail, Handle: handle}, nil
+}
+
+// Ask sends an ask to the live terminal handle without the primer. When the
+// terminal does not run, the ask goes to the agent of the profile as a batch
+// does: the reuse session, or a new session or worktree with the primer.
+func (o *Orca) Ask(ctx context.Context, handle string, wait time.Duration, a *render.Rendered) (Result, error) {
+	if handle != "" {
+		ok, err := o.live(ctx, handle)
+		if err != nil {
+			return Result{}, err
+		}
+		if ok {
+			return o.sendIdle(ctx, handle, wait, a.Prompt)
+		}
+	}
+	saved := o.IdleTimeout
+	o.IdleTimeout = wait
+	defer func() { o.IdleTimeout = saved }()
+	return o.Deliver(ctx, a)
 }
 
 func (o *Orca) worktree(ctx context.Context, b *render.Rendered) (Result, error) {
@@ -347,7 +371,7 @@ func (o *Orca) worktree(ctx context.Context, b *render.Rendered) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Status: StatusSent, Detail: "worktree " + wr.Worktree.ID + " session " + h + ", " + detail}, nil
+	return Result{Status: StatusSent, Detail: "worktree " + wr.Worktree.ID + " session " + h + ", " + detail, Handle: h}, nil
 }
 
 // ResolveBin returns the absolute path of the orca executable, or an error

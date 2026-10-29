@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -28,6 +29,23 @@ const (
 	MaxBody       = 4000
 	MaxReply      = 2000
 )
+
+// HandleEnv names the variable in which Orca gives the agent terminal its handle.
+const HandleEnv = "ORCA_TERMINAL_HANDLE"
+
+var handleRe = regexp.MustCompile(`^term_[A-Za-z0-9-]{1,64}$`)
+
+// Handle returns the terminal handle in v, or "" and a warning when v is set
+// and is not a handle. An ask about the card goes back to this terminal.
+func Handle(v string) (string, string) {
+	switch {
+	case v == "":
+		return "", ""
+	case handleRe.MatchString(v):
+		return v, ""
+	}
+	return "", fmt.Sprintf("%s is not a terminal handle; the cards have no terminal", HandleEnv)
+}
 
 // Input is one card as the agent writes it.
 type Input struct {

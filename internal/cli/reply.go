@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -82,14 +83,7 @@ Example:
 
 			var c inbox.Card
 			if cardRef != "" {
-				id, _ := strconv.ParseInt(cardRef, 10, 64)
-				key := ""
-				if id == 0 {
-					key = cardRef
-				}
-				if c, err = st.Card(ctx, id, key); errors.Is(err, store.ErrNoCard) {
-					return fmt.Errorf("no card has the ID or key %q", cardRef)
-				} else if err != nil {
+				if c, err = cardByRef(ctx, st, cardRef); err != nil {
 					return err
 				}
 				if text == "" {
@@ -148,6 +142,20 @@ Example:
 	c.Flags().BoolVar(&thread, "thread", false, "reply in the thread of the message")
 	c.Flags().BoolVar(&channel, "channel", false, "post in the channel, not in a thread")
 	return c
+}
+
+// cardByRef returns the card with the ID or the key ref.
+func cardByRef(ctx context.Context, st *store.Store, ref string) (inbox.Card, error) {
+	id, _ := strconv.ParseInt(ref, 10, 64)
+	key := ""
+	if id == 0 {
+		key = ref
+	}
+	c, err := st.Card(ctx, id, key)
+	if errors.Is(err, store.ErrNoCard) {
+		return c, fmt.Errorf("no card has the ID or key %q", ref)
+	}
+	return c, err
 }
 
 // readStdin reads the text on stdin, or returns "" when stdin is a terminal.
