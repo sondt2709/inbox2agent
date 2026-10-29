@@ -1,4 +1,5 @@
-// Package mattermost collects new posts from a Mattermost server with read-only API calls.
+// Package mattermost collects new posts from a Mattermost server with read-only API calls,
+// and sends replies with POST /posts.
 package mattermost
 
 import (
@@ -31,6 +32,10 @@ func (e *APIError) Error() string {
 	}
 	return fmt.Sprintf("mattermost: HTTP %d", e.Status)
 }
+
+// Answered reports that the server answered the request. For a send, this
+// means that the server did not create a post.
+func (e *APIError) Answered() bool { return true }
 
 func (e *APIError) Unwrap() error {
 	if e.Status == http.StatusUnauthorized {
@@ -203,6 +208,31 @@ func (c *Client) PostsPage(ctx context.Context, channelID string, page, perPage 
 	q := url.Values{"page": {strconv.Itoa(page)}, "per_page": {strconv.Itoa(perPage)}}
 	err := c.do(ctx, http.MethodGet, "/channels/"+url.PathEscape(channelID)+"/posts?"+q.Encode(), nil, &pl)
 	return pl, err
+}
+
+// GetPost returns one post.
+func (c *Client) GetPost(ctx context.Context, id string) (Post, error) {
+	var p Post
+	err := c.do(ctx, http.MethodGet, "/posts/"+url.PathEscape(id), nil, &p)
+	return p, err
+}
+
+// NewPost is the body of a create request.
+type NewPost struct {
+	ChannelID     string `json:"channel_id"`
+	Message       string `json:"message"`
+	RootID        string `json:"root_id,omitempty"`
+	PendingPostID string `json:"pending_post_id,omitempty"`
+}
+
+// CreatePost creates a post as the user of the token. set_online=false keeps
+// the status of the user: i2a posts, not the person at the keyboard.
+// Mattermost marks the channel read for a top-level post of the user, and
+// keeps the read state for a reply in a thread; set_online does not change this.
+func (c *Client) CreatePost(ctx context.Context, p NewPost) (Post, error) {
+	var out Post
+	err := c.do(ctx, http.MethodPost, "/posts?set_online=false", p, &out)
+	return out, err
 }
 
 // UsersByIDs returns the users with these IDs.

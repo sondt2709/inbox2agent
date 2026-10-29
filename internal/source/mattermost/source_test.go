@@ -163,6 +163,9 @@ func TestCollectSelectedDirectAndMentions(t *testing.T) {
 		if msgs[5].ChannelKind != inbox.KindDirect || msgs[5].ChannelName != "@bob" {
 			t.Errorf("direct message = %+v", msgs[5])
 		}
+		if msgs[5].ThreadID != "" || msgs[6].ThreadID != msgs[5].ExternalID {
+			t.Errorf("thread IDs = %q and %q, want \"\" and the root %q", msgs[5].ThreadID, msgs[6].ThreadID, msgs[5].ExternalID)
+		}
 		if msgs[4].ChannelName != "other" || msgs[4].ChannelKind != inbox.KindChannel {
 			t.Errorf("mention message = %+v", msgs[4])
 		}

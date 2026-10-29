@@ -329,6 +329,7 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 				ChannelID:   ch.ID,
 				ChannelName: ch.label,
 				ChannelKind: ch.kind,
+				ThreadID:    p.RootID,
 				Author:      src.username(p.UserID),
 				Text:        p.Message,
 				URL:         strings.TrimRight(src.s.URL, "/") + "/" + team + "/pl/" + p.ID,

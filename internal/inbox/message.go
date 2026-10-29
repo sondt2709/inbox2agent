@@ -28,6 +28,7 @@ type Message struct {
 	ChannelID   string
 	ChannelName string
 	ChannelKind string
+	ThreadID    string // the external ID of the thread root; "" for a top-level message
 	Author      string
 	Text        string
 	URL         string

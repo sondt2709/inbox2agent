@@ -23,6 +23,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
+	"github.com/sondt2709/inbox2agent/internal/source"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
@@ -39,6 +40,10 @@ type Store interface {
 	Cards(ctx context.Context, all bool) ([]inbox.Card, error)
 	SetCardState(ctx context.Context, id int64, key, state string, now time.Time) error
 	MessagesByID(ctx context.Context, ids []int64) ([]inbox.Message, error)
+	FindReply(ctx context.Context, messageID int64, place, text string) (inbox.Reply, bool, error)
+	StartReply(ctx context.Context, r inbox.Reply) (int64, error)
+	FinishReply(ctx context.Context, id int64, state, externalID, url, errText string, now time.Time) error
+	SentReplies(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Reply, error)
 }
 
 // TabID names a tab that Run can open first.
@@ -65,6 +70,8 @@ type Deps struct {
 
 	Copy func(text string) error // copies a card reply; the default runs pbcopy
 	Open func(url string) error  // opens a message link; the default runs open or xdg-open
+	// Replier builds the source that sends a reply; the default is source.BuildReplier.
+	Replier func(cfg *config.Config, sourceID string) (source.Replier, error)
 
 	ServiceStatus    func() (service.State, error)
 	InstallService   func() (string, error) // installs or restarts the LaunchAgent; returns its path
@@ -89,6 +96,12 @@ func newUI(d Deps) *ui {
 	}
 	if d.Open == nil {
 		d.Open = openURL
+	}
+	if d.Replier == nil {
+		sec := d.Secrets
+		d.Replier = func(cfg *config.Config, sourceID string) (source.Replier, error) {
+			return source.BuildReplier(cfg, sourceID, sec, nil)
+		}
 	}
 	return &ui{d: d, cfg: clone(d.Config), theme: huh.ThemeFunc(huh.ThemeCharm)}
 }

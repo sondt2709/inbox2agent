@@ -1,4 +1,4 @@
-// Package store keeps messages, cursors, dispatches and sessions in SQLite.
+// Package store keeps messages, cursors, dispatches, sessions, cards and replies in SQLite.
 package store
 
 import (
@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS messages (
   channel_id    TEXT NOT NULL,
   channel_name  TEXT NOT NULL,
   channel_kind  TEXT NOT NULL,
+  thread_id     TEXT NOT NULL DEFAULT '',
   author        TEXT NOT NULL,
   text          TEXT NOT NULL,
   url           TEXT NOT NULL,
@@ -79,6 +80,25 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS cards_key ON cards(key) WHERE key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS cards_state ON cards(state, updated_at);
+CREATE TABLE IF NOT EXISTS replies (
+  id           INTEGER PRIMARY KEY,
+  message_id   INTEGER NOT NULL,
+  card_id      INTEGER,
+  source_id    TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  place        TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  by           TEXT NOT NULL,
+  state        TEXT NOT NULL,
+  pending_id   TEXT NOT NULL,
+  external_id  TEXT NOT NULL DEFAULT '',
+  url          TEXT NOT NULL DEFAULT '',
+  error        TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  sent_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS replies_card ON replies(card_id);
+CREATE INDEX IF NOT EXISTS replies_target ON replies(message_id, place);
 `
 
 // Dispatch statuses.
@@ -126,8 +146,9 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate() error {
-	// The sessions table of an earlier version has no primer_hash, and
-	// CREATE TABLE IF NOT EXISTS keeps it as it is. migrateV3 adds the column.
+	// The tables of an earlier version keep their columns, because CREATE
+	// TABLE IF NOT EXISTS does not change them. migrateV3 adds
+	// sessions.primer_hash and migrateV4 adds messages.thread_id.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -152,7 +173,12 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.migrateV3()
+	if v < 3 {
+		if err := s.migrateV3(); err != nil {
+			return err
+		}
+	}
+	return s.migrateV4()
 }
 
 // backup writes a consistent copy of the store to <file>.v<version>.bak
@@ -186,6 +212,29 @@ func (s *Store) migrateV3() error {
 		}
 	}
 	if _, err := tx.Exec(`UPDATE schema_version SET version = 3`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateV4 adds the thread ID of the messages. The replies table comes from
+// the schema, because it did not exist before.
+func (s *Store) migrateV4() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'thread_id'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := tx.Exec(`ALTER TABLE messages ADD COLUMN thread_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 4`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -244,8 +293,8 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	defer tx.Rollback() //nolint:errcheck // no effect after Commit
 
 	ins, err := tx.PrepareContext(ctx, `INSERT INTO messages
-	  (source_id, source_type, external_id, channel_id, channel_name, channel_kind, author, text, url, created_at, collected_at, state)
-	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+	  (source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, collected_at, state)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
 	  ON CONFLICT(source_id, external_id) DO NOTHING`)
 	if err != nil {
 		return 0, err
@@ -257,7 +306,7 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 			return 0, fmt.Errorf("message %s has source %q, want %q", m.ExternalID, m.SourceID, sourceID)
 		}
 		res, err := ins.ExecContext(ctx, m.SourceID, m.SourceType, m.ExternalID, m.ChannelID, m.ChannelName,
-			m.ChannelKind, m.Author, m.Text, m.URL, m.CreatedAt.UnixMilli(), now.UnixMilli())
+			m.ChannelKind, m.ThreadID, m.Author, m.Text, m.URL, m.CreatedAt.UnixMilli(), now.UnixMilli())
 		if err != nil {
 			return 0, fmt.Errorf("save message %s: %w", m.ExternalID, err)
 		}
@@ -274,7 +323,7 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	return added, tx.Commit()
 }
 
-const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, author, text, url, created_at, state`
+const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state`
 
 func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	defer rows.Close()
@@ -283,7 +332,7 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 		var m inbox.Message
 		var created int64
 		if err := rows.Scan(&m.ID, &m.SourceID, &m.SourceType, &m.ExternalID, &m.ChannelID, &m.ChannelName,
-			&m.ChannelKind, &m.Author, &m.Text, &m.URL, &created, &m.State); err != nil {
+			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = time.UnixMilli(created).UTC()
@@ -437,7 +486,7 @@ func (s *Store) DeleteSession(ctx context.Context, profile string) error {
 	return err
 }
 
-// Prune deletes sent and expired messages, finished dispatches and done cards older than the time.
+// Prune deletes sent and expired messages, finished dispatches, done cards and replies older than the time.
 // It returns the number of deleted messages and the digest paths of the deleted dispatches.
 func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -451,6 +500,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, e
 	}
 	n, _ := res.RowsAffected()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cards WHERE state = 'done' AND done_at < ?`, before.UnixMilli()); err != nil {
+		return 0, nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM replies WHERE created_at < ?`, before.UnixMilli()); err != nil {
 		return 0, nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT digest_path FROM dispatches WHERE created_at < ? AND status != 'pending'`, before.UnixMilli())

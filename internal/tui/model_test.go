@@ -35,6 +35,16 @@ func (fakeStore) SetCardState(context.Context, int64, string, string, time.Time)
 	return nil
 }
 func (fakeStore) MessagesByID(context.Context, []int64) ([]inbox.Message, error) { return nil, nil }
+func (fakeStore) FindReply(context.Context, int64, string, string) (inbox.Reply, bool, error) {
+	return inbox.Reply{}, false, nil
+}
+func (fakeStore) StartReply(context.Context, inbox.Reply) (int64, error) { return 0, nil }
+func (fakeStore) FinishReply(context.Context, int64, string, string, string, string, time.Time) error {
+	return nil
+}
+func (fakeStore) SentReplies(context.Context, []int64) (map[int64][]inbox.Reply, error) {
+	return nil, nil
+}
 
 // newTestModel returns a dashboard of 120 × 40 with one source and its data loaded.
 func newTestModel(t *testing.T) *model {
@@ -74,6 +84,8 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "ctrl+s":

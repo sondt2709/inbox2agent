@@ -27,7 +27,7 @@ Then run "i2a run --once" to test, and "i2a service install" to run in the backg
 			return runDashboard(cmd, tui.TabFeed)
 		},
 	}
-	root.AddCommand(newConfigCmd(), newRunCmd(), newDaemonCmd(), newStatusCmd(), newSourceCmd(), newServiceCmd(), newCardCmd())
+	root.AddCommand(newConfigCmd(), newRunCmd(), newDaemonCmd(), newStatusCmd(), newSourceCmd(), newServiceCmd(), newCardCmd(), newReplyCmd())
 	return root
 }
 
