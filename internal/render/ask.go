@@ -109,6 +109,8 @@ func askPrompt(in AskInput, key, data string, dropped int, cmd string) string {
 	if dropped > 0 {
 		fmt.Fprintf(&s, "%d messages of the card are not in the block, because the prompt is too large.\n", dropped)
 	}
+	// An answer in the terminal is lost: the user reads only the cards.
+	s.WriteString("I read your answer only in i2a, not in this terminal. Always answer in the card, also when you cannot do the task or need more information from me: then write in the card body what you need.\n")
 	if key != "" {
 		fmt.Fprintf(&s, "When you finish, report the result with %s card add and the key %s. i2a then updates card %d.", cmd, jsonString(key), in.Card.ID)
 	} else {

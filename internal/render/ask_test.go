@@ -33,6 +33,9 @@ func TestAskPrompt(t *testing.T) {
 	if !strings.HasPrefix(r.Prompt, want) {
 		t.Errorf("prompt starts with:\n%s\nwant:\n%s", r.Prompt[:min(len(r.Prompt), len(want))], want)
 	}
+	if !strings.Contains(r.Prompt, "\n\nI read your answer only in i2a, not in this terminal. Always answer in the card, also when you cannot do the task or need more information from me: then write in the card body what you need.\nWhen you finish, report the result") {
+		t.Errorf("the prompt does not tell the agent to always answer in the card:\n%s", r.Prompt)
+	}
 	if !strings.HasSuffix(r.Prompt, "When you finish, report the result with /usr/local/bin/i2a card add and the key \"mm:lena-pf-login\". i2a then updates card 4.") {
 		t.Errorf("prompt ends with:\n%s", r.Prompt[max(0, len(r.Prompt)-200):])
 	}
