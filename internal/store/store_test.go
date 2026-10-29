@@ -145,22 +145,22 @@ func TestExpireAndPrune(t *testing.T) {
 func TestSessions(t *testing.T) {
 	s, _ := open(t)
 	ctx := context.Background()
-	if h, _ := s.Session(ctx, "triage"); h != "" {
+	if h, _, _ := s.Session(ctx, "triage"); h != "" {
 		t.Fatalf("handle = %q, want empty", h)
 	}
-	if err := s.SetSession(ctx, "triage", "term_1", time.Now()); err != nil {
+	if err := s.SetSession(ctx, "triage", "term_1", "hash1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSession(ctx, "triage", "term_2", time.Now()); err != nil {
+	if err := s.SetSession(ctx, "triage", "term_2", "hash2", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if h, _ := s.Session(ctx, "triage"); h != "term_2" {
-		t.Fatalf("handle = %q, want term_2", h)
+	if h, ph, _ := s.Session(ctx, "triage"); h != "term_2" || ph != "hash2" {
+		t.Fatalf("session = %q %q, want term_2 hash2", h, ph)
 	}
 	if err := s.DeleteSession(ctx, "triage"); err != nil {
 		t.Fatal(err)
 	}
-	if h, _ := s.Session(ctx, "triage"); h != "" {
+	if h, _, _ := s.Session(ctx, "triage"); h != "" {
 		t.Fatalf("handle after delete = %q", h)
 	}
 }
@@ -193,8 +193,8 @@ func TestMigrateV1DryRunMessagesBecomePreviewed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	if v, _ := s2.Version(ctx); v != 2 {
-		t.Errorf("version = %d, want 2", v)
+	if v, _ := s2.Version(ctx); v != SchemaVersion {
+		t.Errorf("version = %d, want %d", v, SchemaVersion)
 	}
 	counts, _ := s2.Counts(ctx)
 	if counts[inbox.StatePreviewed] != 1 || counts[inbox.StateSent] != 1 || counts[inbox.StatePending] != 1 {

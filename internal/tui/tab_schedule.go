@@ -24,8 +24,10 @@ func (m *model) scheduleForm() *form {
 			func(s string) error { _, err := config.ParseActiveHours(s); return err }),
 		textField("retention", "Retention", t.Retention.String(), "7d",
 			"i2a deletes sent and expired messages and digest files after this time.", minDuration(time.Hour)),
-		switchField("notify", "Notifications", "A macOS notification after each batch that i2a sends to an agent, and after each failure.",
+		switchField("notify", "Notifications", "A macOS notification for new cards from the agent, and after each failed dispatch.",
 			m.u.cfg.Notify.Enabled),
+		choiceField("urgency", "Notify from", "The lowest card urgency that gives a notification. Cards with a lower urgency show only in the Feed.",
+			[]string{"high", "normal", "low"}, []string{"High", "Normal", "Low"}, m.u.cfg.Notify.MinUrgency),
 	}
 	fm.buttons = []button{
 		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveSchedule() }},
@@ -46,6 +48,7 @@ func (m *model) saveSchedule() tea.Cmd {
 	t.Retention, _ = config.ParseDuration(fm.field("retention").value())
 	t.ActiveHours = fm.field("hours").value()
 	next.Notify.Enabled = fm.field("notify").value() == "on"
+	next.Notify.MinUrgency = fm.field("urgency").value()
 	if err := m.u.commit(next, nil); err != nil {
 		fm.err = "Cannot save: " + err.Error()
 		return nil

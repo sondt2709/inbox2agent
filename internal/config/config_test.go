@@ -39,6 +39,11 @@ func TestParseAppliesDefaults(t *testing.T) {
 	if len(c.Profiles) != 1 || c.Profiles[0].Driver != DriverDryRun {
 		t.Errorf("default profiles = %+v", c.Profiles)
 	}
+	// A file from an earlier version has no min_urgency.
+	old, err := Parse([]byte("[notify]\nenabled = true\n"))
+	if err != nil || old.Notify.MinUrgency != "normal" {
+		t.Errorf("min_urgency of an earlier file = %q, %v, want normal", old.Notify.MinUrgency, err)
+	}
 }
 
 func TestValidationErrors(t *testing.T) {
@@ -54,6 +59,7 @@ func TestValidationErrors(t *testing.T) {
 		{"duplicate profile", "[[profiles]]\nname = \"a\"\n[[profiles]]\nname = \"a\"\n", "the name is used two times"},
 		{"orca needs workspace", "[[profiles]]\nname = \"a\"\ndriver = \"orca\"\n", "needs a workspace"},
 		{"unknown field", "[timing]\nintervall = \"5m\"\n", "intervall"},
+		{"bad min urgency", "[notify]\nmin_urgency = \"urgent\"\n", `notify.min_urgency: "urgent" is not high, normal or low`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

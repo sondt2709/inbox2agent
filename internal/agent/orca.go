@@ -275,9 +275,15 @@ func (o *Orca) live(ctx context.Context, handle string) (bool, error) {
 }
 
 func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
-	handle, err := o.sessions.Session(ctx, o.p.Name)
+	handle, hash, err := o.sessions.Session(ctx, o.p.Name)
 	if err != nil {
 		return Result{}, err
+	}
+	why := "started session "
+	if handle != "" && hash != b.PrimerHash {
+		// The session got another primer, for example before the card section
+		// existed. Start a new session; the old terminal stays open for the user.
+		handle, why = "", "primer changed, started session "
 	}
 	if handle != "" {
 		ok, err := o.live(ctx, handle)
@@ -299,10 +305,10 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		}
 		// Store the handle only after the primer arrived, so a later batch never
 		// goes to a session without the primer.
-		if err := o.sessions.SetSession(ctx, o.p.Name, h, o.Now()); err != nil {
+		if err := o.sessions.SetSession(ctx, o.p.Name, h, b.PrimerHash, o.Now()); err != nil {
 			return Result{}, err
 		}
-		return Result{Status: StatusSent, Detail: "started session " + h + " with the primer, " + detail}, nil
+		return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail}, nil
 	}
 
 	err = o.call(ctx, nil, "terminal", "wait", "--terminal", handle, "--for", "tui-idle",

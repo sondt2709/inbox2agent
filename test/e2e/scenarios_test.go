@@ -230,8 +230,8 @@ func TestS01FirstStart(t *testing.T) {
 // openAddSource opens the Sources tab, where the detail panel is the form of a
 // new source, and fills the form.
 func openAddSource(tm *harness.Term, url, token string) {
-	tm.WaitFor(`1 Overview`, 30*time.Second)
-	tm.Press("2", `Connect a Mattermost account`, 5*time.Second)
+	tm.WaitFor(`2 Overview`, 30*time.Second)
+	tm.Press("3", `Connect a Mattermost account`, 5*time.Second)
 	tm.Press("Enter", `▌ Source ID`, 5*time.Second)
 	tm.Replace("work")
 	tm.Press("Tab", `▌ Server URL`, 5*time.Second)
@@ -397,8 +397,8 @@ func TestS08InjectionStaysData(t *testing.T) {
 func TestS09TimingValidation(t *testing.T) {
 	p := newPerson(t, "S09")
 	tm := p.term("config")
-	tm.WaitFor(`1 Overview`, 30*time.Second)
-	tm.Press("4", `Interval\s+15m`, 5*time.Second)
+	tm.WaitFor(`2 Overview`, 30*time.Second)
+	tm.Press("5", `Interval\s+15m`, 5*time.Second)
 	tm.Press("Enter", `▌ Interval`, 5*time.Second)
 	tm.Replace("abc")
 	tm.Press("C-s", `is not a duration`, 5*time.Second)
@@ -417,8 +417,8 @@ func TestS10ExitWithoutSaving(t *testing.T) {
 	p.addSource(w)
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
-	tm.WaitFor(`1 Overview`, 30*time.Second)
-	tm.Press("4", `Interval\s+15m`, 5*time.Second)
+	tm.WaitFor(`2 Overview`, 30*time.Second)
+	tm.Press("5", `Interval\s+15m`, 5*time.Second)
 	tm.Press("Enter", `▌ Interval`, 5*time.Second)
 	tm.Replace("45m")
 	tm.Press("Escape", `\[d\] Discard`, 5*time.Second)
@@ -493,12 +493,12 @@ func TestS20FullScreenTUI(t *testing.T) {
 	p.addSource(w, w.Selected)
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
-	s := tm.WaitFor(`1 Overview`, 30*time.Second)
+	s := tm.WaitFor(`2 Overview`, 30*time.Second)
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	if !strings.Contains(lines[0], "i2a") || !strings.Contains(lines[0], "service") {
 		t.Errorf("the first line is not the header with the service state:\n%s", s)
 	}
-	for _, tab := range []string{"1 Overview", "2 Sources", "3 Profiles", "4 Schedule", "5 Activity"} {
+	for _, tab := range []string{"1 Feed", "2 Overview", "3 Sources", "4 Profiles", "5 Schedule", "6 Activity"} {
 		if !strings.Contains(lines[1], tab) {
 			t.Errorf("the tab bar does not show %q:\n%s", tab, lines[1])
 		}
@@ -511,7 +511,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 	if len(lines) < 38 {
 		t.Errorf("the TUI uses %d of 40 lines, want the full window", len(lines))
 	}
-	tm.Press("4", `Interval\s+15m`, 5*time.Second)
+	tm.Press("5", `Interval\s+15m`, 5*time.Second)
 	tm.Press("Enter", `▌ Interval`, 5*time.Second)
 	tm.Replace("45m")
 	s = tm.Press("Escape", `\[d\] Discard`, 5*time.Second)
@@ -523,7 +523,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 		t.Fatalf("discard kept the change of the interval:\n%s", s)
 	}
 	s = tm.Press("q", `did not change`, 5*time.Second)
-	if strings.Contains(s, "1 Overview") || strings.Contains(s, "Last dispatches") {
+	if strings.Contains(s, "2 Overview") || strings.Contains(s, "Last dispatches") {
 		t.Fatalf("the TUI is still on the screen after exit:\n%s", s)
 	}
 	after, _ := os.ReadFile(p.configFile())

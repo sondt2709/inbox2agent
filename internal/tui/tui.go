@@ -19,6 +19,7 @@ import (
 
 	i2aapp "github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
@@ -31,11 +32,23 @@ const OrcaWarning = "Orca can start agents with permission prompts off. " +
 	"i2a marks message text as untrusted data, but an agent can still obey it. " +
 	"Turn off permission bypass for this agent in Orca if you can."
 
-// Store is the part of the message store that the dashboard reads.
+// Store is the part of the message store that the dashboard reads and writes.
 type Store interface {
 	Counts(ctx context.Context) (map[string]int, error)
 	Dispatches(ctx context.Context, limit int) ([]store.Dispatch, error)
+	Cards(ctx context.Context, all bool) ([]inbox.Card, error)
+	SetCardState(ctx context.Context, id int64, key, state string, now time.Time) error
+	MessagesByID(ctx context.Context, ids []int64) ([]inbox.Message, error)
 }
+
+// TabID names a tab that Run can open first.
+type TabID = tabID
+
+// Tabs that Run can open first.
+const (
+	TabFeed     TabID = tabFeed
+	TabOverview TabID = tabOverview
+)
 
 // Deps are the inputs of the TUI. Nil functions get the default values.
 type Deps struct {
@@ -43,8 +56,15 @@ type Deps struct {
 	Config  *config.Config
 	Secrets secrets.Store
 	Store   Store // nil when the store does not exist yet
-	Check   func(ctx context.Context, sc config.Source, token string) (string, error)
-	Out     io.Writer
+	// OpenStore opens the store when Store is nil and the store file exists
+	// now. It returns nil and no error when the file does not exist.
+	OpenStore func() (Store, error)
+	Tab       tabID // the first tab: TabFeed or TabOverview
+	Check     func(ctx context.Context, sc config.Source, token string) (string, error)
+	Out       io.Writer
+
+	Copy func(text string) error // copies a card reply; the default runs pbcopy
+	Open func(url string) error  // opens a message link; the default runs open or xdg-open
 
 	ServiceStatus    func() (service.State, error)
 	InstallService   func() (string, error) // installs or restarts the LaunchAgent; returns its path
@@ -63,6 +83,12 @@ func newUI(d Deps) *ui {
 	}
 	if d.UninstallService == nil {
 		d.UninstallService = service.Uninstall
+	}
+	if d.Copy == nil {
+		d.Copy = copyText
+	}
+	if d.Open == nil {
+		d.Open = openURL
 	}
 	return &ui{d: d, cfg: clone(d.Config), theme: huh.ThemeFunc(huh.ThemeCharm)}
 }

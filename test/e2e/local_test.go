@@ -19,7 +19,7 @@ import (
 )
 
 // These scenarios need local apps. They run only when asked:
-//   I2A_E2E_ORCA=1     S14-S18, with the Orca app running and the claude agent installed
+//   I2A_E2E_ORCA=1     S14-S18, S21 and S25, with the Orca app running and the claude agent installed
 //   I2A_E2E_SERVICE=1  S19, on macOS
 
 func needOrca(t *testing.T) string {
@@ -323,5 +323,61 @@ func TestS21DryRunThenOrcaLongPrimer(t *testing.T) {
 	text := readAgent(t, bin, h, "S21: second message", "S21/orca-terminal.txt")
 	if !strings.Contains(text, "S21: first message") {
 		t.Fatalf("the agent did not get the previewed message:\n%s", text)
+	}
+}
+
+// allowCardCommand lets Claude Code in the workspace run "i2a card" without a
+// permission prompt, as the README tells a user to do.
+func allowCardCommand(t *testing.T, ws, home string) {
+	t.Helper()
+	settings := map[string]any{"permissions": map[string]any{"allow": []string{
+		"Bash(I2A_HOME=" + home + " " + bin + " card:*)",
+		"Bash(" + bin + " card:*)",
+	}}}
+	b, _ := json.MarshalIndent(settings, "", "  ")
+	if err := os.MkdirAll(filepath.Join(ws, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".claude", "settings.local.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// S25: the full return path. bob posts; i2a sends the batch to a real Claude
+// session in Orca; the agent follows the card section of the primer and runs
+// "i2a card add"; the card refers to the message.
+func TestS25AgentAddsCard(t *testing.T) {
+	orcaBin := needOrca(t)
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S25")
+	p.addSource(w, w.Selected)
+	ws := orcaWorkspace(t)
+	allowCardCommand(t, ws, p.home)
+	p.editConfig(orcaProfile(orcaBin, ws, config.SessionReuse, config.PayloadInline))
+
+	w.Post(t, w.Bob, w.Selected, "S25: please send the release notes to the client before 17:00 today. I wait for your answer.")
+	s, code := p.run("run --once")
+	if code != 0 || !strings.Contains(s, "started session term_") {
+		t.Fatalf("batch: exit %d, screen:\n%s", code, s)
+	}
+	h := handleRe.FindString(s)
+	t.Cleanup(func() { closeTerminal(orcaBin, h) })
+
+	deadline := time.Now().Add(4 * time.Minute)
+	for {
+		cs := p.cards()
+		if len(cs) > 0 && len(cs[0].Refs) > 0 {
+			t.Logf("S25 cards: %+v", cs)
+			readAgent(t, orcaBin, h, "S25", "S25/orca-terminal.txt")
+			if cs[0].Refs[0] != 1 {
+				t.Errorf("card refs = %v, want the message 1", cs[0].Refs)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			readAgent(t, orcaBin, h, "S25", "S25/orca-terminal.txt")
+			t.Fatalf("no card with a message reference after 4m: %+v", cs)
+		}
+		time.Sleep(5 * time.Second)
 	}
 }

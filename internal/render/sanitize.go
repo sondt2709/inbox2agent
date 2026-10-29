@@ -64,6 +64,7 @@ func Sanitize(s string, maxChars int) (string, bool) {
 
 // Item is one message in a data block. Each item is one JSON line.
 type Item struct {
+	ID        int64  `json:"id"` // the row ID of the message in the store; cards refer to it
 	N         int    `json:"n"`
 	Source    string `json:"source"`
 	SourceID  string `json:"source_id"`
@@ -87,7 +88,7 @@ func Items(msgs []inbox.Message, maxChars int) []Item {
 	for i, m := range msgs {
 		text, cut := Sanitize(m.Text, maxChars)
 		out = append(out, Item{
-			N: i + 1, Source: field(m.SourceType), SourceID: field(m.SourceID), Channel: field(m.ChannelName),
+			ID: m.ID, N: i + 1, Source: field(m.SourceType), SourceID: field(m.SourceID), Channel: field(m.ChannelName),
 			Kind: field(m.ChannelKind), Author: field(m.Author), Time: m.CreatedAt.UTC().Format(time.RFC3339),
 			URL: field(m.URL), Text: text, Truncated: cut,
 		})

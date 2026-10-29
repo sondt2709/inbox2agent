@@ -121,7 +121,7 @@ func TestShortFieldsAreSanitized(t *testing.T) {
 func TestRenderPointerWritesDigest(t *testing.T) {
 	dir := t.TempDir()
 	p := config.NewProfile("triage")
-	r, err := Render(p, "20260102-030405-triage-1", []inbox.Message{m("one"), m("two"), m("three")}, dir)
+	r, err := Render(p, "20260102-030405-triage-1", []inbox.Message{m("one"), m("two"), m("three")}, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestRenderPointerWritesDigest(t *testing.T) {
 func TestRenderInlineAndFallback(t *testing.T) {
 	p := config.NewProfile("triage")
 	p.Payload = config.PayloadInline
-	r, err := Render(p, "b1", []inbox.Message{m("short message")}, t.TempDir())
+	r, err := Render(p, "b1", []inbox.Message{m("short message")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestRenderInlineAndFallback(t *testing.T) {
 	big := []inbox.Message{m(strings.Repeat("x", 1900)), m(strings.Repeat("y", 1900)), m(strings.Repeat("z", 1900)),
 		m(strings.Repeat("w", 1900)), m(strings.Repeat("v", 1900))}
 	p.InlineMaxBytes = 8000
-	r, err = Render(p, "b2", big, t.TempDir())
+	r, err = Render(p, "b2", big, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestRenderInlineAndFallback(t *testing.T) {
 func TestCustomTemplate(t *testing.T) {
 	p := config.NewProfile("triage")
 	p.Batch = "Process {{.Count}} items in {{.DigestPath}}"
-	r, err := Render(p, "b3", []inbox.Message{m("a"), m("b")}, t.TempDir())
+	r, err := Render(p, "b3", []inbox.Message{m("a"), m("b")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

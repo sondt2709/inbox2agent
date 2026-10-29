@@ -13,6 +13,7 @@ import (
 
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/store"
@@ -28,6 +29,12 @@ func (fakeStore) Dispatches(context.Context, int) ([]store.Dispatch, error) {
 	return []store.Dispatch{{ID: 1, Profile: "triage", Driver: "orca", Status: store.DispatchSent, MessageCount: 3,
 		Detail: "new session term_1, turn started", CreatedAt: time.Now()}}, nil
 }
+
+func (fakeStore) Cards(context.Context, bool) ([]inbox.Card, error) { return nil, nil }
+func (fakeStore) SetCardState(context.Context, int64, string, string, time.Time) error {
+	return nil
+}
+func (fakeStore) MessagesByID(context.Context, []int64) ([]inbox.Message, error) { return nil, nil }
 
 // newTestModel returns a dashboard of 120 × 40 with one source and its data loaded.
 func newTestModel(t *testing.T) *model {
@@ -48,7 +55,7 @@ func newTestModel(t *testing.T) *model {
 	if err := config.Save(paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
-	u := newUI(Deps{Paths: paths, Config: cfg, Secrets: sec, Store: fakeStore{},
+	u := newUI(Deps{Paths: paths, Config: cfg, Secrets: sec, Store: fakeStore{}, Tab: TabOverview,
 		ServiceStatus: func() (service.State, error) { return service.State{Loaded: true, State: "running", PID: "42"}, nil }})
 	m := newModel(context.Background(), u)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -131,7 +138,7 @@ func runWithTimeout(cmd tea.Cmd) tea.Msg {
 func TestDashboardShowsTabsAndOverview(t *testing.T) {
 	m := newTestModel(t)
 	s := screen(m)
-	for _, want := range []string{"1 Overview", "2 Sources", "5 Activity", "service running · pid 42", "work", "triage",
+	for _, want := range []string{"1 Feed", "2 Overview", "3 Sources", "6 Activity", "service running · pid 42", "work", "triage",
 		"pending", "turn started"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the dashboard does not show %q", want)
@@ -144,25 +151,25 @@ func TestDashboardShowsTabsAndOverview(t *testing.T) {
 
 func TestTabKeys(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "4")
+	send(m, "5")
 	if m.tab != tabSchedule || !strings.Contains(screen(m), "Interval") {
-		t.Fatalf("key 4: tab %d", m.tab)
+		t.Fatalf("key 5: tab %d", m.tab)
 	}
 	send(m, "tab")
 	if m.tab != tabActivity {
 		t.Errorf("tab: tab %d, want Activity", m.tab)
 	}
 	send(m, "tab")
-	if m.tab != tabOverview {
-		t.Errorf("tab after the last tab: tab %d, want Overview", m.tab)
+	if m.tab != tabFeed {
+		t.Errorf("tab after the last tab: tab %d, want Feed", m.tab)
 	}
 }
 
 func TestMouseClickOnTab(t *testing.T) {
 	m := newTestModel(t)
-	// Click where a person sees the tab: the text "3 Profiles" on the tab bar (row 1).
+	// Click where a person sees the tab: the text "4 Profiles" on the tab bar (row 1).
 	tabBar := strings.Split(screen(m), "\n")[1]
-	x := len([]rune(tabBar[:strings.Index(tabBar, "3 Profiles")]))
+	x := len([]rune(tabBar[:strings.Index(tabBar, "4 Profiles")]))
 	m.Update(tea.MouseClickMsg{X: x + 2, Y: 1, Button: tea.MouseLeft})
 	if m.tab != tabProfiles {
 		t.Fatalf("click on the Profiles tab: tab %d", m.tab)
@@ -193,7 +200,7 @@ func fileText(t *testing.T, m *model) string {
 
 func TestEditInFormAndSave(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "4", "enter")
+	send(m, "5", "enter")
 	if m.form == nil || !m.form.active {
 		t.Fatal("enter on the Schedule tab did not give the keyboard to the form")
 	}
@@ -218,7 +225,7 @@ func TestEditInFormAndSave(t *testing.T) {
 func TestFieldErrorKeepsTheFile(t *testing.T) {
 	m := newTestModel(t)
 	before := fileText(t, m)
-	send(m, "4", "enter", "ctrl+u", "a", "b", "c", "ctrl+s")
+	send(m, "5", "enter", "ctrl+u", "a", "b", "c", "ctrl+s")
 	s := screen(m)
 	if !strings.Contains(s, "is not a duration") || !strings.Contains(s, "Correct the fields in red.") {
 		t.Fatalf("no error under the field:\n%s", s)
@@ -231,7 +238,7 @@ func TestFieldErrorKeepsTheFile(t *testing.T) {
 func TestEscWithChangesAsksToDiscard(t *testing.T) {
 	m := newTestModel(t)
 	before := fileText(t, m)
-	send(m, "4", "enter", "ctrl+u", "4", "5", "m", "esc")
+	send(m, "5", "enter", "ctrl+u", "4", "5", "m", "esc")
 	if d := m.topDialog(); d == nil || d.title() != "Unsaved changes" {
 		t.Fatalf("esc with changes: dialog %v, want Unsaved changes", d)
 	}
@@ -248,7 +255,7 @@ func TestEscWithChangesAsksToDiscard(t *testing.T) {
 
 func TestQuitWithUnsavedFormAsks(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "4", "enter", "ctrl+u", "9", "m")
+	send(m, "5", "enter", "ctrl+u", "9", "m")
 	if send(m, "ctrl+c") {
 		t.Fatal("ctrl+c quit with an unsaved form")
 	}
@@ -263,7 +270,7 @@ func TestQuitWithUnsavedFormAsks(t *testing.T) {
 func TestSourceFormSwitchAndQuickKeys(t *testing.T) {
 	m := newTestModel(t)
 	// The form: tab to "All direct", switch it with space, save.
-	send(m, "2", "enter", "tab", "tab", "tab", "space", "ctrl+s")
+	send(m, "3", "enter", "tab", "tab", "tab", "space", "ctrl+s")
 	if !strings.Contains(fileText(t, m), "all_direct = false") {
 		t.Fatalf("the switch in the form was not saved:\n%s", fileText(t, m))
 	}
@@ -280,7 +287,7 @@ func TestSourceFormSwitchAndQuickKeys(t *testing.T) {
 
 func TestClickFormField(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "4")
+	send(m, "5")
 	lines := strings.Split(screen(m), "\n")
 	row := -1
 	for i, l := range lines {
@@ -306,7 +313,7 @@ func TestDigestViewer(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.dispatches[0].DigestPath = path
-	send(m, "5", "enter")
+	send(m, "6", "enter")
 	if d := m.topDialog(); d == nil || !strings.Contains(screen(m), "line two") {
 		t.Fatalf("enter on a dispatch did not show the digest: %v", d)
 	}

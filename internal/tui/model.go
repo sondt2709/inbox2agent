@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
 	"github.com/sondt2709/inbox2agent/internal/store"
@@ -19,17 +20,18 @@ import (
 type tabID int
 
 const (
-	tabOverview tabID = iota
+	tabFeed tabID = iota
+	tabOverview
 	tabSources
 	tabProfiles
 	tabSchedule
 	tabActivity
 )
 
-var tabNames = []string{"Overview", "Sources", "Profiles", "Schedule", "Activity"}
+var tabNames = []string{"Feed", "Overview", "Sources", "Profiles", "Schedule", "Activity"}
 
 // refreshEvery is the time between two reads of the store and the service state.
-const refreshEvery = 3 * time.Second
+const refreshEvery = 2 * time.Second
 
 // Layout rows: the header bar is row 0, the tab bar is row 1, the content
 // starts at row 2, and the footer is the last row.
@@ -44,6 +46,8 @@ type (
 	dataMsg    struct {
 		counts     map[string]int
 		dispatches []store.Dispatch
+		feed       feedMsg
+		opened     Store // the store that load opened, or nil
 		svc        service.State
 		svcErr     error
 	}
@@ -85,6 +89,15 @@ type model struct {
 	src, prof, act             int // cursors of the lists
 	srcOff, profOff, actOffset int // first visible rows
 
+	cards      []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
+	refs       map[int64]inbox.Message // the source messages of the cards
+	feedSel    int                     // index in visibleCards
+	feedSelID  int64                   // the selected card, kept across reloads
+	feedOff    int
+	feedSort   string // sortUrgency or sortNewest
+	feedFilter int    // index in feedFilters
+	feedAll    bool   // show the done cards too
+
 	// form is the form of the detail panel; formFor names what it edits.
 	form    *form
 	formFor string
@@ -100,7 +113,7 @@ type model struct {
 
 func newModel(ctx context.Context, u *ui) *model {
 	return &model{
-		ctx: ctx, u: u, now: time.Now,
+		ctx: ctx, u: u, now: time.Now, tab: u.d.Tab, feedSort: sortUrgency, refs: map[int64]inbox.Message{},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		chs:  map[string][]mattermost.ChannelInfo{}, chsErr: map[string]string{}, chsBusy: map[string]bool{},
 	}
@@ -110,11 +123,19 @@ func (m *model) Init() tea.Cmd { return tea.Batch(m.load(), m.spin.Tick) }
 
 // load reads the store and the service state outside the UI loop.
 func (m *model) load() tea.Cmd {
+	all, st, open := m.feedAll, m.u.d.Store, m.u.d.OpenStore
 	return func() tea.Msg {
 		var d dataMsg
-		if m.u.d.Store != nil {
-			d.counts, _ = m.u.d.Store.Counts(m.ctx)
-			d.dispatches, _ = m.u.d.Store.Dispatches(m.ctx, 50)
+		if st == nil && open != nil {
+			// The dashboard does not create the store; it opens it when the daemon did.
+			if s, err := open(); err == nil && s != nil {
+				st, d.opened = s, s
+			}
+		}
+		if st != nil {
+			d.counts, _ = st.Counts(m.ctx)
+			d.dispatches, _ = st.Dispatches(m.ctx, 50)
+			d.feed = readFeed(m.ctx, st, all)
 		}
 		d.svc, d.svcErr = m.u.d.ServiceStatus()
 		return d
@@ -262,8 +283,18 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 	case refreshMsg:
 		return m.load()
 	case dataMsg:
+		if msg.opened != nil && m.u.d.Store == nil {
+			m.u.d.Store = msg.opened
+		}
 		m.counts, m.dispatches, m.svc, m.svcErr, m.loaded = msg.counts, msg.dispatches, msg.svc, msg.svcErr, true
+		m.setFeed(msg.feed)
 		return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} })
+	case feedMsg:
+		m.setFeed(msg)
+		return nil
+	case statusMsg:
+		m.setStatus(msg.text, msg.isErr)
+		return nil
 	case channelsMsg:
 		m.gotChannels(msg)
 		return nil
@@ -332,7 +363,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 // then the keys of the tab.
 func (m *model) key(k string) tea.Cmd {
 	switch k {
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6":
 		return m.setTab(tabID(k[0] - '1'))
 	case "tab", "]":
 		return m.setTab((m.tab + 1) % tabID(len(tabNames)))
@@ -356,6 +387,8 @@ func (m *model) key(k string) tea.Cmd {
 func (m *model) tabKey(k string) tea.Cmd {
 	var cmd tea.Cmd
 	switch m.tab {
+	case tabFeed:
+		cmd = m.keyFeed(k)
 	case tabOverview:
 		cmd = m.keyOverview(k)
 	case tabSources:
@@ -410,6 +443,8 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 		m.form.deactivate()
 	}
 	switch m.tab {
+	case tabFeed:
+		return m.clickFeed(x, y-1) // the filter bar is above the panels
 	case tabSources:
 		return m.clickList(y, &m.src, m.srcOff, len(m.u.cfg.Sources)+1)
 	case tabProfiles:
@@ -456,7 +491,7 @@ func (m *model) quit() tea.Cmd {
 	return nil
 }
 
-const helpText = `Tabs        1-5 or tab / shift+tab, or click a tab
+const helpText = `Tabs        1-6 or tab / shift+tab, or click a tab
 Move        ↑ ↓ or j k in a list, or the mouse wheel
 Edit        enter or → opens the form at the right; or click it
 Form        tab / shift+tab or ↑ ↓ move between the fields
@@ -466,6 +501,8 @@ Form        tab / shift+tab or ↑ ↓ move between the fields
 Quit        q or ctrl+c
 Refresh     ctrl+r
 
+Feed        c copy the reply · o open the thread · d done · u unread
+            s sort (urgency or newest) · f filter · a show done cards
 Sources     enter edit · D direct on/off · m mentions on/off · x remove
 Profiles    enter edit · x delete
 Overview    i install or restart the service · u uninstall it
@@ -595,6 +632,8 @@ func (m *model) renderFooter() string {
 
 func (m *model) renderTab(w, h int) string {
 	switch m.tab {
+	case tabFeed:
+		return m.viewFeed(w, h)
 	case tabSources:
 		return m.viewSources(w, h)
 	case tabProfiles:
@@ -609,6 +648,8 @@ func (m *model) renderTab(w, h int) string {
 
 func (m *model) tabHints() []hint {
 	switch m.tab {
+	case tabFeed:
+		return feedHints()
 	case tabSources:
 		return m.hintsSources()
 	case tabProfiles:
@@ -618,7 +659,7 @@ func (m *model) tabHints() []hint {
 	case tabActivity:
 		return []hint{{"↑↓", "move"}, {"enter", "show digest"}}
 	}
-	return []hint{{"i", "install service"}, {"u", "uninstall"}, {"2", "sources"}}
+	return []hint{{"i", "install service"}, {"u", "uninstall"}, {"3", "sources"}}
 }
 
 // listWidth is the width of the list panel at the left of a master-detail tab.
