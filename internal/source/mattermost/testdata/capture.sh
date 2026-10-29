@@ -9,7 +9,9 @@
 # The script makes users alice and bob, a team "fx", the channels "selected" and
 # "other", and a direct channel. Then bob writes the posts that the tests need.
 # It saves each response that the source reads, and manifest.json, which maps
-# each request to its file. Needs: curl, python3.
+# each request to its file. Then alice sends two replies, as i2a does, and the
+# script saves the responses of the send requests (reply_*.json, not in the
+# manifest). Needs: curl, python3.
 set -euo pipefail
 
 BASE="${MM_URL:-http://localhost:18065}/api/v4"
@@ -60,7 +62,7 @@ post "$B" "$OTH" "mail me at x@alice.example" "" >/dev/null
 post "$B" "$OTH" "@alicex is someone else" "" >/dev/null
 # direct: one post and one reply in its thread
 ROOT=$(post "$B" "$DM" "direct hi alice" "")
-post "$B" "$DM" "reply in thread" ",\"root_id\":\"$ROOT\"" >/dev/null
+RID=$(post "$B" "$DM" "reply in thread" ",\"root_id\":\"$ROOT\"")
 
 PAT=$(api "$A" POST "/users/$AID/tokens" '{"description":"capture"}' | json '["token"]')
 
@@ -82,7 +84,18 @@ for ch in $CHANNELS; do
   for p in 0 1 2 3; do save "posts_${name}_2_p$p" GET "/channels/$id/posts?page=$p&per_page=2"; done
 done
 save users_ids POST /users/ids "[\"$BID\",\"$AID\"]"
+save post_root GET "/posts/$ROOT"
+save post_reply GET "/posts/$RID"
 api "$PAT" GET /users/me/teams/unread | python3 -I -m json.tool > "$OUT/unread.json"
+# The send requests of i2a. They run after the saves above, so the post lists
+# above do not contain the replies.
+keep() { python3 -I -m json.tool > "$OUT/$1.json"; }
+curl -s "$BASE/posts/$DEL" -H "Authorization: Bearer $PAT" | keep reply_get_deleted
+api "$PAT" POST "/posts?set_online=false" \
+  "{\"channel_id\":\"$DM\",\"message\":\"Thanks Bob, noted.\",\"root_id\":\"$ROOT\",\"pending_post_id\":\"$AID:1700000000000\"}" | keep reply_create_thread
+api "$PAT" POST "/posts?set_online=false" \
+  "{\"channel_id\":\"$SEL\",\"message\":\"Noted, thanks.\",\"pending_post_id\":\"$AID:1700000000001\"}" | keep reply_create_channel
+api "$PAT" GET "/channels/$DM/posts?page=0&per_page=200" | keep reply_posts_direct_after
 manifest="${manifest%,}}"
 printf '%s\n' "$manifest" | python3 -I -m json.tool > "$OUT/manifest.json"
 echo "captured $(ls "$OUT"/*.json | wc -l | tr -d ' ') files in $OUT"

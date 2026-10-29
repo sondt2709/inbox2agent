@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a`. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
+`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a` and sends replies from there (`r`). The agent can send a reply with `i2a reply`. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
 
 ## Commands
 
@@ -30,9 +30,13 @@ Data flow: `source.Source.Collect` → `store.SavePoll` (messages and cursor in 
 
 Return path: the agent runs `i2a card add` (JSON on stdin) → `card.Parse` and `card.Prepare` (validate, sanitize, cut) → `store.SaveCards` (one transaction, upsert by key) → `card.Plan` → notifications. The Feed tab reads the cards every 2 seconds. `i2a card add` writes the store directly; it does not talk to the daemon.
 
+Reply path: the Feed form (`r`, `ctrl+s`) or `i2a reply` → `reply.Send` (text check, duplicate rule) → `store.StartReply` (`sending`) → `source.Replier` (`mattermost.Source.Reply`: `GET /posts/{id}`, then `POST /posts?set_online=false`) → `store.FinishReply` (`sent` or `failed`) → the card becomes `done`. The daemon is not in this path.
+
 - `internal/inbox`: shared types (`Message`, `Cursor`, `Card`, states). It prevents import cycles between the source, store, render and agent packages.
 - `internal/source`: the `Source` interface and `Build`. A source returns messages and the next cursor. It never writes to the store.
-- `internal/source/mattermost`: a small typed REST client, not the official module. Polling uses `GET /channels/{id}/posts?page&per_page` (newest first, stop at the cursor). Do not use `posts?since=`: it filters on `update_at` and has an unordered `LIMIT 1000`. Never call an endpoint that marks a channel as read.
+- `internal/source/mattermost`: a small typed REST client, not the official module. Polling uses `GET /channels/{id}/posts?page&per_page` (newest first, stop at the cursor). Do not use `posts?since=`: it filters on `update_at` and has an unordered `LIMIT 1000`. Never call an endpoint that marks a channel as read. Sending uses `POST /posts` only.
+- Mattermost facts that the send depends on (checked on the Docker server): `root_id` must be the thread root (a reply ID gives HTTP 400); a top-level post of the user marks the channel read and a thread reply does not, also with `set_online=false`; the same `pending_post_id` returns the first post for about 30 seconds only.
+- `internal/reply`: the one send flow of the Feed and `i2a reply`. An error with `Answered() == true` means that the platform created no post (`failed`). Any other error keeps the reply `sending`; the next send of the same message, place and text calls `Replier.Find` before it posts again.
 - `internal/render`: the prompt-injection boundary. Each message is one `json.Marshal` line inside a fence labelled `i2a-data-<nonce>`. Hidden characters are removed before encoding. Keep every data line starting with `{`.
 - `internal/card`: the input of `i2a card add` and the notification rule (`Plan`). Card text comes from an agent that read untrusted messages, so it gets the same sanitizing as message text.
 - `internal/agent`: the drivers. In `reuse` mode the store keeps the primer hash with the handle; a different hash starts a new session. Delivery is at least once: messages become `sent` only after the driver returns `sent`; `held` and errors keep them `pending`. A `dry-run` batch makes its messages `previewed`; a real driver still sends `previewed` messages.

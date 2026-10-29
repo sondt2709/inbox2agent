@@ -94,9 +94,11 @@ type model struct {
 	feedSel    int                     // index in visibleCards
 	feedSelID  int64                   // the selected card, kept across reloads
 	feedOff    int
-	feedSort   string // sortUrgency or sortNewest
-	feedFilter int    // index in feedFilters
-	feedAll    bool   // show the done cards too
+	feedSort   string                  // sortUrgency or sortNewest
+	feedFilter int                     // index in feedFilters
+	feedAll    bool                    // show the done cards too
+	replies    map[int64][]inbox.Reply // the sent replies of the cards, by card ID
+	replyCard  int64                   // the card of the open reply form; 0 when no reply form is open
 
 	// form is the form of the detail panel; formFor names what it edits.
 	form    *form
@@ -229,6 +231,11 @@ func (m *model) formTarget() (string, func() *form) {
 		return "prof:+", func() *form { return m.profileForm("") }
 	case tabSchedule:
 		return "sched", m.scheduleForm
+	case tabFeed:
+		if c, ok := m.selectedCard(); ok && c.ID == m.replyCard {
+			return fmt.Sprintf("reply:%d", c.ID), func() *form { return m.replyForm(c) }
+		}
+		m.replyCard = 0 // the selection moved away from the card of the reply
 	}
 	return "", nil
 }
@@ -312,8 +319,14 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.spin, cmd = m.spin.Update(msg)
 		return cmd
 	case formEsc:
+		if m.replyCard != 0 {
+			m.cancelReply()
+			return nil
+		}
 		m.leaveForm()
 		return nil
+	case replyDoneMsg:
+		return m.replyDone(msg)
 	}
 
 	if d := m.topDialog(); d != nil {
@@ -427,12 +440,15 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 	// A click in the detail panel goes to its form.
 	if m.form != nil {
 		ox := 2 // the panel border and the padding
-		if m.tab != tabSchedule {
-			ox += listWidth(m.w)
-		}
 		oy := 2 // the panel border and the panel title
-		if m.tab == tabSchedule {
+		switch m.tab {
+		case tabSchedule:
 			oy += 2 // the state line and an empty line
+		case tabFeed:
+			ox += feedListWidth(m.w)
+			oy++ // the filter bar
+		default:
+			ox += listWidth(m.w)
 		}
 		if x >= ox {
 			cmd := m.focusForm()
@@ -501,7 +517,8 @@ Form        tab / shift+tab or ↑ ↓ move between the fields
 Quit        q or ctrl+c
 Refresh     ctrl+r
 
-Feed        c copy the reply · o open the thread · d done · u unread
+Feed        r reply (ctrl+s sends, esc cancels) · c copy the reply
+            o open the thread · d done · u unread
             s sort (urgency or newest) · f filter · a show done cards
 Sources     enter edit · D direct on/off · m mentions on/off · x remove
 Profiles    enter edit · x delete
@@ -595,7 +612,7 @@ func (m *model) renderTabs() string {
 	}
 	left := b.String()
 	right := ""
-	if m.form != nil && m.form.dirty() {
+	if m.form != nil && m.form.dirty() && m.replyCard == 0 {
 		right = dirtyStyle.Render("● unsaved changes") + faint.Render(" · ctrl+s save · esc discard ")
 	}
 	gap := max(1, m.w-lipgloss.Width(left)-lipgloss.Width(right))
@@ -618,6 +635,8 @@ func (m *model) renderFooter() string {
 			st = errStyle
 		}
 		left = st.Render(truncate(m.status, m.w-lipgloss.Width(right)-4))
+	case formActive && m.replyCard != 0:
+		left = renderHints([]hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}})
 	case formActive:
 		left = renderHints([]hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}})
 	default:

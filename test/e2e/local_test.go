@@ -19,7 +19,7 @@ import (
 )
 
 // These scenarios need local apps. They run only when asked:
-//   I2A_E2E_ORCA=1     S14-S18, S21 and S25, with the Orca app running and the claude agent installed
+//   I2A_E2E_ORCA=1     S14-S18, S21, S25 and S29, with the Orca app running and the claude agent installed
 //   I2A_E2E_SERVICE=1  S19, on macOS
 
 func needOrca(t *testing.T) string {
@@ -335,10 +335,18 @@ func TestS21DryRunThenOrcaLongPrimer(t *testing.T) {
 // permission prompt, as the README tells a user to do.
 func allowCardCommand(t *testing.T, ws, home string) {
 	t.Helper()
-	settings := map[string]any{"permissions": map[string]any{"allow": []string{
-		"Bash(I2A_HOME=" + home + " " + bin + " card:*)",
-		"Bash(" + bin + " card:*)",
-	}}}
+	allowCommands(t, ws, home, "card")
+}
+
+// allowCommands lets Claude Code in the workspace run the i2a subcommands.
+func allowCommands(t *testing.T, ws, home string, subcommands ...string) {
+	t.Helper()
+	var allow []string
+	for _, c := range subcommands {
+		allow = append(allow, "Bash(I2A_HOME="+home+" "+bin+" "+c+":*)", "Bash("+bin+" "+c+":*)",
+			"Bash(I2A_HOME="+home+" I2A_SECRET_BACKEND=file "+bin+" "+c+":*)")
+	}
+	settings := map[string]any{"permissions": map[string]any{"allow": allow}}
 	b, _ := json.MarshalIndent(settings, "", "  ")
 	if err := os.MkdirAll(filepath.Join(ws, ".claude"), 0o755); err != nil {
 		t.Fatal(err)

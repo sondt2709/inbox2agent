@@ -199,3 +199,51 @@ func (w *World) UnreadOf(t *testing.T, u User) Unread {
 	}
 	return Unread{}
 }
+
+// PostReply writes a post in the thread of the root post and returns its ID.
+func (w *World) PostReply(t *testing.T, as User, channelID, rootID, text string) string {
+	t.Helper()
+	var p struct {
+		ID string `json:"id"`
+	}
+	w.MM.call(t, as.Session, "POST", "/posts", map[string]string{"channel_id": channelID, "message": text, "root_id": rootID}, &p)
+	time.Sleep(20 * time.Millisecond)
+	return p.ID
+}
+
+// Post is a post that a scenario reads from the server.
+type Post struct {
+	ID      string `json:"id"`
+	UserID  string `json:"user_id"`
+	RootID  string `json:"root_id"`
+	Message string `json:"message"`
+	Type    string `json:"type"` // "" for a post of a person; system posts have a type
+}
+
+// PostsBy returns the posts of the user in the channel, newest first, without system posts.
+func (w *World) PostsBy(t *testing.T, u User, channelID string) []Post {
+	t.Helper()
+	var pl struct {
+		Order []string        `json:"order"`
+		Posts map[string]Post `json:"posts"`
+	}
+	w.MM.call(t, w.Bob.Session, "GET", "/channels/"+channelID+"/posts?page=0&per_page=200", nil, &pl)
+	var out []Post
+	for _, id := range pl.Order {
+		if p := pl.Posts[id]; p.UserID == u.ID && p.Type == "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// LastViewedAt returns the time (ms) when the user last viewed the channel.
+// The read state of the user changes only when this value changes.
+func (w *World) LastViewedAt(t *testing.T, u User, channelID string) int64 {
+	t.Helper()
+	var m struct {
+		LastViewedAt int64 `json:"last_viewed_at"`
+	}
+	w.MM.call(t, u.Session, "GET", "/channels/"+channelID+"/members/"+u.ID, nil, &m)
+	return m.LastViewedAt
+}

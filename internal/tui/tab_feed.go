@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/reply"
+	"github.com/sondt2709/inbox2agent/internal/source"
 )
 
 // The Feed tab shows the cards of the agent: a list at the left and the
@@ -35,10 +38,19 @@ type statusMsg struct {
 	isErr bool
 }
 
-// feedMsg carries the cards and their source messages, read outside the UI loop.
+// feedMsg carries the cards, their source messages and their sent replies, read outside the UI loop.
 type feedMsg struct {
-	cards []inbox.Card
-	refs  map[int64]inbox.Message
+	cards   []inbox.Card
+	refs    map[int64]inbox.Message
+	replies map[int64][]inbox.Reply
+}
+
+// replyDoneMsg is the result of a send from the reply form.
+type replyDoneMsg struct {
+	cardID int64
+	reply  inbox.Reply
+	target inbox.Message
+	err    error
 }
 
 // errNoCopyCommand means that no clipboard command exists; the TUI uses OSC 52.
@@ -85,12 +97,17 @@ func readFeed(ctx context.Context, st Store, all bool) feedMsg {
 			f.refs[m.ID] = m
 		}
 	}
+	cardIDs := make([]int64, len(f.cards))
+	for i, c := range f.cards {
+		cardIDs[i] = c.ID
+	}
+	f.replies, _ = st.SentReplies(ctx, cardIDs)
 	return f
 }
 
 // setFeed takes new cards and keeps the selection on the same card.
 func (m *model) setFeed(f feedMsg) {
-	m.cards, m.refs = f.cards, f.refs
+	m.cards, m.refs, m.replies = f.cards, f.refs, f.replies
 	if m.refs == nil {
 		m.refs = map[int64]inbox.Message{}
 	}
@@ -247,6 +264,8 @@ func (m *model) keyFeed(k string) tea.Cmd {
 			}
 			return nil
 		})
+	case "r":
+		return m.openReply(c)
 	case "d":
 		m.setStatus("Done: "+truncate(c.Title, 60), false)
 		return m.setCardState(c, inbox.CardDone)
@@ -362,7 +381,11 @@ func (m *model) viewFeed(w, h int) string {
 		}
 		titleW := max(5, inner-2-12-7-2)
 		title := truncate(c.Title, titleW)
-		meta := truncate(strings.Join(nonEmpty(c.Group, when(c.UpdatedAt, m.now()), stateNote(c)), " · "), inner-2)
+		replied := ""
+		if len(m.replies[c.ID]) > 0 {
+			replied = "✓ replied"
+		}
+		meta := truncate(strings.Join(nonEmpty(c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied), " · "), inner-2)
 		if i == m.feedSel {
 			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %-6s ", strings.ToUpper(c.Category), c.Urgency)+title))
 			list = append(list, selectedRow.Width(inner).Render("▌     "+meta))
@@ -389,11 +412,15 @@ func (m *model) viewFeed(w, h int) string {
 	dw := w - lw
 	detail := ""
 	title := "Card"
-	if c, ok := m.selectedCard(); ok {
+	c, ok := m.selectedCard()
+	if ok {
 		title = "Card " + fmt.Sprint(c.ID)
 		detail = m.cardDetail(c, dw-4)
 	}
 	right2 := panel(title, detail, dw, h)
+	if ok && m.form != nil && m.replyCard == c.ID {
+		right2 = detailPanel(fmt.Sprintf("Reply · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active)
+	}
 	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, right2)
 }
 
@@ -429,7 +456,7 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 		b.WriteString(textStyle.Render(wrap.Render(c.Body)) + "\n\n")
 	}
 	if c.Reply != "" {
-		b.WriteString(panelTitle.Render("Suggested reply") + faint.Render("  c copies it") + "\n")
+		b.WriteString(panelTitle.Render("Suggested reply") + faint.Render("  c copies it · r replies") + "\n")
 		bar := lipgloss.NewStyle().Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(accent).PaddingLeft(1).Width(w)
 		b.WriteString(bar.Render(c.Reply) + "\n\n")
 	}
@@ -445,10 +472,171 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 			b.WriteString(faint.Render(truncate(line, w)) + "\n")
 		}
 	}
+	if rs := m.replies[c.ID]; len(rs) > 0 {
+		b.WriteString("\n")
+		for _, r := range rs {
+			by := "you"
+			if r.By == inbox.ByAgent {
+				by = "the agent"
+			}
+			line := fmt.Sprintf("✓ Replied %s by %s → %s (%s)", when(r.SentAt, m.now()), by, r.ChannelName, r.Place)
+			b.WriteString(okStyle.Render(truncate(line, w)) + "\n")
+		}
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// refMessages returns the source messages of the card that still exist.
+func (m *model) refMessages(c inbox.Card) []inbox.Message {
+	var out []inbox.Message
+	for _, id := range c.Refs {
+		if msg, ok := m.refs[id]; ok {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+// openReply opens the reply form of the card in the detail panel. The target
+// is always a stored message of the card, never a link from the card text.
+func (m *model) openReply(c inbox.Card) tea.Cmd {
+	target, ok := reply.DefaultTarget(m.refMessages(c))
+	if !ok {
+		m.setStatus("The card has no message to reply to.", true)
+		return nil
+	}
+	if err := source.CanReply(m.u.cfg, target.SourceID); err != nil {
+		m.setStatus("Cannot reply: "+err.Error()+". c copies the reply.", true)
+		return nil
+	}
+	read := m.markRead()
+	m.replyCard = c.ID
+	m.buildForm(true)
+	for i, it := range m.form.items() {
+		if it.field != nil && it.field.key == "text" {
+			m.form.setFocus(i)
+		}
+	}
+	return tea.Batch(read, m.focusForm())
+}
+
+// placeName names the place of a reply as the form shows it.
+func placeName(place, kind string) string {
+	if place == inbox.PlaceChannel && kind != inbox.KindChannel {
+		return "chat"
+	}
+	return place
+}
+
+func (m *model) replyForm(c inbox.Card) *form {
+	msgs := m.refMessages(c)
+	target, _ := reply.DefaultTarget(msgs)
+	fields := []*formField{noteField(fmt.Sprintf("Send to    %s · %s · %s", target.ChannelName, target.SourceType, target.SourceID), textStyle)}
+	if len(msgs) > 1 {
+		var opts, labels []string
+		for _, msg := range msgs {
+			opts = append(opts, strconv.FormatInt(msg.ID, 10))
+			labels = append(labels, fmt.Sprintf("#%d %s %s", msg.ID, msg.Author, when(msg.CreatedAt, m.now())))
+		}
+		fields = append(fields, choiceField("to", "Reply to", "the message that the reply answers", opts, labels, strconv.FormatInt(target.ID, 10)))
+	} else {
+		fields = append(fields, noteField(truncate(fmt.Sprintf("Reply to   #%d %s %s  %s", target.ID, target.Author,
+			when(target.CreatedAt, m.now()), target.Text), 200), faint))
+	}
+	channel := "Channel"
+	if target.ChannelKind != inbox.KindChannel {
+		channel = "Chat"
+	}
+	text := areaField("text", "Text", c.Reply, fmt.Sprintf("%d characters at most", reply.MaxText), 6, func(s string) error {
+		_, err := reply.CheckText(s)
+		return err
+	})
+	text.area.CharLimit = reply.MaxText
+	fields = append(fields,
+		choiceField("where", "Where", "Thread: in the thread of the message", []string{inbox.PlaceThread, inbox.PlaceChannel},
+			[]string{"Thread", channel}, reply.DefaultPlace(target)),
+		noteField("A thread reply keeps the read state. A "+strings.ToLower(channel)+" post marks it read.", faint),
+		text)
+	fm := &form{fields: fields}
+	fm.buttons = []button{
+		{label: "Send", primary: true, run: func() tea.Cmd { return m.sendReply(c, target, fm) }},
+		{label: "Cancel", run: func() tea.Cmd { return func() tea.Msg { return formEsc{} } }},
+	}
+	return fm
+}
+
+// sendReply sends the reply of the form outside the UI loop.
+func (m *model) sendReply(c inbox.Card, target inbox.Message, fm *form) tea.Cmd {
+	if !fm.validate() {
+		return nil
+	}
+	to := target.ID
+	if f := fm.field("to"); f != nil {
+		to, _ = strconv.ParseInt(f.value(), 10, 64)
+	}
+	req := reply.Request{MessageID: to, CardID: c.ID, Text: fm.field("text").value(), Place: fm.field("where").value(),
+		By: inbox.ByUser}
+	st, cfg, build, ctx, now := m.u.d.Store, m.u.cfg, m.u.d.Replier, m.ctx, m.now
+	if st == nil {
+		return nil
+	}
+	fm.busy = "Sending…"
+	fm.err = ""
+	return func() tea.Msg {
+		r, t, err := reply.Send(ctx, st, func(id string) (source.Replier, error) { return build(cfg, id) }, req, now)
+		return replyDoneMsg{cardID: c.ID, reply: r, target: t, err: err}
+	}
+}
+
+func (m *model) closeReply() {
+	m.replyCard, m.form, m.formFor = 0, nil, ""
+}
+
+// cancelReply closes the reply form. When the user changed it, it asks first.
+func (m *model) cancelReply() {
+	if m.form == nil || !m.form.dirty() {
+		m.closeReply()
+		m.setStatus("Reply cancelled. Nothing is sent.", false)
+		return
+	}
+	m.openDialog(&confirmDialog{name: "Discard the reply", text: "Discard the changes to the reply? Nothing is sent.",
+		choices: []choice{{"d", "Discard", func() tea.Cmd {
+			m.closeReply()
+			m.setStatus("Reply cancelled. Nothing is sent.", false)
+			return nil
+		}}}})
+}
+
+// replyDone shows the result of a send. On an error, the form stays open with
+// the text and shows the error under the Text field.
+func (m *model) replyDone(msg replyDoneMsg) tea.Cmd {
+	open := m.form != nil && m.replyCard == msg.cardID
+	if open {
+		m.form.busy = ""
+	}
+	if msg.err != nil {
+		if open {
+			m.form.field("text").err = msg.err.Error()
+			m.form.err = "The reply is not sent."
+		}
+		m.setStatus("The reply is not sent: "+msg.err.Error(), true)
+		return nil
+	}
+	if open {
+		m.closeReply()
+	}
+	for i := range m.cards {
+		if m.cards[i].ID == msg.cardID {
+			m.cards[i].State = inbox.CardDone
+		}
+	}
+	m.setStatus(fmt.Sprintf("Sent to %s (%s). The card is done.", msg.target.ChannelName,
+		placeName(msg.reply.Place, msg.target.ChannelKind)), false)
+	st, all := m.u.d.Store, m.feedAll
+	return func() tea.Msg { return readFeed(m.ctx, st, all) }
+}
+
 func feedHints() []hint {
-	return []hint{{"↑↓", "move"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"}, {"u", "unread"},
+	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"}, {"u", "unread"},
 		{"s", "sort"}, {"f", "filter"}, {"a", "done cards"}}
 }
