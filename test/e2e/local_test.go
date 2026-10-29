@@ -118,6 +118,11 @@ func closeTerminal(bin, handle string) {
 
 var handleRe = regexp.MustCompile(`term_[0-9a-f-]{36}`)
 
+// primerLine matches lines that only the primer has: its first line, or
+// lines of the card section at its end. "orca terminal read" returns only the
+// last screen lines, so the start of a long primer can be above them.
+var primerLine = regexp.MustCompile(`You are my inbox assistant|card add <<'EOF'|Write one card for each topic|card done --key <key>`)
+
 func TestS14OrcaNewSessionPointer(t *testing.T) {
 	bin := needOrca(t)
 	w := mm.NewWorld(t)
@@ -137,7 +142,7 @@ func TestS14OrcaNewSessionPointer(t *testing.T) {
 	if !strings.Contains(strings.ReplaceAll(text, "\n", ""), filepath.Base(digest)) {
 		t.Fatalf("the agent terminal does not show the digest path %s:\n%s", digest, text)
 	}
-	if !strings.Contains(text, "You are my inbox assistant") {
+	if !primerLine.MatchString(text) {
 		t.Fatalf("the agent terminal does not show the primer:\n%s", text)
 	}
 	if !strings.Contains(text, "⏺") {
@@ -196,7 +201,7 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 		t.Fatalf("the new session has the old handle %s", h1)
 	}
 	text = readAgent(t, bin, h2, "S16: after", "S16/orca-terminal.txt")
-	if !strings.Contains(text, "You are my inbox assistant") || !strings.Contains(strings.ReplaceAll(text, "\n", " "), "S16: after") {
+	if !primerLine.MatchString(text) || !strings.Contains(strings.ReplaceAll(text, "\n", " "), "S16: after") {
 		t.Fatalf("the new session did not get the primer and the batch:\n%s", text)
 	}
 }
