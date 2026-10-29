@@ -63,7 +63,8 @@ type Timing struct {
 
 // Notify controls the desktop notifications.
 type Notify struct {
-	Enabled bool `toml:"enabled" comment:"Show a macOS notification after each dispatch to an agent."`
+	Enabled    bool   `toml:"enabled" comment:"Show macOS notifications for new cards and failed dispatches."`
+	MinUrgency string `toml:"min_urgency" comment:"The lowest card urgency that gives a notification: high, normal or low."`
 }
 
 // Source is one account on one service.
@@ -103,7 +104,7 @@ func Default() *Config {
 			Lookback:  Duration(24 * time.Hour),
 			Retention: Duration(7 * 24 * time.Hour),
 		},
-		Notify:   Notify{Enabled: true},
+		Notify:   Notify{Enabled: true, MinUrgency: "normal"},
 		Profiles: []Profile{NewProfile("triage")},
 	}
 	return c
@@ -283,6 +284,11 @@ func (c *Config) Validate() error {
 	}
 	if _, err := ParseActiveHours(c.Timing.ActiveHours); err != nil {
 		add("timing.active_hours: %v", err)
+	}
+	switch c.Notify.MinUrgency {
+	case "high", "normal", "low":
+	default:
+		add("notify.min_urgency: %q is not high, normal or low", c.Notify.MinUrgency)
 	}
 	if len(c.Profiles) == 0 {
 		add("profiles: at least one profile is necessary")

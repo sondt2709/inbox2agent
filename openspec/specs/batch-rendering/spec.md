@@ -2,14 +2,17 @@
 
 ## Purpose
 This capability makes the digest file and the prompts of a batch. It keeps message text as data: each message is one JSON line inside a fence with a random label, and hidden characters are removed.
-
 ## Requirements
 ### Requirement: One JSON object per message
-The system SHALL write each message in a batch as one JSON object on one line, with the fields `n`, `source`, `source_id`, `channel`, `kind`, `author`, `time`, `url`, `text` and `truncated`. Newlines and control characters in the text SHALL be escaped by the JSON encoder.
+The system SHALL write each message in a batch as one JSON object on one line, with the fields `id`, `n`, `source`, `source_id`, `channel`, `kind`, `author`, `time`, `url`, `text` and `truncated`. The field `id` SHALL be the row ID of the message in the store. Newlines and control characters in the text SHALL be escaped by the JSON encoder.
 
 #### Scenario: Multi-line message
 - **WHEN** a message text has three lines
 - **THEN** the batch contains that message on one line, with `\n` escapes in the `text` field
+
+#### Scenario: Message ID in the line
+- **WHEN** the message with the row ID 812 is in a batch
+- **THEN** its JSON line starts with `{"id":812,`
 
 ### Requirement: Remove hidden characters
 Before encoding, the system SHALL remove Unicode bidi controls (U+202A to U+202E, U+2066 to U+2069), zero-width characters (U+200B to U+200F, U+2060, U+FEFF) and C0 and C1 control characters except newline and tab.

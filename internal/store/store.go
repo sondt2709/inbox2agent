@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -57,10 +57,28 @@ CREATE TABLE IF NOT EXISTS dispatches (
   detail        TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
-  profile    TEXT PRIMARY KEY,
-  handle     TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  profile     TEXT PRIMARY KEY,
+  handle      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  primer_hash TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS cards (
+  id         INTEGER PRIMARY KEY,
+  key        TEXT,
+  category   TEXT NOT NULL,
+  urgency    TEXT NOT NULL,
+  grp        TEXT NOT NULL DEFAULT '',
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  reply      TEXT NOT NULL DEFAULT '',
+  refs       TEXT NOT NULL DEFAULT '[]',
+  state      TEXT NOT NULL DEFAULT 'new',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  done_at    INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cards_key ON cards(key) WHERE key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS cards_state ON cards(state, updated_at);
 `
 
 // Dispatch statuses.
@@ -73,7 +91,8 @@ const (
 
 // Store is the SQLite store.
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 // Open opens or creates the store file with mode 0600.
@@ -95,7 +114,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
@@ -107,6 +126,8 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate() error {
+	// The sessions table of an earlier version has no primer_hash, and
+	// CREATE TABLE IF NOT EXISTS keeps it as it is. migrateV3 adds the column.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -120,11 +141,54 @@ func (s *Store) migrate() error {
 		return err
 	case v > SchemaVersion:
 		return fmt.Errorf("the store has schema version %d; this i2a supports %d. Update i2a", v, SchemaVersion)
+	case v == SchemaVersion:
+		return nil
+	}
+	if err := s.backup(v); err != nil {
+		return err
 	}
 	if v < 2 {
-		return s.migrateV2()
+		if err := s.migrateV2(); err != nil {
+			return err
+		}
 	}
-	return nil
+	return s.migrateV3()
+}
+
+// backup writes a consistent copy of the store to <file>.v<version>.bak
+// before a migration changes it. VACUUM INTO also copies the WAL content.
+func (s *Store) backup(version int) error {
+	dst := fmt.Sprintf("%s.v%d.bak", s.path, version)
+	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if _, err := s.db.Exec(`VACUUM INTO ?`, dst); err != nil {
+		return fmt.Errorf("back up the store to %s: %w", dst, err)
+	}
+	return os.Chmod(dst, 0o600)
+}
+
+// migrateV3 adds the primer hash of the sessions. The cards table comes from
+// the schema, because it did not exist before.
+func (s *Store) migrateV3() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'primer_hash'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN primer_hash TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 3`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // migrateV2 adds the previewed state. Version 1 marked the messages of
@@ -349,20 +413,21 @@ func (s *Store) Counts(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// Session returns the stored terminal handle of a profile, or "" when none exists.
-func (s *Store) Session(ctx context.Context, profile string) (string, error) {
-	var h string
-	err := s.db.QueryRowContext(ctx, `SELECT handle FROM sessions WHERE profile = ?`, profile).Scan(&h)
+// Session returns the stored terminal handle of a profile and the hash of the
+// primer that the session got. The handle is "" when none exists.
+func (s *Store) Session(ctx context.Context, profile string) (handle, primerHash string, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT handle, primer_hash FROM sessions WHERE profile = ?`, profile).Scan(&handle, &primerHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return "", "", nil
 	}
-	return h, err
+	return handle, primerHash, err
 }
 
-// SetSession stores the terminal handle of a profile.
-func (s *Store) SetSession(ctx context.Context, profile, handle string, now time.Time) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(profile, handle, created_at) VALUES (?, ?, ?)
-	  ON CONFLICT(profile) DO UPDATE SET handle = excluded.handle, created_at = excluded.created_at`, profile, handle, now.UnixMilli())
+// SetSession stores the terminal handle of a profile and the hash of its primer.
+func (s *Store) SetSession(ctx context.Context, profile, handle, primerHash string, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(profile, handle, created_at, primer_hash) VALUES (?, ?, ?, ?)
+	  ON CONFLICT(profile) DO UPDATE SET handle = excluded.handle, created_at = excluded.created_at,
+	  primer_hash = excluded.primer_hash`, profile, handle, now.UnixMilli(), primerHash)
 	return err
 }
 
@@ -372,7 +437,7 @@ func (s *Store) DeleteSession(ctx context.Context, profile string) error {
 	return err
 }
 
-// Prune deletes sent and expired messages and finished dispatches older than the time.
+// Prune deletes sent and expired messages, finished dispatches and done cards older than the time.
 // It returns the number of deleted messages and the digest paths of the deleted dispatches.
 func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -385,6 +450,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, e
 		return 0, nil, err
 	}
 	n, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM cards WHERE state = 'done' AND done_at < ?`, before.UnixMilli()); err != nil {
+		return 0, nil, err
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT digest_path FROM dispatches WHERE created_at < ? AND status != 'pending'`, before.UnixMilli())
 	if err != nil {
 		return 0, nil, err

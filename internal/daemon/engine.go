@@ -37,6 +37,9 @@ type Deps struct {
 	NewDriver   func(p config.Profile, s agent.Sessions) (agent.Driver, error)
 	BuildSource func(sc config.Source, sec secrets.Store, lookback time.Duration, hc *http.Client) (source.Source, error)
 	Notify      notify.Notifier
+	// CardCommand runs this i2a for the agent ("i2a card add"). The default is
+	// the path of this executable, with I2A_HOME when it is set.
+	CardCommand string
 }
 
 // Engine runs polls and dispatches for one configuration.
@@ -66,6 +69,13 @@ func New(d Deps, cfg *config.Config) *Engine {
 	}
 	if d.Notify == nil {
 		d.Notify = func(string, string) {}
+	}
+	if d.CardCommand == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			exe = "i2a"
+		}
+		d.CardCommand = render.CardCommand(exe, os.Getenv("I2A_HOME"))
 	}
 	e := &Engine{d: d, lastPoll: map[string]time.Time{}}
 	e.SetConfig(cfg)
@@ -204,7 +214,11 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	if err != nil {
 		return fail(0, err)
 	}
-	r, err := render.Render(p, render.BatchID(now, p.Name, id), msgs, e.d.Paths.DigestDir)
+	cardCommand := e.d.CardCommand
+	if p.Driver == config.DriverDryRun {
+		cardCommand = "" // no agent reads a dry run
+	}
+	r, err := render.Render(p, render.BatchID(now, p.Name, id), msgs, e.d.Paths.DigestDir, cardCommand)
 	if err != nil {
 		return fail(id, err)
 	}
@@ -240,18 +254,14 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	return br
 }
 
-// notify shows a desktop notification for a dispatch to a real driver.
-// The text has the profile, the count and the driver detail, never message text.
+// notify shows a desktop notification for a failed dispatch to a real driver.
+// A sent batch gives no notification: the cards of the agent do (i2a card add).
+// The text has the profile, the count and the error, never message text.
 func (e *Engine) notify(p config.Profile, br BatchResult) {
-	if !e.cfg.Notify.Enabled || p.Driver == config.DriverDryRun {
+	if !e.cfg.Notify.Enabled || p.Driver == config.DriverDryRun || br.Err == nil {
 		return
 	}
-	switch {
-	case br.Err != nil:
-		e.d.Notify("i2a: dispatch failed", notify.Short(fmt.Sprintf("Profile %s, %d messages stay pending: %v", p.Name, br.Count, br.Err), 200))
-	case br.Status == store.DispatchSent:
-		e.d.Notify(fmt.Sprintf("i2a: %d messages sent", br.Count), notify.Short(fmt.Sprintf("Profile %s to %s. %s", p.Name, p.Agent, br.Detail), 200))
-	}
+	e.d.Notify("i2a: dispatch failed", notify.Short(fmt.Sprintf("Profile %s, %d messages stay pending: %v", p.Name, br.Count, br.Err), 200))
 }
 
 // Prune deletes old sent and expired messages and their digest files.

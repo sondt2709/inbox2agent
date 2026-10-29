@@ -47,10 +47,11 @@ type Batch struct {
 // Rendered is a batch that is ready for a driver.
 type Rendered struct {
 	Batch
-	Items  []Item
-	Primer string // the primer prompt
-	Prompt string // the batch prompt
-	Detail string // a note for the dispatch record, for example the inline fallback
+	Items      []Item
+	Primer     string // the primer prompt, with the card section when the batch has a card command
+	PrimerHash string // identifies the primer template and the card section; see primerHash
+	Prompt     string // the batch prompt
+	Detail     string // a note for the dispatch record, for example the inline fallback
 }
 
 // BatchID returns a readable unique ID: <UTC time>-<profile>-<dispatch ID>.
@@ -59,7 +60,8 @@ func BatchID(now time.Time, profile string, dispatchID int64) string {
 }
 
 // Render sanitizes the messages, writes the digest file and renders the prompts.
-func Render(p config.Profile, id string, msgs []inbox.Message, digestDir string) (*Rendered, error) {
+// When cardCommand is not empty, Render appends CardSection(cardCommand) to the primer.
+func Render(p config.Profile, id string, msgs []inbox.Message, digestDir, cardCommand string) (*Rendered, error) {
 	if len(msgs) == 0 {
 		return nil, fmt.Errorf("render: no messages")
 	}
@@ -85,9 +87,16 @@ func Render(p config.Profile, id string, msgs []inbox.Message, digestDir string)
 
 	r := &Rendered{Batch: b, Items: items}
 	var err error
-	if r.Primer, err = execute("primer", or(p.Primer, DefaultPrimer), b); err != nil {
+	primer := or(p.Primer, DefaultPrimer)
+	if r.Primer, err = execute("primer", primer, b); err != nil {
 		return nil, err
 	}
+	section := ""
+	if cardCommand != "" {
+		section = CardSection(cardCommand)
+		r.Primer = strings.TrimSpace(r.Primer) + "\n\n" + section
+	}
+	r.PrimerHash = primerHash(primer, section)
 	batchTpl := p.Batch
 	if batchTpl == "" {
 		batchTpl = DefaultPointerBatch

@@ -2,7 +2,6 @@
 
 ## Purpose
 This capability keeps the settings of i2a: the configuration file, the secrets, the validation, the dashboard (`i2a config`) and the non-interactive source commands.
-
 ## Requirements
 ### Requirement: Configuration file location
 The system SHALL read the configuration from `$XDG_CONFIG_HOME/i2a/config.toml`, or from `~/.config/i2a/config.toml` when `XDG_CONFIG_HOME` is not set. The system SHALL keep data in `$XDG_DATA_HOME/i2a/`, or in `~/.local/share/i2a/`. When `I2A_HOME` is set, the system SHALL use that directory for both the configuration and the data.
@@ -39,11 +38,15 @@ The system SHALL validate the configuration when it loads it and when the TUI sa
 - **THEN** the system reports that the profile `missing` does not exist
 
 ### Requirement: Configuration TUI
-The system SHALL provide `i2a config`, a full-screen dashboard in the alternate screen of the terminal, with the tabs Overview, Sources, Profiles, Schedule and Activity. The keys `1` to `5`, `tab` and `shift+tab`, and a mouse click on a tab SHALL change the tab. The Sources and Profiles tabs SHALL have a list at the left and a detail panel at the right. The detail panel SHALL be the form of the selected item, or the form of a new item when "+ Add" is selected; the TUI SHALL NOT use separate screens or dialogs to add or edit. A form SHALL show all its fields at one time, with the help of the focused field, an error under each field that is not valid, and buttons. Submitting a form (`ctrl+s`, the primary button, or `enter` in the last field) SHALL write the configuration file. `esc` SHALL give the keyboard back to the list and SHALL ask before it discards changes. The footer SHALL show the keys of the current focus. `q` SHALL quit; `?` SHALL show all keys.
+The system SHALL provide a full-screen dashboard in the alternate screen of the terminal, with the tabs Feed, Overview, Sources, Profiles, Schedule and Activity. `i2a` with no arguments SHALL open the dashboard on the Feed tab. `i2a config` SHALL open the dashboard on the Overview tab. The keys `1` to `6`, `tab` and `shift+tab`, and a mouse click on a tab SHALL change the tab. The Sources and Profiles tabs SHALL have a list at the left and a detail panel at the right. The detail panel SHALL be the form of the selected item, or the form of a new item when "+ Add" is selected; the TUI SHALL NOT use separate screens or dialogs to add or edit. A form SHALL show all its fields at one time, with the help of the focused field, an error under each field that is not valid, and buttons. Submitting a form (`ctrl+s`, the primary button, or `enter` in the last field) SHALL write the configuration file. `esc` SHALL give the keyboard back to the list and SHALL ask before it discards changes. The footer SHALL show the keys of the current focus. `q` SHALL quit; `?` SHALL show all keys.
 
 #### Scenario: Dashboard
 - **WHEN** the user runs `i2a config` in a window of 120 × 40 with one source
-- **THEN** the TUI fills the window, the tab bar shows the 5 tabs, and the Overview tab shows the service state, the message counts and the source
+- **THEN** the TUI fills the window, the tab bar shows the 6 tabs, and the Overview tab shows the service state, the message counts and the source
+
+#### Scenario: Feed first
+- **WHEN** the user runs `i2a` with no arguments
+- **THEN** the dashboard opens on the Feed tab, and the tab bar shows "1 Feed"
 
 #### Scenario: Edit in the detail panel
 - **WHEN** the user selects the source `work` in the Sources tab
@@ -63,7 +66,7 @@ The system SHALL provide `i2a config`, a full-screen dashboard in the alternate 
 
 #### Scenario: Terminal restored
 - **WHEN** the user exits the TUI
-- **THEN** the terminal shows the shell screen from before `i2a config`, and the last line tells whether the file was saved
+- **THEN** the terminal shows the shell screen from before the dashboard, and the last line tells whether the file was saved
 
 #### Scenario: Save timing
 - **WHEN** the user sets the interval to `10m` and presses `ctrl+s`

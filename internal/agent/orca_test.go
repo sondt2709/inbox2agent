@@ -66,11 +66,15 @@ func flag(args []string, name string) string {
 	return ""
 }
 
+// memSessions keeps the handle of a profile under its name and the primer
+// hash under "<name>#hash".
 type memSessions map[string]string
 
-func (m memSessions) Session(_ context.Context, p string) (string, error) { return m[p], nil }
-func (m memSessions) SetSession(_ context.Context, p, h string, _ time.Time) error {
-	m[p] = h
+func (m memSessions) Session(_ context.Context, p string) (string, string, error) {
+	return m[p], m[p+"#hash"], nil
+}
+func (m memSessions) SetSession(_ context.Context, p, h, hash string, _ time.Time) error {
+	m[p], m[p+"#hash"] = h, hash
 	return nil
 }
 func (m memSessions) DeleteSession(_ context.Context, p string) error { delete(m, p); return nil }
@@ -86,10 +90,11 @@ func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *f
 	f := &fakeOrca{t: t, answers: answers}
 	o.Run = f.run
 	msg := inbox.Message{SourceID: "work", SourceType: "mattermost", ExternalID: "p1", Author: "bob", Text: "hi", CreatedAt: time.Now()}
-	r, err := render.Render(p, "20260102-030405-triage-1", []inbox.Message{msg}, t.TempDir())
+	r, err := render.Render(p, "20260102-030405-triage-1", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
+	sess["triage#hash"] = r.PrimerHash // a stored session got the current primer, unless a test changes it
 	return o, f, sess, r
 }
 
@@ -140,7 +145,7 @@ func TestNewModeLaunchesThenSubmitsPrimerAndBatch(t *testing.T) {
 	if !strings.HasPrefix(prompt, strings.TrimSpace(r.Primer)) || !strings.HasSuffix(prompt, strings.TrimSpace(r.Prompt)) {
 		t.Errorf("prompt = %q", prompt)
 	}
-	if len(sess) != 0 {
+	if sess["triage"] != "" {
 		t.Errorf("new mode stored a session: %v", sess)
 	}
 }
@@ -175,7 +180,7 @@ func TestReuseDoesNotStoreSessionWhenSubmitFails(t *testing.T) {
 	if _, err := o.Deliver(context.Background(), r); err == nil {
 		t.Fatal("no error")
 	}
-	if len(sess) != 0 {
+	if sess["triage"] != "" {
 		t.Errorf("stored a session without the primer: %v", sess)
 	}
 }
@@ -246,6 +251,28 @@ func TestReuseClosedOrStaleTerminalStartsNewSession(t *testing.T) {
 		}
 		if sess["triage"] != launchedHandle || !strings.Contains(res.Detail, "with the primer") {
 			t.Errorf("%s: session=%v result=%+v", show, sess, res)
+		}
+	}
+}
+
+// A session that got another primer (or no hash, from schema version 2) is
+// replaced: the driver does not even check the old terminal.
+func TestReusePrimerChangedStartsNewSession(t *testing.T) {
+	for _, old := range []string{"", "0123456789abcdef"} {
+		o, f, sess, r := setup(t, config.SessionReuse, started(nil))
+		sess["triage"], sess["triage#hash"] = "term_live", old
+		res, err := o.Deliver(context.Background(), r)
+		if err != nil {
+			t.Fatalf("hash %q: %v", old, err)
+		}
+		if sess["triage"] != launchedHandle || sess["triage#hash"] != r.PrimerHash {
+			t.Errorf("hash %q: session = %v, want the new handle and hash", old, sess)
+		}
+		if !strings.Contains(res.Detail, "primer changed, started session") || len(f.called("terminal show")) != 0 {
+			t.Errorf("hash %q: result = %+v, calls = %v", old, res, f.calls)
+		}
+		if text := flag(f.called("terminal send")[0], "--text"); !strings.Contains(text, "/usr/local/bin/i2a card add") {
+			t.Errorf("hash %q: the new session did not get the card section: %.200q", old, text)
 		}
 	}
 }

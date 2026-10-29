@@ -28,10 +28,11 @@ type Driver interface {
 	Deliver(ctx context.Context, b *render.Rendered) (Result, error)
 }
 
-// Sessions stores the terminal handle of each profile.
+// Sessions stores the terminal handle of each profile and the hash of the
+// primer that the session got.
 type Sessions interface {
-	Session(ctx context.Context, profile string) (string, error)
-	SetSession(ctx context.Context, profile, handle string, now time.Time) error
+	Session(ctx context.Context, profile string) (handle, primerHash string, err error)
+	SetSession(ctx context.Context, profile, handle, primerHash string, now time.Time) error
 	DeleteSession(ctx context.Context, profile string) error
 }
 

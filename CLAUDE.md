@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
+`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a`. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
 
 ## Commands
 
@@ -26,16 +26,19 @@ The e2e Mattermost server is `test/e2e/mattermost/compose.yaml`. It runs as `lin
 
 ## Architecture
 
-Data flow: `source.Source.Collect` → `store.SavePoll` (messages and cursor in one transaction) → `daemon.Engine.Dispatch` → `agent.Route` → `render.Render` (sanitize, digest file, prompts) → `agent.Driver.Deliver` → `store.FinishDispatch`.
+Data flow: `source.Source.Collect` → `store.SavePoll` (messages and cursor in one transaction) → `daemon.Engine.Dispatch` → `agent.Route` → `render.Render` (sanitize, digest file, prompts, card section) → `agent.Driver.Deliver` → `store.FinishDispatch`.
 
-- `internal/inbox`: shared types (`Message`, `Cursor`, states). It prevents import cycles between the source, store, render and agent packages.
+Return path: the agent runs `i2a card add` (JSON on stdin) → `card.Parse` and `card.Prepare` (validate, sanitize, cut) → `store.SaveCards` (one transaction, upsert by key) → `card.Plan` → notifications. The Feed tab reads the cards every 2 seconds. `i2a card add` writes the store directly; it does not talk to the daemon.
+
+- `internal/inbox`: shared types (`Message`, `Cursor`, `Card`, states). It prevents import cycles between the source, store, render and agent packages.
 - `internal/source`: the `Source` interface and `Build`. A source returns messages and the next cursor. It never writes to the store.
 - `internal/source/mattermost`: a small typed REST client, not the official module. Polling uses `GET /channels/{id}/posts?page&per_page` (newest first, stop at the cursor). Do not use `posts?since=`: it filters on `update_at` and has an unordered `LIMIT 1000`. Never call an endpoint that marks a channel as read.
 - `internal/render`: the prompt-injection boundary. Each message is one `json.Marshal` line inside a fence labelled `i2a-data-<nonce>`. Hidden characters are removed before encoding. Keep every data line starting with `{`.
-- `internal/agent`: the drivers. Delivery is at least once: messages become `sent` only after the driver returns `sent`; `held` and errors keep them `pending`. A `dry-run` batch makes its messages `previewed`; a real driver still sends `previewed` messages.
+- `internal/card`: the input of `i2a card add` and the notification rule (`Plan`). Card text comes from an agent that read untrusted messages, so it gets the same sanitizing as message text.
+- `internal/agent`: the drivers. In `reuse` mode the store keeps the primer hash with the handle; a different hash starts a new session. Delivery is at least once: messages become `sent` only after the driver returns `sent`; `held` and errors keep them `pending`. A `dry-run` batch makes its messages `previewed`; a real driver still sends `previewed` messages.
 - `internal/daemon`: `Engine` (poll, dispatch, prune) and `Run` (loop, configuration reload, `flock` lock).
-- `internal/tui`: the dashboard. `model.go` has the layout (header, tab bar, content, footer), the focus (list or form), the global keys, the mouse zones and the dialog stack. Each tab is one file (`tab_*.go`). Add and edit are forms in the detail panel, made with the small form engine in `form.go` (text inputs, segmented choices and switches, text areas, the channel picker from `picker.go`, buttons, errors under the fields). `buildForm` makes the form of the selected item again when the selection changes or after a save. A form saves through `ui.commit`, which validates and writes the file and the token; there is no global working copy. Dialogs (`dialog.go`) are only for confirmations, the digest viewer and the key help.
-- `internal/notify`: macOS notifications through `osascript`. The title and the text are script arguments, never script code. `I2A_NOTIFY=off` turns them off (the e2e harness sets it).
+- `internal/tui`: the dashboard. `i2a` opens it on the Feed tab (`tab_feed.go`), `i2a config` on Overview. The Feed opens only the stored URL of a source message, never a link from card text. `model.go` has the layout (header, tab bar, content, footer), the focus (list or form), the global keys, the mouse zones and the dialog stack. Each tab is one file (`tab_*.go`). Add and edit are forms in the detail panel, made with the small form engine in `form.go` (text inputs, segmented choices and switches, text areas, the channel picker from `picker.go`, buttons, errors under the fields). `buildForm` makes the form of the selected item again when the selection changes or after a save. A form saves through `ui.commit`, which validates and writes the file and the token; there is no global working copy. Dialogs (`dialog.go`) are only for confirmations, the digest viewer and the key help.
+- `internal/notify`: macOS notifications through `osascript`. `i2a card add` notifies for cards; the daemon notifies only for failed dispatches. The title and the text are script arguments, never script code. `I2A_NOTIFY=off` turns them off (the e2e harness sets it).
 - `internal/service`: the macOS LaunchAgent `io.github.sondt2709.i2a`.
 
 Facts about the `orca` CLI (1.4.240) that the driver depends on:

@@ -374,7 +374,9 @@ func TestDryRunPreviewThenRealDriverSendsAll(t *testing.T) {
 	}
 }
 
-func TestNotifyAfterRealDispatchOnly(t *testing.T) {
+// A sent batch gives no notification (the cards of the agent do); a failed
+// dispatch to a real driver does, without message text.
+func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	cfg := cfgWith("work")
 	h := newHarness(t, cfg)
 	var got []string
@@ -397,13 +399,8 @@ func TestNotifyAfterRealDispatchOnly(t *testing.T) {
 	if _, err := h.e.Dispatch(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0] != "i2a: 2 messages sent | Profile triage to claude. new session term_1, turn started" {
-		t.Fatalf("notifications = %q", got)
-	}
-	for _, m := range []string{"text a1", "text a2"} {
-		if strings.Contains(got[0], m) {
-			t.Errorf("the notification has message text %q", m)
-		}
+	if len(got) != 0 {
+		t.Fatalf("a sent batch notified: %q", got)
 	}
 
 	h.sources["work"].add("b1")
@@ -412,16 +409,53 @@ func TestNotifyAfterRealDispatchOnly(t *testing.T) {
 	if _, err := h.e.Dispatch(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || !strings.HasPrefix(got[1], "i2a: dispatch failed | Profile triage, 1 messages stay pending: orca agent launch") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "i2a: dispatch failed | Profile triage, 1 messages stay pending: orca agent launch") {
 		t.Fatalf("notifications = %q", got)
+	}
+	if strings.Contains(got[0], "text b1") {
+		t.Errorf("the notification has message text: %q", got[0])
 	}
 
 	next.Notify.Enabled = false
-	h.drv.err = nil
 	if _, err := h.e.Dispatch(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Errorf("notified with notify.enabled = false: %q", got[2:])
+	if len(got) != 1 {
+		t.Errorf("notified with notify.enabled = false: %q", got[1:])
+	}
+}
+
+// The primer of a real driver ends with the card section, which names this
+// i2a with I2A_HOME. A dry run has no card section.
+func TestPrimerHasCardSectionForRealDriverOnly(t *testing.T) {
+	cfg := cfgWith("work")
+	h := newHarness(t, cfg)
+	h.e.d.CardCommand = render.CardCommand("/opt/i2a/bin/i2a", h.paths.DataDir)
+	ctx := context.Background()
+
+	h.sources["work"].add("a1")
+	h.e.Poll(ctx, true)
+	if _, err := h.e.Dispatch(ctx); err != nil {
+		t.Fatal(err)
+	}
+	next := cfgWith("work")
+	next.Profiles[0].Driver = config.DriverOrca
+	h.e.SetConfig(next)
+	if _, err := h.e.Dispatch(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.drv.batches) != 2 {
+		t.Fatalf("batches = %d, want 2", len(h.drv.batches))
+	}
+	if dry := h.drv.batches[0]; strings.Contains(dry.Primer, "card add") {
+		t.Errorf("dry-run primer has the card section")
+	}
+	orca := h.drv.batches[1]
+	want := "I2A_HOME=" + h.paths.DataDir + " /opt/i2a/bin/i2a card add <<'EOF'"
+	if !strings.Contains(orca.Primer, want) {
+		t.Errorf("orca primer does not contain %q:\n%s", want, orca.Primer)
+	}
+	if !strings.Contains(orca.Messages, `{"id":`) {
+		t.Errorf("the data lines have no id: %s", orca.Messages)
 	}
 }
