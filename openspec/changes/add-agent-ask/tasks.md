@@ -36,6 +36,6 @@
 
 ## 7. Evidence
 
-- [ ] 7.1 `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task e2e`, and the local Orca scenario on the last commit
+- [x] 7.1 `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task e2e`, and the local Orca scenario on the last commit
 - [x] 7.2 Upgrade a copy of the real `inbox.db` (version 4) and compare the row counts
 - [x] 7.3 Screen captures of the Feed after the change in `tmp/evidence/add-agent-ask/after/`
