@@ -218,3 +218,26 @@ func TestFeedWithoutStore(t *testing.T) {
 		t.Error("the Feed without a store does not say No cards yet")
 	}
 }
+
+// A click on the second line of the third card selects that card and makes it read.
+func TestFeedMouseClickSelectsCard(t *testing.T) {
+	h := newFeedModel(t)
+	lines := strings.Split(screen(h.m), "\n")
+	y := -1
+	for i, l := range lines {
+		if strings.Contains(l, "Staging deployed 2.14.0") {
+			y = i + 1 // the second line of the card
+		}
+	}
+	if y < 0 {
+		t.Fatal("the screen has no third card")
+	}
+	_, cmd := h.m.Update(tea.MouseClickMsg{X: 10, Y: y, Button: tea.MouseLeft})
+	run(h.m, cmd, 0)
+	if c, _ := h.m.selectedCard(); c.Title != "Staging deployed 2.14.0" {
+		t.Fatalf("click selected %q", c.Title)
+	}
+	if st := h.state(t, "Staging deployed 2.14.0"); st != inbox.CardRead {
+		t.Errorf("state after the click = %s, want read", st)
+	}
+}

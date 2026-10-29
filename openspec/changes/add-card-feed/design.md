@@ -103,7 +103,7 @@ Alternative: send the new section as a normal prompt into the running session. R
 ### D8. The Feed tab
 
 - `internal/tui/tab_feed.go` follows the pattern of the other tabs: a list at the left and a detail panel at the right. The Feed is `tabFeed`, the first tab. `i2a` with no arguments runs the dashboard on the Feed; `i2a config` runs it on Overview.
-- The tab reads the cards with a `tea.Tick` every 2 seconds, through the existing `background` helper. When no store file exists, the tab shows "No cards yet" and tries to open the store on each tick.
+- The tab reads the cards in the existing refresh of the dashboard (`load`, a `tea.Tick`), now every 2 seconds instead of 3. A key that changes a card writes the store and reads the cards again outside the UI loop. When no store file exists, the tab shows "No cards yet" and tries to open the store on each tick.
 - The bare `i2a` command opens (and creates) the store, because the Feed is its main screen. `i2a config` keeps its rule: it reads the store only when it exists.
 - Sort: `urgency` (high first, then the newest `updated_at`) or `newest`. Filter: all, action, question, info. The header shows the counts of new cards, actions and questions.
 - A card becomes `read` when the user moves the selection to it, presses `enter`, `c` or `o`. The card that is selected when the tab opens stays `new` until one of these actions.
