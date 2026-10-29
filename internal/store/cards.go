@@ -16,7 +16,7 @@ import (
 // ErrNoCard is returned when no card matches an ID or a key.
 var ErrNoCard = errors.New("no card")
 
-const cardCols = `id, key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at`
+const cardCols = `id, key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle`
 
 func scanCard(sc interface{ Scan(...any) error }) (inbox.Card, error) {
 	var c inbox.Card
@@ -24,7 +24,7 @@ func scanCard(sc interface{ Scan(...any) error }) (inbox.Card, error) {
 	var refs string
 	var created, updated int64
 	if err := sc.Scan(&c.ID, &key, &c.Category, &c.Urgency, &c.Group, &c.Title, &c.Body, &c.Reply,
-		&refs, &c.State, &created, &updated); err != nil {
+		&refs, &c.State, &created, &updated, &c.Handle); err != nil {
 		return c, err
 	}
 	c.Key = key.String
@@ -51,7 +51,9 @@ func sameContent(a, b inbox.Card) bool {
 
 // SaveCards saves the cards in one transaction. A card with a key that the
 // store has updates that card and makes it new again, unless all its fields
-// are the same. A card without a key is always added.
+// are the same. A card without a key is always added. The handle is not a
+// field of the agent: a new handle replaces the stored one, also for an
+// unchanged card, and an empty handle keeps it.
 func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time) ([]inbox.SavedCard, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -78,22 +80,32 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 			if c.Key != "" {
 				key = c.Key
 			}
-			res, err := tx.ExecContext(ctx, `INSERT INTO cards(key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at)
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`, key, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply,
-				refsJSON(c.Refs), now.UnixMilli(), now.UnixMilli())
+			res, err := tx.ExecContext(ctx, `INSERT INTO cards(key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle)
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`, key, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply,
+				refsJSON(c.Refs), now.UnixMilli(), now.UnixMilli(), c.Handle)
 			if err != nil {
 				return nil, err
 			}
 			sv.ID, _ = res.LastInsertId()
 			sv.Result, sv.State, sv.CreatedAt, sv.UpdatedAt = inbox.SaveAdded, inbox.CardNew, now.UTC(), now.UTC()
 		case sameContent(old, c):
+			if c.Handle != "" && c.Handle != old.Handle {
+				if _, err := tx.ExecContext(ctx, `UPDATE cards SET handle = ? WHERE id = ?`, c.Handle, old.ID); err != nil {
+					return nil, err
+				}
+				old.Handle = c.Handle
+			}
 			sv.Card = old
 			sv.Result, sv.PrevUrgency, sv.PrevState = inbox.SaveUnchanged, old.Urgency, old.State
 		default:
 			if _, err := tx.ExecContext(ctx, `UPDATE cards SET category = ?, urgency = ?, grp = ?, title = ?, body = ?, reply = ?,
-			  refs = ?, state = 'new', updated_at = ?, done_at = NULL WHERE id = ?`, c.Category, c.Urgency, c.Group, c.Title,
-				c.Body, c.Reply, refsJSON(c.Refs), now.UnixMilli(), old.ID); err != nil {
+			  refs = ?, state = 'new', updated_at = ?, done_at = NULL, handle = CASE WHEN ? = '' THEN handle ELSE ? END
+			  WHERE id = ?`, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply, refsJSON(c.Refs), now.UnixMilli(),
+				c.Handle, c.Handle, old.ID); err != nil {
 				return nil, err
+			}
+			if c.Handle == "" {
+				sv.Handle = old.Handle
 			}
 			sv.ID, sv.State, sv.CreatedAt, sv.UpdatedAt = old.ID, inbox.CardNew, old.CreatedAt, now.UTC()
 			sv.Result, sv.PrevUrgency, sv.PrevState = inbox.SaveUpdated, old.Urgency, old.State

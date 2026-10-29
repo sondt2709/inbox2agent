@@ -15,11 +15,12 @@ import (
 
 	"github.com/sondt2709/inbox2agent/internal/agent"
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
 )
 
 // These scenarios need local apps. They run only when asked:
-//   I2A_E2E_ORCA=1     S14-S18, S21, S25 and S29, with the Orca app running and the claude agent installed
+//   I2A_E2E_ORCA=1     S14-S18, S21, S25, S29 and S32, with the Orca app running and the claude agent installed
 //   I2A_E2E_SERVICE=1  S19, on macOS
 
 func needOrca(t *testing.T) string {
@@ -392,5 +393,81 @@ func TestS25AgentAddsCard(t *testing.T) {
 			t.Fatalf("no card with a message reference after 4m: %+v", cs)
 		}
 		time.Sleep(5 * time.Second)
+	}
+}
+
+// S32: a real agent adds a card from its Orca terminal. The user asks it from
+// the Feed for more work. The ask goes to that terminal, and the agent answers
+// in the same card.
+func TestS32AgentAnswersAnAsk(t *testing.T) {
+	orcaBin := needOrca(t)
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S32")
+	p.addSource(w, w.Selected)
+	ws := orcaWorkspace(t)
+	allowCardCommand(t, ws, p.home)
+	p.editConfig(orcaProfile(orcaBin, ws, config.SessionReuse, config.PayloadInline))
+
+	w.Post(t, w.Bob, w.Selected, "S32: can our demo tenant PF get its own login before Friday? I wait for your answer.")
+	s, code := p.run("run --once")
+	if code != 0 || !strings.Contains(s, "started session term_") {
+		t.Fatalf("batch: exit %d, screen:\n%s", code, s)
+	}
+	h := handleRe.FindString(s)
+	t.Cleanup(func() { closeTerminal(orcaBin, h) })
+
+	var first card
+	deadline := time.Now().Add(4 * time.Minute)
+	for first.Key == "" {
+		if cs := p.cards(); len(cs) > 0 && cs[0].Key != "" {
+			first = cs[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			readAgent(t, orcaBin, h, "S32", "S32/orca-terminal.txt")
+			t.Fatal("no card with a key after 4m")
+		}
+		time.Sleep(5 * time.Second)
+	}
+	if c, _ := p.asksOf(first.Key); c.Handle != h {
+		t.Fatalf("card terminal = %q, want the agent terminal %s", c.Handle, h)
+	}
+	t.Logf("S32 first card: %+v", first)
+
+	tm := p.term("")
+	tm.WaitFor(regexp.QuoteMeta(first.Title[:min(20, len(first.Title))]), 30*time.Second)
+	s = tm.Press("t", `Ask the agent · card`, 5*time.Second)
+	if !strings.Contains(s, "terminal "+h[:13]+"… (wrote the card)") {
+		t.Errorf("the ask form does not name the agent terminal %s:\n%s", h, s)
+	}
+	tm.Type("S32 add the effort in hours to the card body.")
+	tm.WaitFor(`card body\.`, 5*time.Second)
+	tm.Press("C-s", `Sent to the agent \(triage\)\. It answers in this card\.`, 4*time.Minute)
+	tm.Shot("S32-feed-after-ask")
+
+	deadline = time.Now().Add(4 * time.Minute)
+	for {
+		var got card
+		for _, c := range p.cards() {
+			if c.Key == first.Key {
+				got = c
+			}
+		}
+		if got.UpdatedAt != first.UpdatedAt && got.State == inbox.CardNew {
+			t.Logf("S32 card after the ask: %+v", got)
+			tm.WaitFor(`updated`, 10*time.Second)
+			tm.Shot("S32-feed-after-answer")
+			break
+		}
+		if time.Now().After(deadline) {
+			readAgent(t, orcaBin, h, "S32 add the effort", "S32/orca-terminal.txt")
+			t.Fatalf("the agent did not update the card %s in 4m: %+v", first.Key, got)
+		}
+		time.Sleep(5 * time.Second)
+	}
+	readAgent(t, orcaBin, h, "S32 add the effort", "S32/orca-terminal.txt")
+	tm.Press("q", `\[exit 0\]`, 5*time.Second)
+	if _, asks := p.asksOf(first.Key); len(asks) != 1 || asks[0].State != inbox.AskSent || asks[0].Handle != h {
+		t.Errorf("asks = %+v, want one sent ask to %s", asks, h)
 	}
 }

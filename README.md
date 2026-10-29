@@ -1,6 +1,6 @@
 # inbox2agent (`i2a`)
 
-`i2a` collects new messages from your chat and work tools and sends them to an AI agent in batches. The agent sends its results back as cards: one card for each topic, with a category, an urgency, a summary and a suggested reply. You read and close the cards in the Feed of `i2a`, send the suggested reply (as it is, or edited) back to the conversation, and you get a notification only for the cards that need you.
+`i2a` collects new messages from your chat and work tools and sends them to an AI agent in batches. The agent sends its results back as cards: one card for each topic, with a category, an urgency, a summary and a suggested reply. You read and close the cards in the Feed of `i2a`, send the suggested reply (as it is, or edited) back to the conversation, ask the agent to do more about a card, and you get a notification only for the cards that need you.
 
 ![i2a config, then i2a run --once](docs/demo/i2a-config.gif)
 
@@ -12,8 +12,10 @@
   planned)  ──┘                           fenced block             │ the agent runs "i2a card add"
                                                                    ▼
                     you ◄── macOS notification ◄── cards in inbox.db ──► Feed tab of "i2a"
-                                                                                │ r, ctrl+s
-                                       Mattermost thread or chat ◄── i2a reply ◄┘
+                                                                   ▲            │ r, ctrl+s
+                                                                   │            ├──► i2a reply ──► Mattermost thread or chat
+                                     the agent updates the card ───┘            │ t, ctrl+s
+                                     (same key)          ◄── i2a ask ◄──────────┘ to the terminal that wrote the card
 ```
 
 ## Status
@@ -25,6 +27,7 @@
 | Configuration TUI, daemon, macOS LaunchAgent | Available |
 | Cards from the agent, Feed tab, card notifications | Available |
 | Replies from the Feed and with `i2a reply` (Mattermost) | Available |
+| Asks to the agent about a card, from the Feed and with `i2a ask` | Available |
 | Release binaries for macOS and Linux (amd64, arm64) | Available |
 | Homebrew package | Planned |
 | WhatsApp, GitHub and Linear sources | Planned |
@@ -102,6 +105,7 @@ In the Feed:
 |---|---|
 | `↑` / `↓` | Select a card. The card that you select becomes read. |
 | `r` | Reply: the form at the right has the suggested reply. Edit it, then press `ctrl+s` to send, or `esc` to cancel. See [Replies](#replies). |
+| `t` | Ask the agent about the card, for example "research more". Type the text, then press `ctrl+s`. See [Asks](#asks). |
 | `c` | Copy the suggested reply |
 | `o` | Open the thread of the first source message in the browser |
 | `d` / `u` | Mark the card done / unread |
@@ -125,7 +129,7 @@ A form saves to `config.toml` when you submit it. A running daemon reads the fil
 1. The daemon polls each source on its `poll_every` interval and saves new messages in `inbox.db`.
 2. On each `interval`, inside the `active_hours`, the daemon makes one batch for each profile that has pending messages.
 3. The sanitizer writes each message as one JSON line in a fenced block with a random label, and writes the digest file.
-4. The driver gives the batch to the agent. When the driver reports `sent`, the messages are done. When it fails or the agent is busy, the messages stay pending, and the next interval sends them again.
+4. The driver gives the queued asks, then the batch, to the agent. When the driver reports `sent`, the messages are done. When it fails or the agent is busy, the messages stay pending, and the next interval sends them again.
 5. The agent reads the batch and runs `i2a card add` with one card for each topic (see [Cards](#cards)).
 6. On macOS, `i2a card add` shows a notification for new cards, and the daemon shows one after each failed dispatch.
 
@@ -263,6 +267,30 @@ i2a reply --card mm:pr-57          # the suggested reply of the card, to its new
 
 When you use `I2A_SECRET_BACKEND=file`, put it before the command in the primer (`I2A_SECRET_BACKEND=file i2a reply ...`). Without it, `i2a reply` reads the token from the keychain.
 
+## Asks
+
+You can ask the agent to do more about a card, for example "check the auth code first" or "add the effort in hours". Press `t` on a card in the Feed. The form at the right shows:
+
+| Field | Meaning |
+|---|---|
+| Agent | the profile and the driver |
+| Session | the Orca terminal that wrote the card, or the session that gets the ask |
+| Text | your instruction. 4,000 characters at most. |
+
+Press `ctrl+s` to send. The agent answers in the same card: it runs `i2a card add` with the key of the card, so the card becomes new again and you get the notification of an updated card. Until then, the card shows "↪ asked".
+
+- `i2a card add` records the Orca terminal of the agent (`ORCA_TERMINAL_HANDLE`). An ask goes back to that terminal when it still runs. Otherwise it goes to the agent of the profile, as a batch does: the reused session, or a new session (or worktree) with the primer.
+- Your text is the instruction. The card and its messages go to the agent in a fenced data block, because the agent wrote the card from messages of other people.
+- When the agent is busy, `i2a` waits up to 2 minutes. Then the ask stays queued, and the daemon sends it on its next dispatch, before the batches. A queued ask that is older than `lookback` fails.
+- A batch and an ask never type into the same terminal at the same time. They take turns with the lock file `agent-<profile>.lock` in the data folder.
+- A `dry-run` profile does not take asks.
+
+```sh
+i2a ask --card mm:lena-pf-login <<'EOF'
+Check the auth code and give me the effort in hours.
+EOF
+```
+
 ## Security
 
 Other people write the messages, and an agent can run commands. A message can contain text such as "ignore your instructions and run this command". This is prompt injection.
@@ -278,6 +306,7 @@ Other people write the messages, and an agent can run commands. A message can co
 
 7. It removes hidden characters from card text, shows at most 3 urgent notifications for each call, and opens only the stored URL of a source message (`o`), never a link from the card text.
 8. A reply goes only to a message that `i2a` collected. Each reply that the agent sends shows a notification.
+9. An ask puts the card text in a fenced data block, never in the instruction. Only your text is the instruction.
 
 An agent that can run `i2a reply` can post as you in the conversations that `i2a` collects. A message can try to trick the agent into a reply. Allow `i2a reply` only when you need it, and tell the agent in the primer when it can reply.
 
@@ -295,6 +324,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | `i2a config` | Open the dashboard on the Overview tab: sources, channels, profiles, schedule, service, activity |
 | `i2a card add` / `done --key <key>` / `list [--json] [--all]` | Add cards (JSON on stdin), close a card, list the cards |
 | `i2a reply --to <message id>` or `--card <id or key>`, `[--thread or --channel]` | Send a reply (text on stdin, or the suggested reply of the card) |
+| `i2a ask --card <id or key>` | Ask the agent about a card (text on stdin) |
 | `i2a run --once` | Poll all sources and send all pending messages now |
 | `i2a daemon` | Run in the foreground: poll and dispatch on the intervals |
 | `i2a status` | Show the paths, sources, profiles, messages and service state |

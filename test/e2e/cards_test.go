@@ -19,13 +19,15 @@ import (
 
 // card is one card in the output of "i2a card list --json".
 type card struct {
-	ID       int64   `json:"id"`
-	Key      string  `json:"key"`
-	Category string  `json:"category"`
-	Urgency  string  `json:"urgency"`
-	Title    string  `json:"title"`
-	Refs     []int64 `json:"refs"`
-	State    string  `json:"state"`
+	ID        int64   `json:"id"`
+	Key       string  `json:"key"`
+	Category  string  `json:"category"`
+	Urgency   string  `json:"urgency"`
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	Refs      []int64 `json:"refs"`
+	State     string  `json:"state"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // cards runs "i2a card list --json --all" and returns the cards.

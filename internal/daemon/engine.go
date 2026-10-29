@@ -14,6 +14,7 @@ import (
 
 	"github.com/sondt2709/inbox2agent/internal/agent"
 	"github.com/sondt2709/inbox2agent/internal/app"
+	"github.com/sondt2709/inbox2agent/internal/ask"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/notify"
@@ -25,6 +26,14 @@ import (
 
 // deliverTimeout limits one driver call.
 const deliverTimeout = 3 * time.Minute
+
+// askIdleWait is the wait for a busy agent when the daemon sends a queued ask,
+// the same as for a batch in reuse mode.
+const askIdleWait = 5 * time.Second
+
+// lockWait limits the wait for the delivery lock of a profile, which an ask
+// can hold. Tests make it shorter.
+var lockWait = ask.LockWait
 
 // Deps are the parts that the engine uses. Tests replace NewDriver and BuildSource.
 type Deps struct {
@@ -153,11 +162,12 @@ type BatchResult struct {
 // DispatchResult is the result of one dispatch round.
 type DispatchResult struct {
 	Expired int64
+	Asks    []inbox.Ask // the queued asks after this dispatch tried to send them
 	Batches []BatchResult
 }
 
-// Dispatch expires old messages, routes the pending messages to profiles and
-// delivers one batch for each profile.
+// Dispatch expires old messages, sends the queued asks, routes the pending
+// messages to profiles and delivers one batch for each profile.
 func (e *Engine) Dispatch(ctx context.Context) (DispatchResult, error) {
 	var res DispatchResult
 	now := e.d.Now()
@@ -168,6 +178,9 @@ func (e *Engine) Dispatch(ctx context.Context) (DispatchResult, error) {
 	res.Expired = n
 	if n > 0 {
 		e.d.Log.Info("expired old pending messages", "count", n, "lookback", e.cfg.Timing.Lookback.String())
+	}
+	if res.Asks, err = e.sendAsks(ctx); err != nil {
+		return res, err
 	}
 	pending, err := e.d.Store.Pending(ctx)
 	if err != nil {
@@ -196,6 +209,30 @@ func (e *Engine) Dispatch(ctx context.Context) (DispatchResult, error) {
 		e.d.Log.Warn("messages route to a profile that does not exist", "profile", name, "count", len(msgs))
 	}
 	return res, nil
+}
+
+// sendAsks sends the queued asks, oldest first. An ask that stays busy stays
+// queued for the next dispatch.
+func (e *Engine) sendAsks(ctx context.Context) ([]inbox.Ask, error) {
+	queued, err := e.d.Store.QueuedAsks(ctx)
+	if err != nil || len(queued) == 0 {
+		return nil, err
+	}
+	d := ask.Deps{Store: e.d.Store, Config: e.cfg, NewDriver: e.d.NewDriver, CardCommand: e.d.CardCommand,
+		LockDir: e.d.Paths.DataDir, Now: e.d.Now}
+	out := make([]inbox.Ask, 0, len(queued))
+	for _, a := range queued {
+		actx, cancel := context.WithTimeout(ctx, deliverTimeout+ask.LockWait)
+		a, err := ask.Retry(actx, d, a, e.cfg.Timing.Lookback.D(), askIdleWait)
+		cancel()
+		if err != nil {
+			e.d.Log.Error("ask failed", "ask", a.ID, "card", a.CardID, "profile", a.Profile, "err", err)
+		} else {
+			e.d.Log.Info("ask", "ask", a.ID, "card", a.CardID, "profile", a.Profile, "state", a.State, "detail", a.Detail)
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Message, now time.Time) BatchResult {
@@ -230,9 +267,7 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	if err != nil {
 		return fail(id, err)
 	}
-	dctx, cancel := context.WithTimeout(ctx, deliverTimeout)
-	defer cancel()
-	out, err := drv.Deliver(dctx, r)
+	out, err := e.deliverLocked(ctx, p, drv, r)
 	if err != nil {
 		return fail(id, err)
 	}
@@ -252,6 +287,27 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	e.d.Log.Info("dispatch", "profile", p.Name, "driver", p.Driver, "messages", len(msgs), "status", out.Status,
 		"detail", br.Detail, "digest", r.DigestPath)
 	return br
+}
+
+// deliverLocked calls the driver while it holds the delivery lock of the
+// profile, so a batch and an ask never type into one terminal at the same
+// time. When an ask holds the lock longer than lockWait, the batch is held.
+func (e *Engine) deliverLocked(ctx context.Context, p config.Profile, drv agent.Driver, r *render.Rendered) (agent.Result, error) {
+	if p.Driver != config.DriverDryRun {
+		lctx, cancel := context.WithTimeout(ctx, lockWait)
+		unlock, err := agent.Lock(lctx, e.d.Paths.DataDir, p.Name)
+		cancel()
+		if errors.Is(err, agent.ErrBusy) {
+			return agent.Result{Status: agent.StatusHeld, Detail: err.Error()}, nil
+		}
+		if err != nil {
+			return agent.Result{}, err
+		}
+		defer unlock()
+	}
+	dctx, cancel := context.WithTimeout(ctx, deliverTimeout)
+	defer cancel()
+	return drv.Deliver(dctx, r)
 }
 
 // notify shows a desktop notification for a failed dispatch to a real driver.
@@ -300,6 +356,13 @@ func Summary(polls []PollResult, d DispatchResult) string {
 	fmt.Fprintf(&b, "collected %d new messages\n", total)
 	if d.Expired > 0 {
 		fmt.Fprintf(&b, "expired %d messages older than the lookback\n", d.Expired)
+	}
+	for _, a := range d.Asks {
+		fmt.Fprintf(&b, "ask %d about card %d for %s: %s", a.ID, a.CardID, a.Profile, a.State)
+		if a.Detail != "" {
+			fmt.Fprintf(&b, " - %s", a.Detail)
+		}
+		b.WriteString("\n")
 	}
 	if len(d.Batches) == 0 {
 		b.WriteString("no batch to send\n")

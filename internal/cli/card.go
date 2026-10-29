@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -37,7 +38,8 @@ func newCardAddCmd() *cobra.Command {
 
 Fields: category (action, question or info; required), urgency (high, normal or low;
 default normal), title (required), group, body, reply, refs (message IDs) and key.
-A card with a key that i2a already has updates that card.
+A card with a key that i2a already has updates that card. In an Orca terminal,
+i2a records the terminal (ORCA_TERMINAL_HANDLE), so an ask about the card goes back to it.
 
 Example:
   i2a card add <<'EOF'
@@ -72,11 +74,18 @@ Example:
 				}
 				return out, err
 			})
+			handle, hw := card.Handle(os.Getenv(card.HandleEnv))
+			if hw != "" {
+				warnings = append(warnings, hw)
+			}
 			for _, w := range warnings {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
 			}
 			if err != nil {
 				return err
+			}
+			for i := range cards {
+				cards[i].Handle = handle
 			}
 			saved, err := st.SaveCards(ctx, cards, time.Now())
 			if err != nil {

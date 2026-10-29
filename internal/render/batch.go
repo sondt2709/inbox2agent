@@ -87,16 +87,9 @@ func Render(p config.Profile, id string, msgs []inbox.Message, digestDir, cardCo
 
 	r := &Rendered{Batch: b, Items: items}
 	var err error
-	primer := or(p.Primer, DefaultPrimer)
-	if r.Primer, err = execute("primer", primer, b); err != nil {
+	if r.Primer, r.PrimerHash, err = renderPrimer(p, b, cardCommand); err != nil {
 		return nil, err
 	}
-	section := ""
-	if cardCommand != "" {
-		section = CardSection(cardCommand)
-		r.Primer = strings.TrimSpace(r.Primer) + "\n\n" + section
-	}
-	r.PrimerHash = primerHash(primer, section)
 	batchTpl := p.Batch
 	if batchTpl == "" {
 		batchTpl = DefaultPointerBatch
@@ -114,6 +107,23 @@ func Render(p config.Profile, id string, msgs []inbox.Message, digestDir, cardCo
 		r.Detail = fmt.Sprintf("inline too large, sent pointer (%d bytes > %d)", size, p.InlineMaxBytes)
 	}
 	return r, nil
+}
+
+// renderPrimer renders the primer template of the profile and appends
+// CardSection(cardCommand) when cardCommand is not empty. It returns the
+// primer and its hash.
+func renderPrimer(p config.Profile, b Batch, cardCommand string) (string, string, error) {
+	tpl := or(p.Primer, DefaultPrimer)
+	primer, err := execute("primer", tpl, b)
+	if err != nil {
+		return "", "", err
+	}
+	section := ""
+	if cardCommand != "" {
+		section = CardSection(cardCommand)
+		primer = strings.TrimSpace(primer) + "\n\n" + section
+	}
+	return primer, primerHash(tpl, section), nil
 }
 
 // Digest returns the Markdown digest of a batch.

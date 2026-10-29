@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sondt2709/inbox2agent/internal/ask"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/reply"
 	"github.com/sondt2709/inbox2agent/internal/source"
@@ -38,11 +39,13 @@ type statusMsg struct {
 	isErr bool
 }
 
-// feedMsg carries the cards, their source messages and their sent replies, read outside the UI loop.
+// feedMsg carries the cards, their source messages, their sent replies and
+// their asks, read outside the UI loop.
 type feedMsg struct {
 	cards   []inbox.Card
 	refs    map[int64]inbox.Message
 	replies map[int64][]inbox.Reply
+	asks    map[int64][]inbox.Ask
 }
 
 // replyDoneMsg is the result of a send from the reply form.
@@ -102,12 +105,13 @@ func readFeed(ctx context.Context, st Store, all bool) feedMsg {
 		cardIDs[i] = c.ID
 	}
 	f.replies, _ = st.SentReplies(ctx, cardIDs)
+	f.asks, _ = st.Asks(ctx, cardIDs)
 	return f
 }
 
 // setFeed takes new cards and keeps the selection on the same card.
 func (m *model) setFeed(f feedMsg) {
-	m.cards, m.refs, m.replies = f.cards, f.refs, f.replies
+	m.cards, m.refs, m.replies, m.asks = f.cards, f.refs, f.replies, f.asks
 	if m.refs == nil {
 		m.refs = map[int64]inbox.Message{}
 	}
@@ -266,6 +270,8 @@ func (m *model) keyFeed(k string) tea.Cmd {
 		})
 	case "r":
 		return m.openReply(c)
+	case "t":
+		return m.openAsk(c)
 	case "d":
 		m.setStatus("Done: "+truncate(c.Title, 60), false)
 		return m.setCardState(c, inbox.CardDone)
@@ -385,7 +391,11 @@ func (m *model) viewFeed(w, h int) string {
 		if len(m.replies[c.ID]) > 0 {
 			replied = "✓ replied"
 		}
-		meta := truncate(strings.Join(nonEmpty(c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied), " · "), inner-2)
+		asked := ""
+		if m.waiting(c) {
+			asked = "↪ asked"
+		}
+		meta := truncate(strings.Join(nonEmpty(c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied, asked), " · "), inner-2)
 		if i == m.feedSel {
 			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %-6s ", strings.ToUpper(c.Category), c.Urgency)+title))
 			list = append(list, selectedRow.Width(inner).Render("▌     "+meta))
@@ -420,6 +430,9 @@ func (m *model) viewFeed(w, h int) string {
 	right2 := panel(title, detail, dw, h)
 	if ok && m.form != nil && m.replyCard == c.ID {
 		right2 = detailPanel(fmt.Sprintf("Reply · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active)
+	}
+	if ok && m.form != nil && m.askCard == c.ID {
+		right2 = detailPanel(fmt.Sprintf("Ask the agent · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active)
 	}
 	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, right2)
 }
@@ -481,6 +494,22 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 			}
 			line := fmt.Sprintf("✓ Replied %s by %s → %s (%s)", when(r.SentAt, m.now()), by, r.ChannelName, r.Place)
 			b.WriteString(okStyle.Render(truncate(line, w)) + "\n")
+		}
+	}
+	if as := m.asks[c.ID]; len(as) > 0 {
+		b.WriteString("\n")
+		for _, a := range as {
+			st, note := okStyle, "sent"
+			switch a.State {
+			case inbox.AskQueued:
+				st, note = warnStyle, "queued (agent busy)"
+			case inbox.AskFailed:
+				st, note = errStyle, "failed: "+a.Detail
+			}
+			// Cut the text, not the state, when the line is too long.
+			head, tail := fmt.Sprintf("↪ Asked %s: ", when(a.CreatedAt, m.now())), " · "+note
+			text := truncate(strings.Join(strings.Fields(a.Text), " "), max(10, w-lipgloss.Width(head)-lipgloss.Width(tail)))
+			b.WriteString(st.Render(truncate(head+text+tail, w)) + "\n")
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -636,7 +665,133 @@ func (m *model) replyDone(msg replyDoneMsg) tea.Cmd {
 	return func() tea.Msg { return readFeed(m.ctx, st, all) }
 }
 
+// waiting reports whether the agent did not answer the newest ask of the
+// card yet: the ask is newer than the last update of the card and did not fail.
+func (m *model) waiting(c inbox.Card) bool {
+	as := m.asks[c.ID]
+	if len(as) == 0 {
+		return false
+	}
+	a := as[len(as)-1]
+	return a.State != inbox.AskFailed && a.CreatedAt.After(c.UpdatedAt)
+}
+
+// askDoneMsg is the result of a send from the ask form.
+type askDoneMsg struct {
+	cardID int64
+	ask    inbox.Ask
+	err    error
+}
+
+// openAsk opens the ask form of the card in the detail panel.
+func (m *model) openAsk(c inbox.Card) tea.Cmd {
+	if _, err := ask.TargetOf(m.u.cfg, c, m.refMessages(c)); err != nil {
+		m.setStatus("Cannot ask: "+err.Error(), true)
+		return nil
+	}
+	read := m.markRead()
+	m.askCard = c.ID
+	m.buildForm(true)
+	for i, it := range m.form.items() {
+		if it.field != nil && it.field.key == "text" {
+			m.form.setFocus(i)
+		}
+	}
+	return tea.Batch(read, m.focusForm())
+}
+
+func (m *model) askForm(c inbox.Card) *form {
+	t, err := ask.TargetOf(m.u.cfg, c, m.refMessages(c))
+	agentLine, sessionLine := "Agent      "+t.Agent(), "Session    "+t.Session()
+	if err != nil {
+		agentLine, sessionLine = "Agent      "+err.Error(), ""
+	}
+	text := areaField("text", "Text", "", fmt.Sprintf("%d characters at most", reply.MaxText), 6, func(s string) error {
+		_, err := ask.CheckText(s)
+		return err
+	})
+	text.area.CharLimit = reply.MaxText
+	fm := &form{fields: []*formField{
+		noteField(agentLine, textStyle),
+		noteField(sessionLine, textStyle),
+		noteField("The agent answers in this card.", faint),
+		text,
+	}}
+	fm.buttons = []button{
+		{label: "Send", primary: true, run: func() tea.Cmd { return m.sendAsk(c, fm) }},
+		{label: "Cancel", run: func() tea.Cmd { return func() tea.Msg { return formEsc{} } }},
+	}
+	return fm
+}
+
+// sendAsk sends the ask of the form outside the UI loop. It can wait up to
+// ask.Wait for a busy agent.
+func (m *model) sendAsk(c inbox.Card, fm *form) tea.Cmd {
+	if !fm.validate() {
+		return nil
+	}
+	st := m.u.d.Store
+	if st == nil {
+		return nil
+	}
+	d := ask.Deps{Store: st, Config: m.u.cfg, NewDriver: m.u.d.AskDriver, CardCommand: m.u.d.CardCommand,
+		LockDir: m.u.d.Paths.DataDir, Now: m.now}
+	text, ctx := fm.field("text").value(), m.ctx
+	fm.busy = "Sending… (waits up to 2 minutes for a busy agent)"
+	fm.err = ""
+	return func() tea.Msg {
+		a, err := ask.Send(ctx, d, c, text, ask.Wait)
+		return askDoneMsg{cardID: c.ID, ask: a, err: err}
+	}
+}
+
+func (m *model) closeAsk() {
+	m.askCard, m.form, m.formFor = 0, nil, ""
+}
+
+// cancelAsk closes the ask form. When the user typed text, it asks first.
+func (m *model) cancelAsk() {
+	if m.form == nil || !m.form.dirty() {
+		m.closeAsk()
+		m.setStatus("Ask cancelled. Nothing is sent.", false)
+		return
+	}
+	m.openDialog(&confirmDialog{name: "Discard the ask", text: "Discard the text of the ask? Nothing is sent.",
+		choices: []choice{{"d", "Discard", func() tea.Cmd {
+			m.closeAsk()
+			m.setStatus("Ask cancelled. Nothing is sent.", false)
+			return nil
+		}}}})
+}
+
+// askDone shows the result of an ask. On an error, the form stays open with
+// the text and shows the error under the Text field.
+func (m *model) askDone(msg askDoneMsg) tea.Cmd {
+	open := m.form != nil && m.askCard == msg.cardID
+	if open {
+		m.form.busy = ""
+	}
+	if msg.err != nil {
+		if open {
+			m.form.field("text").err = msg.err.Error()
+			m.form.err = "The ask is not sent."
+		}
+		m.setStatus("The ask is not sent: "+msg.err.Error(), true)
+		return nil
+	}
+	if open {
+		m.closeAsk()
+	}
+	if msg.ask.State == inbox.AskSent {
+		m.setStatus(fmt.Sprintf("Sent to the agent (%s). It answers in this card.", msg.ask.Profile), false)
+	} else {
+		m.setStatus("The agent is busy. i2a sends the ask on the next dispatch.", false)
+	}
+	st, all := m.u.d.Store, m.feedAll
+	return func() tea.Msg { return readFeed(m.ctx, st, all) }
+}
+
 func feedHints() []hint {
-	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"}, {"u", "unread"},
-		{"s", "sort"}, {"f", "filter"}, {"a", "done cards"}}
+	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
+		{"u", "unread"}, {"s", "sort"}, {"f", "filter"}, {"a", "done cards"}}
 }

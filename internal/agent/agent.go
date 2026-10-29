@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,11 +22,17 @@ const (
 type Result struct {
 	Status string
 	Detail string
+	Handle string // the terminal that got the prompt; "" when no terminal got it
 }
 
-// Driver delivers one batch. An error means the batch was not delivered.
+// Driver delivers one batch or one ask. An error means that nothing was delivered.
 type Driver interface {
 	Deliver(ctx context.Context, b *render.Rendered) (Result, error)
+	// Ask sends the prompt of an ask (render.Ask). When handle is a live
+	// terminal, the ask goes there, and Ask waits up to wait for the agent
+	// to be idle. Otherwise the ask goes to the agent of the profile as a
+	// batch does, with the same wait for a busy reuse session.
+	Ask(ctx context.Context, handle string, wait time.Duration, a *render.Rendered) (Result, error)
 }
 
 // Sessions stores the terminal handle of each profile and the hash of the
@@ -71,4 +78,12 @@ type DryRun struct{}
 // Deliver returns sent without starting any process.
 func (DryRun) Deliver(_ context.Context, b *render.Rendered) (Result, error) {
 	return Result{Status: StatusSent, Detail: "dry-run: digest only"}, nil
+}
+
+// ErrDryRunAsk is the error of an ask to a dry-run profile: no agent reads it.
+var ErrDryRunAsk = errors.New("dry-run: no agent reads asks")
+
+// Ask returns ErrDryRunAsk.
+func (DryRun) Ask(context.Context, string, time.Duration, *render.Rendered) (Result, error) {
+	return Result{}, ErrDryRunAsk
 }

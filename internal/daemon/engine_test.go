@@ -54,20 +54,40 @@ func (f *fakeSource) add(ids ...string) {
 
 // recorder is a driver that records batches and returns a set result.
 type recorder struct {
-	mu      sync.Mutex
-	batches []*render.Rendered
-	result  agent.Result
-	err     error
+	mu         sync.Mutex
+	batches    []*render.Rendered
+	asks       []*render.Rendered
+	askHandles []string
+	events     []string // "batch" and "ask", in the order of the calls
+	result     agent.Result
+	err        error
 }
 
 func (r *recorder) Deliver(_ context.Context, b *render.Rendered) (agent.Result, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.batches = append(r.batches, b)
+	r.events = append(r.events, "batch")
 	if r.err != nil {
 		return agent.Result{}, r.err
 	}
 	return r.result, nil
+}
+
+func (r *recorder) Ask(_ context.Context, handle string, _ time.Duration, a *render.Rendered) (agent.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.asks = append(r.asks, a)
+	r.askHandles = append(r.askHandles, handle)
+	r.events = append(r.events, "ask")
+	if r.err != nil {
+		return agent.Result{}, r.err
+	}
+	res := r.result
+	if res.Status == agent.StatusSent {
+		res.Handle = handle
+	}
+	return res, nil
 }
 
 type harness struct {
@@ -457,5 +477,108 @@ func TestPrimerHasCardSectionForRealDriverOnly(t *testing.T) {
 	}
 	if !strings.Contains(orca.Messages, `{"id":`) {
 		t.Errorf("the data lines have no id: %s", orca.Messages)
+	}
+}
+
+// orcaCfg returns a configuration with one source and one orca profile.
+func orcaCfg() *config.Config {
+	c := cfgWith("work")
+	c.Profiles[0].Driver = config.DriverOrca
+	return c
+}
+
+// queueAsk adds a card from the terminal term_card and a queued ask about it.
+func queueAsk(t *testing.T, h *harness, created time.Time) inbox.Ask {
+	t.Helper()
+	ctx := context.Background()
+	saved, err := h.st.SaveCards(ctx, []inbox.Card{{Key: "mm:pr-57", Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh,
+		Title: "Review PR 57", Handle: "term_card"}}, created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := inbox.Ask{CardID: saved[0].ID, Profile: "triage", Text: "Research more.", CreatedAt: created}
+	if a.ID, err = h.st.StartAsk(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func TestDispatchSendsQueuedAsksBeforeBatches(t *testing.T) {
+	h := newHarness(t, orcaCfg())
+	ctx := context.Background()
+	a := queueAsk(t, h, time.Now())
+	h.sources["work"].add("a1")
+	h.e.Poll(ctx, true)
+	d, err := h.e.Dispatch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(h.drv.events, ",") != "ask,batch" {
+		t.Errorf("driver calls = %v, want the ask first", h.drv.events)
+	}
+	if h.drv.askHandles[0] != "term_card" || !strings.Contains(h.drv.asks[0].Prompt, "--- ask ---\nResearch more.\n--- end ---") {
+		t.Errorf("ask to %q: %s", h.drv.askHandles[0], h.drv.asks[0].Prompt)
+	}
+	if len(d.Asks) != 1 || d.Asks[0].ID != a.ID || d.Asks[0].State != inbox.AskSent {
+		t.Errorf("asks = %+v", d.Asks)
+	}
+	if q, _ := h.st.QueuedAsks(ctx); len(q) != 0 {
+		t.Errorf("queued = %+v, want none", q)
+	}
+	if s := Summary(nil, d); !strings.Contains(s, fmt.Sprintf("ask %d about card %d for triage: sent", a.ID, a.CardID)) {
+		t.Errorf("summary = %q", s)
+	}
+}
+
+func TestDispatchBusyAgentKeepsAskQueued(t *testing.T) {
+	h := newHarness(t, orcaCfg())
+	ctx := context.Background()
+	queueAsk(t, h, time.Now())
+	h.drv.result = agent.Result{Status: agent.StatusHeld, Detail: "agent busy in term_card"}
+	if _, err := h.e.Dispatch(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if q, _ := h.st.QueuedAsks(ctx); len(q) != 1 || q[0].Detail != "agent busy in term_card" {
+		t.Errorf("queued = %+v", q)
+	}
+}
+
+func TestDispatchFailsOldAsk(t *testing.T) {
+	h := newHarness(t, orcaCfg())
+	ctx := context.Background()
+	a := queueAsk(t, h, time.Now().Add(-25*time.Hour))
+	d, err := h.e.Dispatch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.drv.asks) != 0 || len(d.Asks) != 1 || d.Asks[0].State != inbox.AskFailed || d.Asks[0].Detail != "not sent within 1d" {
+		t.Errorf("asks = %+v, driver calls = %d", d.Asks, len(h.drv.asks))
+	}
+	by, _ := h.st.Asks(ctx, []int64{a.CardID})
+	if by[a.CardID][0].State != inbox.AskFailed {
+		t.Errorf("stored ask = %+v", by[a.CardID][0])
+	}
+}
+
+func TestBatchWaitsForTheProfileLock(t *testing.T) {
+	h := newHarness(t, orcaCfg())
+	ctx := context.Background()
+	old := lockWait
+	lockWait = 200 * time.Millisecond
+	t.Cleanup(func() { lockWait = old })
+	unlock, err := agent.Lock(ctx, h.paths.DataDir, "triage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.sources["work"].add("a1")
+	h.e.Poll(ctx, true)
+	d, _ := h.e.Dispatch(ctx)
+	if len(d.Batches) != 1 || d.Batches[0].Status != store.DispatchHeld || h.drv.count() != 0 {
+		t.Fatalf("batches = %+v, driver calls = %d; want held and no call", d.Batches, h.drv.count())
+	}
+	unlock()
+	d, _ = h.e.Dispatch(ctx)
+	if d.Batches[0].Status != store.DispatchSent || h.drv.count() != 1 {
+		t.Errorf("after the unlock: batches = %+v, driver calls = %d", d.Batches, h.drv.count())
 	}
 }

@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS cards (
   state      TEXT NOT NULL DEFAULT 'new',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  done_at    INTEGER
+  done_at    INTEGER,
+  handle     TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS cards_key ON cards(key) WHERE key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS cards_state ON cards(state, updated_at);
@@ -99,6 +100,19 @@ CREATE TABLE IF NOT EXISTS replies (
 );
 CREATE INDEX IF NOT EXISTS replies_card ON replies(card_id);
 CREATE INDEX IF NOT EXISTS replies_target ON replies(message_id, place);
+CREATE TABLE IF NOT EXISTS asks (
+  id         INTEGER PRIMARY KEY,
+  card_id    INTEGER NOT NULL,
+  profile    TEXT NOT NULL,
+  handle     TEXT NOT NULL DEFAULT '',
+  text       TEXT NOT NULL,
+  state      TEXT NOT NULL,
+  detail     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  sent_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS asks_card ON asks(card_id);
+CREATE INDEX IF NOT EXISTS asks_state ON asks(state, created_at);
 `
 
 // Dispatch statuses.
@@ -148,7 +162,8 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) migrate() error {
 	// The tables of an earlier version keep their columns, because CREATE
 	// TABLE IF NOT EXISTS does not change them. migrateV3 adds
-	// sessions.primer_hash and migrateV4 adds messages.thread_id.
+	// sessions.primer_hash, migrateV4 adds messages.thread_id and migrateV5
+	// adds cards.handle.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -178,7 +193,12 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.migrateV4()
+	if v < 4 {
+		if err := s.migrateV4(); err != nil {
+			return err
+		}
+	}
+	return s.migrateV5()
 }
 
 // backup writes a consistent copy of the store to <file>.v<version>.bak
@@ -235,6 +255,29 @@ func (s *Store) migrateV4() error {
 		}
 	}
 	if _, err := tx.Exec(`UPDATE schema_version SET version = 4`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateV5 adds the terminal of the cards. The asks table comes from the
+// schema, because it did not exist before.
+func (s *Store) migrateV5() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'handle'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := tx.Exec(`ALTER TABLE cards ADD COLUMN handle TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 5`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -323,7 +366,7 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	return added, tx.Commit()
 }
 
-const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state`
+const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, profile`
 
 func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	defer rows.Close()
@@ -332,7 +375,7 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 		var m inbox.Message
 		var created int64
 		if err := rows.Scan(&m.ID, &m.SourceID, &m.SourceType, &m.ExternalID, &m.ChannelID, &m.ChannelName,
-			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State); err != nil {
+			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Profile); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = time.UnixMilli(created).UTC()
@@ -486,7 +529,7 @@ func (s *Store) DeleteSession(ctx context.Context, profile string) error {
 	return err
 }
 
-// Prune deletes sent and expired messages, finished dispatches, done cards and replies older than the time.
+// Prune deletes sent and expired messages, finished dispatches, done cards, replies and asks older than the time.
 // It returns the number of deleted messages and the digest paths of the deleted dispatches.
 func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -503,6 +546,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, e
 		return 0, nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM replies WHERE created_at < ?`, before.UnixMilli()); err != nil {
+		return 0, nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM asks WHERE created_at < ?`, before.UnixMilli()); err != nil {
 		return 0, nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT digest_path FROM dispatches WHERE created_at < ? AND status != 'pending'`, before.UnixMilli())

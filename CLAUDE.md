@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a` and sends replies from there (`r`). The agent can send a reply with `i2a reply`. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
+`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a`, sends replies from there (`r`) and asks the agent for more about a card (`t`). The agent can send a reply with `i2a reply`. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
 
 ## Commands
 
@@ -28,9 +28,11 @@ The e2e Mattermost server is `test/e2e/mattermost/compose.yaml`. It runs as `lin
 
 Data flow: `source.Source.Collect` → `store.SavePoll` (messages and cursor in one transaction) → `daemon.Engine.Dispatch` → `agent.Route` → `render.Render` (sanitize, digest file, prompts, card section) → `agent.Driver.Deliver` → `store.FinishDispatch`.
 
-Return path: the agent runs `i2a card add` (JSON on stdin) → `card.Parse` and `card.Prepare` (validate, sanitize, cut) → `store.SaveCards` (one transaction, upsert by key) → `card.Plan` → notifications. The Feed tab reads the cards every 2 seconds. `i2a card add` writes the store directly; it does not talk to the daemon.
+Return path: the agent runs `i2a card add` (JSON on stdin) → `card.Parse` and `card.Prepare` (validate, sanitize, cut) → `card.Handle` (`ORCA_TERMINAL_HANDLE`) → `store.SaveCards` (one transaction, upsert by key) → `card.Plan` → notifications. The Feed tab reads the cards every 2 seconds. `i2a card add` writes the store directly; it does not talk to the daemon.
 
 Reply path: the Feed form (`r`, `ctrl+s`) or `i2a reply` → `reply.Send` (text check, duplicate rule) → `store.StartReply` (`sending`) → `source.Replier` (`mattermost.Source.Reply`: `GET /posts/{id}`, then `POST /posts?set_online=false`) → `store.FinishReply` (`sent` or `failed`) → the card becomes `done`. The daemon is not in this path.
+
+Ask path: the Feed form (`t`, `ctrl+s`) or `i2a ask` → `ask.Send` (text check, `ask.Resolve`: profile of the newest ref message, dry-run refused) → `store.StartAsk` (`queued`) → `agent.Lock` (`<data>/agent-<profile>.lock`) → `render.Ask` → `agent.Driver.Ask` (the live terminal of the card, else `Deliver`) → `store.FinishAsk` (`sent`, `failed`, or still `queued` when the agent is busy for `ask.Wait`). `Engine.Dispatch` sends queued asks with `ask.Retry` before the batches. The agent answers with `i2a card add` and the key of the card.
 
 - `internal/inbox`: shared types (`Message`, `Cursor`, `Card`, states). It prevents import cycles between the source, store, render and agent packages.
 - `internal/source`: the `Source` interface and `Build`. A source returns messages and the next cursor. It never writes to the store.
@@ -39,7 +41,8 @@ Reply path: the Feed form (`r`, `ctrl+s`) or `i2a reply` → `reply.Send` (text 
 - `internal/reply`: the one send flow of the Feed and `i2a reply`. An error with `Answered() == true` means that the platform created no post (`failed`). Any other error keeps the reply `sending`; the next send of the same message, place and text calls `Replier.Find` before it posts again.
 - `internal/render`: the prompt-injection boundary. Each message is one `json.Marshal` line inside a fence labelled `i2a-data-<nonce>`. Hidden characters are removed before encoding. Keep every data line starting with `{`.
 - `internal/card`: the input of `i2a card add` and the notification rule (`Plan`). Card text comes from an agent that read untrusted messages, so it gets the same sanitizing as message text.
-- `internal/agent`: the drivers. In `reuse` mode the store keeps the primer hash with the handle; a different hash starts a new session. Delivery is at least once: messages become `sent` only after the driver returns `sent`; `held` and errors keep them `pending`. A `dry-run` batch makes its messages `previewed`; a real driver still sends `previewed` messages.
+- `internal/ask`: the one send flow of the Feed, `i2a ask` and the daemon. The text of the user is the only instruction in the ask prompt; `render.Ask` puts the card and its messages in the data fence. The ask prompt is not a template and does not change the primer hash, so an ask never restarts a reuse session.
+- `internal/agent`: the drivers. In `reuse` mode the store keeps the primer hash with the handle; a different hash starts a new session. The daemon and an ask hold `agent.Lock` of the profile while they type into a terminal; a batch that waits longer than 3 minutes is `held`. Delivery is at least once: messages become `sent` only after the driver returns `sent`; `held` and errors keep them `pending`. A `dry-run` batch makes its messages `previewed`; a real driver still sends `previewed` messages.
 - `internal/daemon`: `Engine` (poll, dispatch, prune) and `Run` (loop, configuration reload, `flock` lock).
 - `internal/tui`: the dashboard. `i2a` opens it on the Feed tab (`tab_feed.go`), `i2a config` on Overview. The Feed opens only the stored URL of a source message, never a link from card text. `model.go` has the layout (header, tab bar, content, footer), the focus (list or form), the global keys, the mouse zones and the dialog stack. Each tab is one file (`tab_*.go`). Add and edit are forms in the detail panel, made with the small form engine in `form.go` (text inputs, segmented choices and switches, text areas, the channel picker from `picker.go`, buttons, errors under the fields). `buildForm` makes the form of the selected item again when the selection changes or after a save. A form saves through `ui.commit`, which validates and writes the file and the token; there is no global working copy. Dialogs (`dialog.go`) are only for confirmations, the digest viewer and the key help.
 - `internal/notify`: macOS notifications through `osascript`. `i2a card add` notifies for cards; the daemon notifies only for failed dispatches. The title and the text are script arguments, never script code. `I2A_NOTIFY=off` turns them off (the e2e harness sets it).
@@ -53,7 +56,8 @@ Facts about the `orca` CLI (1.4.240) that the driver depends on:
 - `orca terminal wait --for tui-idle` returns the error code `timeout` when the agent is busy.
 - Do not pass `--prompt` to `orca agent launch` or `orca worktree create`. Orca types it while the agent starts, and it can stay in the input box with no Enter (`prompt.outcome` is still `handed-to-terminal`), or not arrive (`not-delivered`). The driver launches with no prompt, waits for `tui-idle`, then runs `orca terminal send --enter --wait-submit 30`. The stage `turn_started` proves the submission.
 - `orca terminal send --enter` with no `--text` sends a bare Enter.
-- Prompts are command arguments (the RPC limit is 1 MiB). Keep `inline_max_bytes` at 65,536 or less.
+- Prompts are command arguments (the RPC limit is 1 MiB). Keep `inline_max_bytes` at 65,536 or less. An ask prompt drops message lines above 65,536 bytes.
+- Orca sets `ORCA_TERMINAL_HANDLE` (`term_<uuid>`) in an agent terminal. `orca terminal show --terminal "$ORCA_TERMINAL_HANDLE"` returns that terminal. The e2e harness clears it, so a scenario card does not record the terminal of the test run.
 
 The fixtures in `internal/agent/testdata` are real Orca outputs with local paths replaced.
 
