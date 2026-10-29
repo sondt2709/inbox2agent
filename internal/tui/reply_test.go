@@ -155,3 +155,18 @@ func TestFeedReplyRefusals(t *testing.T) {
 		t.Errorf("posts = %d, want 0", len(p.posts))
 	}
 }
+
+// The question card has "See https://evil.example" in its body and refers to
+// message p2. The reply goes to p2, never to the link.
+func TestFeedReplyTargetIsTheStoredMessage(t *testing.T) {
+	h, p := newReplyFeed(t)
+	send(h.m, "down", "r")
+	typeText(h.m, "Thanks, I will review it.")
+	send(h.m, "ctrl+s")
+	if len(p.posts) != 1 || p.posts[0].Target.ExternalID != "p2" || !p.posts[0].Thread {
+		t.Fatalf("posts = %+v, want one reply in the thread of the stored message p2", p.posts)
+	}
+	if strings.Contains(p.posts[0].Target.URL, "evil") {
+		t.Errorf("target URL = %q", p.posts[0].Target.URL)
+	}
+}
