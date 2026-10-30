@@ -49,5 +49,5 @@
 
 ## 8. Evidence
 
-- [ ] 8.1 Run the test plan on the last commit; save the results in `tmp/evidence/add-whatsapp-source/after/`
-- [ ] 8.2 Run `task leakcheck` and a scan for phone numbers, JIDs and names before each commit
+- [x] 8.1 Run the test plan on the last commit; save the results in `tmp/evidence/add-whatsapp-source/after/`
+- [x] 8.2 Run `task leakcheck` and a scan for phone numbers, JIDs and names before each commit

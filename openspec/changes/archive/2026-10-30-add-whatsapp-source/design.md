@@ -93,7 +93,7 @@ whatsmeow sends no read receipt and no presence unless the code calls `MarkRead`
 - [A WhatsApp protocol change breaks whatsmeow] → The source logs the error and the other sources continue. Update the exact whatsmeow version in `go.mod`.
 - [A copy of `whatsapp-<id>.db` gives full access to the account] → Mode 0600 in a 0700 directory; `remove` logs out and deletes the file.
 - [The release binary grows from 16.6 MB to 26.4 MB] → Accepted by the stakeholder (estimate: about 9 MB).
-- [CI cannot test the real connection] → The logic behind `Collect` and the text extraction take a fake event stream and real fixtures. A local scenario with `I2A_E2E_WHATSAPP=1` covers pairing and receive.
+- [CI cannot test the real connection] → The logic behind `Collect` and the text extraction take a fake event stream and real fixtures. The local scenario S35 covers pairing and receive by hand, because it needs a phone.
 - [A history sync can be large on the first pairing] → Rows older than `lookback` are skipped at receive time and are not stored.
 - [The daemon is off for about 14 days and the phone unlinks i2a] → The notification and "not paired" tell the user to pair again.
 

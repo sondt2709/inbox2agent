@@ -28,8 +28,8 @@ Many requests to the user arrive in WhatsApp, not in Mattermost. i2a cannot read
 ## Impact
 
 - Code: new `internal/source/whatsapp`; `internal/source` (`Build` gets the data directory and the logger); `internal/config`; `internal/cli` (`source`, `status`, `run`, `daemon`); `internal/tui/tab_sources.go`; `internal/daemon`.
-- Dependencies: `go.mau.fi/whatsmeow` (MPL-2.0) and its modules, `rsc.io/qr` (BSD) for the QR code. The binary grows by about 9 MB.
+- Dependencies: `go.mau.fi/whatsmeow` (MPL-2.0) and its modules, `rsc.io/qr` (BSD) for the QR code. The release binary grows by about 10 MB (16.6 MB to 26.4 MB).
 - External systems: a persistent WebSocket from the daemon to WhatsApp. WhatsApp does not allow unofficial clients and can ban an account.
 - Data: a new file `<data>/whatsapp-<id>.db` for each source, with the account keys. No change to `inbox.db`.
-- Tests: unit tests with message fixtures from a real account (names and numbers replaced); a local e2e scenario with `I2A_E2E_WHATSAPP=1`. CI does not connect to WhatsApp.
+- Tests: unit tests with message fixtures from a real account (names and numbers replaced); CI scenarios for the not-paired state and the add form; a local scenario by hand (S35), because pairing needs a phone. CI does not connect to WhatsApp.
 - No new secret in the keychain, no network port, no CI change.
