@@ -163,7 +163,7 @@ func (m *model) hintsConversations() []hint {
 	if len(m.convSel) > 0 {
 		return []hint{{"space", "select"}, {"m", fmt.Sprintf("move %d", len(m.convSel))}, {"l", "read level"}, {"esc", "clear"}}
 	}
-	return []hint{{"↑↓", "move"}, {"space", "select"}, {"m", "move to space"}, {"l", "read level"}, {"n", "rename"}, {"/", "search"}, {"f", "filter"}}
+	return []hint{{"↑↓", "move"}, {"space", "select"}, {"a", "select all"}, {"m", "move to space"}, {"l", "read level"}, {"n", "rename"}, {"/", "search"}, {"f", "filter"}}
 }
 
 // targets returns the selected conversations, or the conversation under the cursor.
@@ -203,6 +203,19 @@ func (m *model) keyConversations(k string) tea.Cmd {
 		}
 	case "esc":
 		clear(m.convSel)
+	case "a":
+		// Select all shown rows, or clear them when all are selected.
+		all := len(rows) > 0
+		for _, r := range rows {
+			all = all && m.convSel[convKey(r.Account.ID, r.ID)]
+		}
+		for _, r := range rows {
+			if all {
+				delete(m.convSel, convKey(r.Account.ID, r.ID))
+			} else {
+				m.convSel[convKey(r.Account.ID, r.ID)] = true
+			}
+		}
 	case "/":
 		m.searching = true
 		return m.search.Focus()

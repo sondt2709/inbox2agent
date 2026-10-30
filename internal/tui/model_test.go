@@ -380,6 +380,23 @@ func TestConversationsMoveReadLevelAndRename(t *testing.T) {
 	}
 }
 
+func TestSelectAllShownThenSetOff(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "4", "f", "a") // the filter Unsorted, then all shown rows
+	if len(m.convSel) != 2 {
+		t.Fatalf("selected = %v, want the 2 unsorted conversations", m.convSel)
+	}
+	send(m, "l") // mentions → off; the save clears the selection
+	c, _ := config.Load(m.u.d.Paths.ConfigFile)
+	if c.Level("work", "D1") != config.ReadOff || c.Level("work", "G1") != config.ReadOff || c.Level("work", "C1") != config.ReadAll {
+		t.Errorf("levels: D1 %s, G1 %s, C1 %s", c.Level("work", "D1"), c.Level("work", "G1"), c.Level("work", "C1"))
+	}
+	send(m, "a", "a")
+	if len(m.convSel) != 0 {
+		t.Errorf("a on a full selection did not clear it: %v", m.convSel)
+	}
+}
+
 func TestDeleteAgentAsksForReplacement(t *testing.T) {
 	m := newTestModel(t)
 	send(m, "6", "down", "x")

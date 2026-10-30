@@ -206,10 +206,10 @@ func migrateV1(b []byte) (*Config, error) {
 				s.ID, c.Unsorted.Agent, dest, dest)
 		}
 		if read == ReadMentions && !s.AllDirect {
-			note("Account %q: direct messages now arrive too, because the read level mentions includes direct conversations. Set them to off in Unsorted to stop them.", s.ID)
+			note("Account %q: direct messages now arrive too, because the read level mentions includes direct conversations. To stop them: i2a config, tab 4, f to the filter of the account, a to select all, l to set them off.", s.ID)
 		}
 		if read == ReadMentions && !s.Mentions {
-			note("Account %q: mentions in channels and groups that no space lists now arrive too. Set them to off in Unsorted to stop them.", s.ID)
+			note("Account %q: mentions in channels and groups that no space lists now arrive too. To stop them: i2a config, tab 4, f to the filter of the account, a to select all, l to set them off.", s.ID)
 		}
 	}
 	c.Migration = m

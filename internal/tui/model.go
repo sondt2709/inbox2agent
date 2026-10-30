@@ -625,7 +625,7 @@ Quit        q or ctrl+c · Refresh ctrl+r
 Feed           r reply · t ask the agent · c copy the reply · o open the thread
                d done · u unread · s sort · f category · F space · a done cards
 Accounts       enter edit · x remove
-Conversations  space select · m move to a space · l read level · n rename
+Conversations  space select · a select all shown · m move to a space · l read level · n rename
                / search · f filter (all, Unsorted, account, kind, space)
 Spaces         enter edit · a add conversations · c show its conversations · x delete
 Agents         enter edit · x delete (choose a replacement)

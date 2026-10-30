@@ -166,6 +166,7 @@ In the Conversations tab:
 |---|---|
 | `↑` / `↓` | Move |
 | `space` | Select or clear the row; `esc` clears all |
+| `a` | Select all shown rows (for example after `f` and `/`), or clear them |
 | `m` | Move the selected rows (or the row) to a space, or to a new space |
 | `l` | Change the read level: all → mentions → off |
 | `n` | Give the conversation a name. An empty name shows the name on the platform again. |
