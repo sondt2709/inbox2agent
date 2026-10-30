@@ -25,7 +25,7 @@ Fields:
 - urgency: "high" (today, or someone waits for me), "normal" or "low" (for the record only).
 - group: the project or the team.
 - title: one line that tells what to do or what happened.
-- body: the summary and the evidence. It can have more lines.
+- body: the summary and the evidence. It can have more lines. You can use Markdown (headings, lists, bold, code, tables). Links show as text and cannot be opened.
 - reply: a suggested reply. Leave it empty when no reply is necessary.
 - refs: the "id" values of the messages of this topic, from the data block.
 - key: a stable key for the topic, for example "mm:" and the thread or the channel. Use the same key for the same topic, and i2a updates that card.

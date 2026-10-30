@@ -229,3 +229,31 @@ func TestS24CardUpdateDoneAndReject(t *testing.T) {
 		t.Fatalf("cards = %+v, want one done high card and nothing from the rejected call", cs)
 	}
 }
+
+// S36: the Feed renders a card body as Markdown. Links show as text, and the
+// suggested reply stays plain.
+func TestS36MarkdownBody(t *testing.T) {
+	p := newPerson(t, "S36")
+	if err := os.WriteFile(filepath.Join(p.home, "config.toml"), []byte("[[profiles]]\nname = \"triage\"\ndriver = \"dry-run\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, code := p.addCards(`[{"category":"action","urgency":"high","title":"S36 release is blocked",
+	  "body":"## Status\n\n**Blocked**: QA needs your sign-off.\n\n- Login timeout\n- Export size\n\n| Issue | Owner |\n|---|---|\n| Login | QA |\n\nSee [the run](https://ci.example.com/run/42).",
+	  "reply":"**Yes**, ship it."}]`)
+	if code != 0 {
+		t.Fatalf("card add: exit %d\n%s", code, s)
+	}
+	tm := p.term("")
+	s = tm.WaitFor(`S36 release is blocked`, 30*time.Second)
+	for _, want := range []string{"Blocked: QA needs your sign-off.", "• Login timeout", "• Export size", "Issue", "Owner", "the run", "https://ci.example.com/run/42", "**Yes**, ship it."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the Feed does not show %q:\n%s", want, s)
+		}
+	}
+	for _, bad := range []string{"**Blocked**", "## Status", "|---|", "[the run]"} {
+		if strings.Contains(s, bad) {
+			t.Errorf("the Feed shows the raw mark %q:\n%s", bad, s)
+		}
+	}
+	tm.Press("q", `\[exit 0\]`, 5*time.Second)
+}

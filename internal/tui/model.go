@@ -103,6 +103,7 @@ type model struct {
 	replyCard  int64                   // the card of the open reply form; 0 when no reply form is open
 	asks       map[int64][]inbox.Ask   // the asks of the cards, by card ID
 	askCard    int64                   // the card of the open ask form; 0 when no ask form is open
+	md         markdown                // the rendered card bodies
 
 	// form is the form of the detail panel; formFor names what it edits.
 	form    *form
