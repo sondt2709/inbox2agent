@@ -27,7 +27,7 @@ The system SHALL store each source token in the secret backend with the key `<so
 - **THEN** `secrets.json` has the file mode 0600
 
 ### Requirement: Configuration validation
-The system SHALL validate the configuration when it loads it and when the TUI saves it. Durations SHALL use Go duration syntax. `active_hours` SHALL be empty or `HH:MM-HH:MM`. `inline_max_bytes` SHALL be between 1,024 and 65,536. Each source and each `channel_profiles` value SHALL name a profile that exists. Source IDs and profile names SHALL be unique.
+The system SHALL validate the configuration when it loads it and when the TUI saves it. Durations SHALL use Go duration syntax. `active_hours` SHALL be empty or `HH:MM-HH:MM`. `inline_max_bytes` SHALL be between 1,024 and 65,536. Each source and each `channel_profiles` value SHALL name a profile that exists. Source IDs and profile names SHALL be unique. The source type SHALL be `mattermost` or `whatsapp`. A `mattermost` source SHALL have a `url` that starts with `https://` or `http://`. A `whatsapp` source SHALL NOT need a `url`.
 
 #### Scenario: Invalid duration
 - **WHEN** the configuration has `interval = "ten minutes"`
@@ -36,6 +36,14 @@ The system SHALL validate the configuration when it loads it and when the TUI sa
 #### Scenario: Unknown profile
 - **WHEN** a source has `profile = "missing"` and no profile has that name
 - **THEN** the system reports that the profile `missing` does not exist
+
+#### Scenario: WhatsApp source
+- **WHEN** the configuration has a source with `type = "whatsapp"` and no `url`
+- **THEN** the configuration is valid
+
+#### Scenario: Unknown source type
+- **WHEN** the configuration has a source with `type = "slack"`
+- **THEN** the system reports that the type `slack` is not supported
 
 ### Requirement: Configuration TUI
 The system SHALL provide a full-screen dashboard in the alternate screen of the terminal, with the tabs Feed, Overview, Sources, Profiles, Schedule and Activity. `i2a` with no arguments SHALL open the dashboard on the Feed tab. `i2a config` SHALL open the dashboard on the Overview tab. The keys `1` to `6`, `tab` and `shift+tab`, and a mouse click on a tab SHALL change the tab. The Sources and Profiles tabs SHALL have a list at the left and a detail panel at the right. The detail panel SHALL be the form of the selected item, or the form of a new item when "+ Add" is selected; the TUI SHALL NOT use separate screens or dialogs to add or edit. A form SHALL show all its fields at one time, with the help of the focused field, an error under each field that is not valid, and buttons. Submitting a form (`ctrl+s`, the primary button, or `enter` in the last field) SHALL write the configuration file. `esc` SHALL give the keyboard back to the list and SHALL ask before it discards changes. The footer SHALL show the keys of the current focus. `q` SHALL quit; `?` SHALL show all keys.
@@ -54,7 +62,11 @@ The system SHALL provide a full-screen dashboard in the alternate screen of the 
 
 #### Scenario: Add in the detail panel
 - **WHEN** the user selects "+ Add source"
-- **THEN** the detail panel shows the form of a new source with the fields Source ID, Server URL and Token and the button "Connect"
+- **THEN** the detail panel shows the form of a new source with the fields Type, Source ID, Server URL and Token and the button "Connect"
+
+#### Scenario: Add form for WhatsApp
+- **WHEN** the user selects "+ Add source" and sets Type to WhatsApp
+- **THEN** the form shows the fields Type, Source ID and Phone number, and hides Server URL and Token
 
 #### Scenario: Error under the field
 - **WHEN** the user types `abc` as the interval and presses `ctrl+s`
@@ -73,7 +85,7 @@ The system SHALL provide a full-screen dashboard in the alternate screen of the 
 - **THEN** the configuration file contains `interval = "10m"`, and the dashboard stays open
 
 ### Requirement: Source and channel picker
-The system SHALL let the user add a Mattermost source in the TUI. The TUI SHALL check the URL and the token with the server before it saves them. After a successful check, the TUI SHALL show a list of the channels of all teams of the user and of the direct and group conversations of the user, with a search box that always has the focus. The list SHALL show the team channels first, then the conversations with the most recent post first. A conversation label SHALL start with `direct /` or `group /` and SHALL name the other people, not the user. The search SHALL ignore case. Space SHALL select the channel under the cursor and SHALL NOT type into the search. `Esc` SHALL clear the search and keep the selected channels. The selected channels SHALL show first when the list opens. The user SHALL be able to select channels, turn on "all direct and group messages", turn on "mentions in any channel", and select a profile.
+The system SHALL let the user add a Mattermost source or a WhatsApp source in the TUI. For Mattermost, the TUI SHALL check the URL and the token with the server before it saves them. For WhatsApp, the TUI SHALL pair the device (see the capability `whatsapp-source`) before it shows the list. After a successful check or pairing, the TUI SHALL show a list of the channels of all teams of the user and of the direct and group conversations of the user (Mattermost), or of the direct chats and groups of the user (WhatsApp), with a search box that always has the focus. The list SHALL show the team channels first, then the conversations with the most recent message first. A conversation label SHALL start with `direct /` or `group /` and SHALL name the other people, not the user. The search SHALL ignore case. Space SHALL select the channel under the cursor and SHALL NOT type into the search. `Esc` SHALL clear the search and keep the selected channels. The selected channels SHALL show first when the list opens. The user SHALL be able to select channels, turn on "all direct and group messages" (Mattermost) or "all direct chats" (WhatsApp), turn on "mentions", and select a profile. The form of a saved WhatsApp source SHALL read the chat list from the message file of the source, with no connection.
 
 #### Scenario: Valid token
 - **WHEN** the user types a valid URL and token
@@ -96,6 +108,14 @@ The system SHALL let the user add a Mattermost source in the TUI. The TUI SHALL 
 - **WHEN** the user searches `sec`, presses space, presses `Esc`, searches `api` and presses space
 - **THEN** both channels are selected, and the list shows all channels again after each `Esc`
 
+#### Scenario: WhatsApp chats after pairing
+- **WHEN** the user pairs a WhatsApp source
+- **THEN** the TUI shows "Paired" and a list of the groups and direct chats with labels that start with `group /` and `direct /`
+
+#### Scenario: Edit a WhatsApp source while the daemon runs
+- **WHEN** the daemon holds the connection of the WhatsApp source `phone` and the user opens the form of `phone`
+- **THEN** the form shows the chat list and the state `paired`
+
 ### Requirement: Orca permission warning
 When the user selects the `orca` driver for a profile, the TUI SHALL show a warning that Orca can start agents with permission prompts off, and that message text can contain instructions from other people.
 
@@ -104,7 +124,7 @@ When the user selects the `orca` driver for a profile, the TUI SHALL show a warn
 - **THEN** the screen shows the permission warning before the user saves the profile
 
 ### Requirement: Non-interactive source commands
-The system SHALL provide `i2a source add mattermost --id <id> --url <url> --token-stdin`, `i2a source list` and `i2a source channels <id>`. `source add` SHALL do the same connection check as the TUI.
+The system SHALL provide `i2a source add mattermost --id <id> --url <url> --token-stdin`, `i2a source add whatsapp --id <id> [--phone <number>]`, `i2a source list`, `i2a source channels <id>` and `i2a source remove <id>`. `source add mattermost` SHALL do the same connection check as the TUI. `source add whatsapp` SHALL print the QR code, or the pairing code when `--phone` is given, and SHALL add the source after the pairing. `source remove` of a WhatsApp source SHALL log out the linked device and delete `<data>/whatsapp-<id>.db`; when the logout fails, it SHALL delete the file and tell the user to remove "i2a" in Linked devices on the phone.
 
 #### Scenario: Add source from a script
 - **WHEN** a script pipes a valid token to `i2a source add mattermost --id work --url <url> --token-stdin`
@@ -113,4 +133,12 @@ The system SHALL provide `i2a source add mattermost --id <id> --url <url> --toke
 #### Scenario: List channels
 - **WHEN** the user runs `i2a source channels work`
 - **THEN** the output lists each channel with its ID, team, type and name
+
+#### Scenario: Add a WhatsApp source
+- **WHEN** the user runs `i2a source add whatsapp --id phone` and scans the QR code
+- **THEN** the command prints "Paired" and adds the source `phone` with `all_direct` and `mentions` on
+
+#### Scenario: Remove a WhatsApp source
+- **WHEN** the user runs `i2a source remove phone`
+- **THEN** the source leaves the configuration file, `<data>/whatsapp-phone.db` is deleted, and the phone does not list "i2a" in Linked devices
 

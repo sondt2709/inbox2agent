@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a`, sends replies from there (`r`) and asks the agent for more about a card (`t`). The agent can send a reply with `i2a reply`. Sources: Mattermost now; WhatsApp, GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
+`i2a` (inbox2agent) is a Go CLI. It polls chat and work tools for new messages and sends them in batches to an AI agent. The agent sends its results back as cards with `i2a card add`; the user reads them in the Feed tab of `i2a`, sends replies from there (`r`) and asks the agent for more about a card (`t`). The agent can send a reply with `i2a reply`. Sources: Mattermost and WhatsApp (receive only) now; GitHub and Linear later. Drivers: `orca` (the Orca CLI) and `dry-run`. One static binary (`CGO_ENABLED=0`), macOS first.
 
 ## Commands
 
@@ -19,6 +19,7 @@ I2A_E2E_ORCA=1 I2A_E2E_SERVICE=1 task e2e    # also the Orca and LaunchAgent sce
 task leakcheck                               # forbidden terms from .leakcheck.local
 task dist -- 1.2.0                           # release archives and checksums.txt in dist/
 internal/source/mattermost/testdata/capture.sh   # capture Mattermost fixtures again (needs a new server)
+go run ./internal/source/whatsapp/testdata/capture -db <data>/whatsapp-<id>.db   # WhatsApp fixtures from a paired source
 docs/demo/record.sh                          # record docs/demo/i2a-config.gif with VHS
 ```
 
@@ -36,6 +37,7 @@ Ask path: the Feed form (`t`, `ctrl+s`) or `i2a ask` → `ask.Send` (text check,
 
 - `internal/inbox`: shared types (`Message`, `Cursor`, `Card`, states). It prevents import cycles between the source, store, render and agent packages.
 - `internal/source`: the `Source` interface and `Build`. A source returns messages and the next cursor. It never writes to the store.
+- `internal/source/whatsapp`: a linked device of a personal account, made with whatsmeow. The process that collects (the daemon or `i2a run --once`) holds the connection and locks `<data>/whatsapp-<id>.lock`. The whatsmeow event handler writes each message to `wa_messages` in `<data>/whatsapp-<id>.db` (the same file holds the device keys, mode 0600); `Collect` reads the rows after the cursor `{"rowid": n}`. Pairing runs in the TUI or in `i2a source add whatsapp`, never in the daemon. `source.Source` can implement `io.Closer`; `Engine.SetConfig` and `Engine.Close` close the sources.
 - `internal/source/mattermost`: a small typed REST client, not the official module. Polling uses `GET /channels/{id}/posts?page&per_page` (newest first, stop at the cursor). Do not use `posts?since=`: it filters on `update_at` and has an unordered `LIMIT 1000`. Never call an endpoint that marks a channel as read. Sending uses `POST /posts` only.
 - Mattermost facts that the send depends on (checked on the Docker server): `root_id` must be the thread root (a reply ID gives HTTP 400); a top-level post of the user marks the channel read and a thread reply does not, also with `set_online=false`; the same `pending_post_id` returns the first post for about 30 seconds only.
 - `internal/reply`: the one send flow of the Feed and `i2a reply`. An error with `Answered() == true` means that the platform created no post (`failed`). Any other error keeps the reply `sending`; the next send of the same message, place and text calls `Replier.Find` before it posts again.
@@ -61,11 +63,22 @@ Facts about the `orca` CLI (1.4.240) that the driver depends on:
 
 The fixtures in `internal/agent/testdata` are real Orca outputs with local paths replaced.
 
+Facts about WhatsApp and whatsmeow that the source depends on:
+
+- whatsmeow sends no read receipt and no presence unless the code calls `MarkRead` or `SendPresence`. Never call them. It sends delivery receipts (grey ticks).
+- One set of device keys can have one connection. A second connection replaces the first (`events.StreamReplaced`). Never copy a `whatsapp-<id>.db` to a test.
+- The QR channel ends after about 160 seconds (`QRChannelTimeout`). `PairPhone` must come after the first QR event and needs a display name `Browser (OS)` from the list of WhatsApp ("Chrome (Mac OS)").
+- whatsmeow deletes the device row at `events.LoggedOut`. Event handlers run one at a time, so a network call (group name) in a handler runs in a goroutine.
+- Many senders have a `@lid` address. The phone number comes from `SenderAlt`, `RecipientAlt` or the LID store.
+- A disconnect always logs "Error sending close to websocket"; the source drops this warning.
+- whatsmeow builds with `CGO_ENABLED=0` and `modernc.org/sqlite` (`sqlstore.NewWithDB(db, "sqlite", log)`).
+- The fixtures in `internal/source/whatsapp/testdata/messages.jsonl` are real stored messages. The capture tool replaces addresses, IDs, names and texts and removes all bytes. Read its output before a commit.
+
 ## Rules
 
 - **Writing:** use ASD-STE100 style for all text (docs, comments, errors, OpenSpec artifacts, PRs). Use short sentences, the active voice and one term for one concept. Name the specific file, command or value.
 - **No personal data in committed files:** no local paths, real server names, real usernames or other project names. `task leakcheck` checks the terms in `.leakcheck.local` (not committed). `tmp/` holds local secrets and is git-ignored.
-- **Fixtures must copy real responses.** Mattermost fixtures come from `capture.sh` against the Docker server. Orca fixtures come from a real `orca` run with the paths replaced. Do not write the shape of external data by hand.
+- **Fixtures must copy real responses.** Mattermost fixtures come from `capture.sh` against the Docker server. Orca fixtures come from a real `orca` run with the paths replaced. WhatsApp fixtures come from `testdata/capture` on a paired source. Do not write the shape of external data by hand.
 - **A new test must be able to fail.** Break the code one time and confirm that the test fails, then restore the code.
 - **E2E tests drive the real binary.** They use `test/e2e/harness` (a detached tmux session on a private socket). Wait for the screen text before you send keys. Use `Term.Press`, which sends a key again when it changed nothing. Huh can drop the first key while a form starts. Wait for text that shows only on the target screen: the dashboard draws dialogs over the tab, so the tab text stays visible under a dialog. The footer keys of a tab (for example `enter edit`) show only when no dialog is open.
 - In some agent sessions, the `tmux` in `PATH` is an Orca shim. The harness skips paths that contain `/.orca/`. Set `I2A_E2E_TMUX` to choose a binary.

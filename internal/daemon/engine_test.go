@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,20 +18,27 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
-	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/source"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
 // fakeSource returns the messages in its queue one time.
 type fakeSource struct {
-	id   string
-	mu   sync.Mutex
-	msgs []inbox.Message
-	err  error
+	id     string
+	mu     sync.Mutex
+	msgs   []inbox.Message
+	err    error
+	closes int
 }
 
 func (f *fakeSource) ID() string { return f.id }
+
+func (f *fakeSource) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closes++
+	return nil
+}
 func (f *fakeSource) Collect(_ context.Context, cur inbox.Cursor, _ time.Time) ([]inbox.Message, inbox.Cursor, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -119,7 +125,7 @@ func newHarness(t *testing.T, cfg *config.Config) *harness {
 		Paths: paths, Store: st,
 		Log:       slog.New(slog.NewTextHandler(syncWriter{&h.logMu, h.log}, nil)),
 		NewDriver: func(config.Profile, agent.Sessions) (agent.Driver, error) { return h.drv, nil },
-		BuildSource: func(sc config.Source, _ secrets.Store, _ time.Duration, _ *http.Client) (source.Source, error) {
+		BuildSource: func(sc config.Source, _ source.Env) (source.Source, error) {
 			return h.sources[sc.ID], nil
 		},
 	}, cfg)
@@ -580,5 +586,53 @@ func TestBatchWaitsForTheProfileLock(t *testing.T) {
 	d, _ = h.e.Dispatch(ctx)
 	if d.Batches[0].Status != store.DispatchSent || h.drv.count() != 1 {
 		t.Errorf("after the unlock: batches = %+v, driver calls = %d", d.Batches, h.drv.count())
+	}
+}
+
+func TestSetConfigAndCloseCloseTheSources(t *testing.T) {
+	h := newHarness(t, cfgWith("work"))
+	ctx := context.Background()
+	src := h.sources["work"]
+
+	h.e.Poll(ctx, true)
+	h.e.SetConfig(cfgWith("work"))
+	if src.closes != 1 {
+		t.Fatalf("closes after SetConfig = %d, want 1", src.closes)
+	}
+	h.e.Poll(ctx, true) // builds the source again
+	h.e.Close()
+	if src.closes != 2 {
+		t.Fatalf("closes after Close = %d, want 2", src.closes)
+	}
+	h.e.Close()
+	if src.closes != 2 {
+		t.Errorf("a second Close closed the source again: %d", src.closes)
+	}
+}
+
+func TestNotifyNotPairedOnceUntilAGoodPoll(t *testing.T) {
+	h := newHarness(t, cfgWith("phone"))
+	var got []string
+	h.e.d.Notify = func(title, text string) { got = append(got, title+" | "+text) }
+	ctx := context.Background()
+	src := h.sources["phone"]
+
+	src.err = fmt.Errorf("open: %w", source.ErrNotPaired)
+	for range 3 {
+		h.e.Poll(ctx, true)
+	}
+	want := "i2a: WhatsApp not paired | Source phone: pair again in i2a config (Sources)."
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("notifications = %q, want one %q", got, want)
+	}
+
+	src.err = errors.New("network down") // other errors do not notify
+	h.e.Poll(ctx, true)
+	src.err = nil
+	h.e.Poll(ctx, true)
+	src.err = source.ErrNotPaired
+	h.e.Poll(ctx, true)
+	if len(got) != 2 {
+		t.Errorf("after a good poll, notifications = %q, want 2", got)
 	}
 }

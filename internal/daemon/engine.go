@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -44,7 +45,7 @@ type Deps struct {
 	HTTP        *http.Client
 	Now         func() time.Time
 	NewDriver   func(p config.Profile, s agent.Sessions) (agent.Driver, error)
-	BuildSource func(sc config.Source, sec secrets.Store, lookback time.Duration, hc *http.Client) (source.Source, error)
+	BuildSource func(sc config.Source, env source.Env) (source.Source, error)
 	Notify      notify.Notifier
 	// CardCommand runs this i2a for the agent ("i2a card add"). The default is
 	// the path of this executable, with I2A_HOME when it is set.
@@ -57,6 +58,7 @@ type Engine struct {
 	cfg      *config.Config
 	sources  map[string]source.Source
 	lastPoll map[string]time.Time
+	unpaired map[string]bool // WhatsApp sources that got ErrNotPaired since their last good poll
 }
 
 // New returns an engine. Nil fields in Deps get the default values.
@@ -86,14 +88,27 @@ func New(d Deps, cfg *config.Config) *Engine {
 		}
 		d.CardCommand = render.CardCommand(exe, os.Getenv("I2A_HOME"))
 	}
-	e := &Engine{d: d, lastPoll: map[string]time.Time{}}
+	e := &Engine{d: d, lastPoll: map[string]time.Time{}, unpaired: map[string]bool{}}
 	e.SetConfig(cfg)
 	return e
 }
 
-// SetConfig replaces the configuration. Sources are built again on the next poll.
+// SetConfig replaces the configuration. It closes the old sources; sources
+// are built again on the next poll.
 func (e *Engine) SetConfig(cfg *config.Config) {
+	e.Close()
 	e.cfg = cfg
+}
+
+// Close closes the sources that hold a connection (a WhatsApp source).
+func (e *Engine) Close() {
+	for id, src := range e.sources {
+		if c, ok := src.(io.Closer); ok {
+			if err := c.Close(); err != nil {
+				e.d.Log.Error("close source", "source", id, "err", err)
+			}
+		}
+	}
 	e.sources = map[string]source.Source{}
 }
 
@@ -122,6 +137,7 @@ func (e *Engine) Poll(ctx context.Context, force bool) []PollResult {
 		} else {
 			e.d.Log.Info("poll", "source", sc.ID, "new", n)
 		}
+		e.notifyPaired(sc.ID, err)
 		out = append(out, PollResult{SourceID: sc.ID, New: n, Err: err})
 	}
 	return out
@@ -131,7 +147,8 @@ func (e *Engine) pollOne(ctx context.Context, sc config.Source, now time.Time) (
 	src, ok := e.sources[sc.ID]
 	if !ok {
 		var err error
-		src, err = e.d.BuildSource(sc, e.d.Secrets, e.cfg.Timing.Lookback.D(), e.d.HTTP)
+		src, err = e.d.BuildSource(sc, source.Env{Secrets: e.d.Secrets, Lookback: e.cfg.Timing.Lookback.D(), HTTP: e.d.HTTP,
+			DataDir: e.d.Paths.DataDir, Log: e.d.Log})
 		if err != nil {
 			return 0, err
 		}
@@ -318,6 +335,22 @@ func (e *Engine) notify(p config.Profile, br BatchResult) {
 		return
 	}
 	e.d.Notify("i2a: dispatch failed", notify.Short(fmt.Sprintf("Profile %s, %d messages stay pending: %v", p.Name, br.Count, br.Err), 200))
+}
+
+// notifyPaired shows one notification when a source becomes not paired, and
+// again only after a good poll of that source.
+func (e *Engine) notifyPaired(id string, err error) {
+	if err == nil {
+		delete(e.unpaired, id)
+		return
+	}
+	if !errors.Is(err, source.ErrNotPaired) || e.unpaired[id] {
+		return
+	}
+	e.unpaired[id] = true
+	if e.cfg.Notify.Enabled {
+		e.d.Notify("i2a: WhatsApp not paired", "Source "+id+": pair again in i2a config (Sources).")
+	}
 }
 
 // Prune deletes old sent and expired messages and their digest files.

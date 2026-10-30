@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
@@ -50,6 +51,7 @@ type (
 		opened     Store // the store that load opened, or nil
 		svc        service.State
 		svcErr     error
+		waStates   map[string]string // the state of each WhatsApp source
 	}
 	channelsMsg struct {
 		source string
@@ -106,6 +108,9 @@ type model struct {
 	form    *form
 	formFor string
 	newSrc  *pendingSource // the source that the add form connected, before it is added
+	pair    *pairing       // the WhatsApp pairing that runs, or nil
+
+	waStates map[string]string // "paired" or "not paired" for each WhatsApp source, from the last load
 
 	chs      map[string][]mattermost.ChannelInfo // the channels of each source
 	chsErr   map[string]string
@@ -128,6 +133,12 @@ func (m *model) Init() tea.Cmd { return tea.Batch(m.load(), m.spin.Tick) }
 // load reads the store and the service state outside the UI loop.
 func (m *model) load() tea.Cmd {
 	all, st, open := m.feedAll, m.u.d.Store, m.u.d.OpenStore
+	var wa []string
+	for _, sc := range m.u.cfg.Sources {
+		if sc.Type == config.SourceWhatsApp {
+			wa = append(wa, sc.ID)
+		}
+	}
 	return func() tea.Msg {
 		var d dataMsg
 		if st == nil && open != nil {
@@ -142,6 +153,10 @@ func (m *model) load() tea.Cmd {
 			d.feed = readFeed(m.ctx, st, all)
 		}
 		d.svc, d.svcErr = m.u.d.ServiceStatus()
+		d.waStates = map[string]string{}
+		for _, id := range wa {
+			d.waStates[id] = m.whatsAppState(id)
+		}
 		return d
 	}
 }
@@ -224,6 +239,9 @@ func (m *model) formTarget() (string, func() *form) {
 		if m.newSrc != nil {
 			return "src:+connected", m.newSourceStep2
 		}
+		if m.pair != nil {
+			return "src:+pair", m.pairForm
+		}
 		return "src:+", m.newSourceForm
 	case tabProfiles:
 		if m.prof < len(m.u.cfg.Profiles) {
@@ -291,6 +309,9 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		if m.pair != nil {
+			m.rebuildPairForm() // the QR code needs a tall window
+		}
 		return nil
 	case refreshMsg:
 		return m.load()
@@ -299,6 +320,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			m.u.d.Store = msg.opened
 		}
 		m.counts, m.dispatches, m.svc, m.svcErr, m.loaded = msg.counts, msg.dispatches, msg.svc, msg.svcErr, true
+		m.waStates = msg.waStates
 		m.setFeed(msg.feed)
 		return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} })
 	case feedMsg:
@@ -332,8 +354,16 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			m.cancelAsk()
 			return nil
 		}
+		if m.pair != nil && m.formFor == "src:+pair" {
+			m.cancelPairing()
+			return nil
+		}
 		m.leaveForm()
 		return nil
+	case pairStepMsg:
+		return m.pairStep(msg)
+	case pairDoneMsg:
+		return m.pairDone(msg)
 	case replyDoneMsg:
 		return m.replyDone(msg)
 	case askDoneMsg:

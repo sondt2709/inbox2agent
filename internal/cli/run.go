@@ -43,6 +43,7 @@ This command ignores the interval and the active hours.`,
 			defer st.Close()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelWarn}))
 			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Notify: notify.Desktop()}, cfg)
+			defer eng.Close()
 			polls := eng.Poll(cmd.Context(), true)
 			d, err := eng.Dispatch(cmd.Context())
 			if err != nil {
@@ -101,6 +102,7 @@ it in the background at login.`,
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Notify: notify.Desktop()}, cfg)
+			defer eng.Close()
 			load := func() (*config.Config, error) {
 				c, err := config.Load(e.paths.ConfigFile)
 				if err != nil {

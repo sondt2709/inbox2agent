@@ -31,7 +31,10 @@ func BuildReplier(cfg *config.Config, sourceID string, sec secrets.Store, hc *ht
 		if sc.ID != sourceID {
 			continue
 		}
-		src, err := Build(sc, sec, cfg.Timing.Lookback.D(), hc)
+		if sc.Type != config.SourceMattermost {
+			return nil, fmt.Errorf("source %q (%s): %w", sc.ID, sc.Type, ErrCannotReply)
+		}
+		src, err := Build(sc, Env{Secrets: sec, Lookback: cfg.Timing.Lookback.D(), HTTP: hc})
 		if err != nil {
 			return nil, err
 		}

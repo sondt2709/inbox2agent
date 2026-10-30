@@ -234,7 +234,8 @@ func TestS01FirstStart(t *testing.T) {
 func openAddSource(tm *harness.Term, url, token string) {
 	tm.WaitFor(`2 Overview`, 30*time.Second)
 	tm.Press("3", `Connect a Mattermost account`, 5*time.Second)
-	tm.Press("Enter", `▌ Source ID`, 5*time.Second)
+	tm.Press("Enter", `▌ Type`, 5*time.Second) // Mattermost is the default type
+	tm.Press("Tab", `▌ Source ID`, 5*time.Second)
 	tm.Replace("work")
 	tm.Press("Tab", `▌ Server URL`, 5*time.Second)
 	tm.Replace(url)
