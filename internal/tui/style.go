@@ -24,7 +24,6 @@ var (
 	faint        = lipgloss.NewStyle().Foreground(mutedFg)
 	textStyle    = lipgloss.NewStyle().Foreground(fgColor)
 	boldStyle    = lipgloss.NewStyle().Bold(true).Foreground(fgColor)
-	labelStyle   = lipgloss.NewStyle().Foreground(mutedFg).Width(13)
 	tabActive    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFDF5")).Background(accent).Padding(0, 1)
 	tabInactive  = lipgloss.NewStyle().Foreground(mutedFg).Padding(0, 1)
 	tabKey       = lipgloss.NewStyle().Foreground(accent).Bold(true)
@@ -39,7 +38,6 @@ var (
 	dialogStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1)
 	dialogTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFDF5")).Background(accent).Padding(0, 1)
 	dirtyStyle   = lipgloss.NewStyle().Foreground(yellow).Bold(true)
-	bigNumber    = lipgloss.NewStyle().Bold(true)
 	colHeadStyle = lipgloss.NewStyle().Foreground(mutedFg).Bold(true)
 )
 
@@ -67,11 +65,6 @@ func clipLines(s string, w, h int) string {
 // truncateStyled cuts a styled line to w cells.
 func truncateStyled(s string, w int) string {
 	return lipgloss.NewStyle().MaxWidth(w).Render(s)
-}
-
-// field is one "label  value" line of a detail panel.
-func field(label, value string) string {
-	return labelStyle.Render(label) + value
 }
 
 // listRows renders the visible rows of a list. The selected row has a bar and a background.

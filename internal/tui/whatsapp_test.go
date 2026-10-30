@@ -43,9 +43,9 @@ func TestAddFormTypeWhatsApp(t *testing.T) {
 	}
 }
 
-// TestPairingPanelThenStep2 gives the pairing events by hand, as the pairing
-// goroutine does after a real connection.
-func TestPairingPanelThenStep2(t *testing.T) {
+// TestPairingPanelThenAccount gives the pairing events by hand, as the pairing
+// goroutine does after a real connection. The chats land in Unsorted.
+func TestPairingPanelThenAccount(t *testing.T) {
 	m := newTestModel(t)
 	send(m, "3", "a", "right")
 	p := &pairing{id: "phone", events: make(chan tea.Msg, 8), cancel: func() {}}
@@ -76,20 +76,23 @@ func TestPairingPanelThenStep2(t *testing.T) {
 		{JID: "15550000001@s.whatsapp.net", Kind: "direct"},
 	}})
 	run(m, cmd, 0)
-	s := screen(m)
-	for _, want := range []string{"Paired", "Team chat", "+15550000001", "Add source"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("step 2 has no %q:\n%s", want, s)
-		}
+	if s := screen(m); !strings.Contains(s, "Paired phone: 2 chats are in Unsorted. Sort them in tab 4.") {
+		t.Errorf("no paired status:\n%s", s)
 	}
 	if m.pair != nil {
 		t.Error("the pairing is still open after done")
 	}
-	send(m, "ctrl+s")
 	f := fileText(t, m)
-	for _, want := range []string{"id = 'phone'", "type = 'whatsapp'"} {
+	for _, want := range []string{"id = 'phone'", "platform = 'whatsapp'"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("the file has no %q:\n%s", want, f)
+		}
+	}
+	send(m, "4", "f") // the filter Unsorted
+	s := screen(m)
+	for _, want := range []string{"⧉ Team chat (new)", "@ +15550000001 (new)", "Unsorted"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the Conversations tab has no %q:\n%s", want, s)
 		}
 	}
 }
@@ -100,7 +103,7 @@ func TestPairingErrorsSaveNothing(t *testing.T) {
 		want string
 	}{
 		"timeout": {whatsapp.ErrPairTimeout, "Pairing timed out. Nothing was added."},
-		"busy":    {whatsapp.ErrBusy, "Another i2a process holds the source phone. Nothing was added."},
+		"busy":    {whatsapp.ErrBusy, "Another i2a process holds the account phone. Nothing was added."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := newTestModel(t)

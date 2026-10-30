@@ -7,9 +7,9 @@
 ```
  Mattermost ──┐                                         ┌─► Orca: new session, reused session or new worktree
  WhatsApp   ──┤   i2a daemon ─► inbox.db ─► sanitizer ─►│     (Claude Code, Codex, OpenCode and more)
- (GitHub,     ├─  polls the channels      one JSON line  └─► dry-run: writes the digest file only
-  Linear:     │   that you select         per message,             │
-  planned)  ──┘                           fenced block             │ the agent runs "i2a card add"
+ (GitHub,     ├─  reads each account,     one JSON line  └─► dry-run: writes the digest file only
+  Linear:     │   sends each space on     per message,             │
+  planned)  ──┘   its schedule            fenced block             │ the agent runs "i2a card add"
                                                                    ▼
                     you ◄── macOS notification ◄── cards in inbox.db ──► Feed tab of "i2a"
                                                                    ▲            │ r, ctrl+s
@@ -18,21 +18,54 @@
                                      (same key)          ◄── i2a ask ◄──────────┘ to the terminal that wrote the card
 ```
 
+## The model
+
+`i2a` has five items. Each item has one job.
+
+```
+ ACCOUNT            CONVERSATION             SPACE                 AGENT
+ one login    has   one DM, group or   in    your own group   uses how to send
+ work ─────────────► channel. All  ────────► Company A ────────────► claude-work
+ phone              kinds are the            Project B   ───┐
+                    same, with a             Personal       │ uses  SCHEDULE
+                    read level:              Unsorted       └──────► when to send
+                    all · mentions · off     (built-in)
+```
+
+| Item | What it is |
+|---|---|
+| Account | One login to a chat tool: a Mattermost server and token, or a WhatsApp linked device. It only connects. |
+| Conversation | One direct conversation, group or channel of an account. `i2a` finds them. Each conversation is in one space and has a read level. |
+| Space | Your own group of conversations, for example a company, a project or personal. It can hold conversations from many accounts. It sends to one agent on one schedule. |
+| Agent | How `i2a` sends a batch to an AI agent (the driver, the agent CLI, the workspace, the prompts). Many spaces can use one agent; each space has its own session. |
+| Schedule | When a space sends: every 15 minutes, on some days, between some hours. |
+
+The read level is the same choice for each kind of conversation:
+
+- `all`: each message.
+- `mentions`: the messages for you: a mention, a reply to you, or each message of a direct conversation.
+- `off`: no message.
+
+The built-in space **Unsorted** holds each conversation that no space lists, for example a new direct conversation. It has its own read level for these conversations. It sends to an agent, or holds the messages until you move their conversations to a space.
+
+One account can feed many spaces. For example, one WhatsApp account can send the group of a client to the space Company A, a project group to Project B, and the family chat to Personal.
+
 ## Status
 
 | Part | State |
 |---|---|
-| Mattermost source (personal access token) | Available |
+| Mattermost account (personal access token) | Available |
+| Accounts, conversations, spaces, agents and schedules (one schedule for each space) | Available |
 | `orca` driver and `dry-run` driver | Available |
 | Configuration TUI, daemon, macOS LaunchAgent | Available |
 | Cards from the agent, Feed tab, card notifications | Available |
 | Replies from the Feed and with `i2a reply` (Mattermost) | Available |
 | Asks to the agent about a card, from the Feed and with `i2a ask` | Available |
-| WhatsApp source (linked device, receive only) | Available |
+| WhatsApp account (linked device, receive only) | Available |
 | Release binaries for macOS and Linux (amd64, arm64) | Available |
 | Homebrew package | Planned |
 | Replies to WhatsApp | Planned |
-| GitHub and Linear sources | Planned |
+| GitHub and Linear accounts | Planned |
 | OAuth sign-in, direct `claude` / `codex` / `opencode` drivers | Planned |
 
 `i2a` runs on macOS. The binary also builds for Linux, but the background service is macOS only.
@@ -62,9 +95,11 @@ go install github.com/sondt2709/inbox2agent/cmd/i2a@latest
 
 After you install a new version, run `i2a service install`. It restarts the background service with the new binary.
 
+The spaces change the configuration to version 2 and the store from schema version 5 to 6. The first start converts `config.toml` (the old file stays in `config.toml.v1.bak`, see [From version 1](#from-version-1)) and writes a copy of the old store to `inbox.db.v5.bak`. To go back, install the older binary, run `i2a service uninstall`, copy `config.toml.v1.bak` to `config.toml` and `inbox.db.v5.bak` to `inbox.db`, and run `i2a service install`. Scripts that call `i2a source` must call `i2a account` and `i2a conversations` now.
+
 The cards change the store from schema version 2 to 3. The first start writes a copy of the old store to `inbox.db.v2.bak`. An older `i2a` cannot open the new store. To go back, install the older binary, run `i2a service uninstall`, replace `inbox.db` with `inbox.db.v2.bak`, and run `i2a service install`. The cards are lost, and the messages after the copy are collected again within `lookback`.
 
-A `reuse` profile starts a new agent session one time after the upgrade, because the primer has the new card section. The old terminal stays open; you can close it.
+A `reuse` session starts again one time after an upgrade that changes the primer (for example a new card section, or the space in the default primer). The old terminal stays open; you can close it.
 
 ### Versions
 
@@ -73,33 +108,40 @@ Each change that is merged into `main` makes a new release. The PR title gives t
 ## Quick start
 
 1. Create a personal access token in Mattermost: **Profile > Security > Personal Access Tokens**. If you do not see this section, ask your administrator to turn on personal access tokens.
-2. Run `i2a config`. Press `3` (the Sources tab), then `enter`. Type the ID, the server URL and the token, and press `enter` to connect.
-3. In the channel list, type part of a channel name or a person's name to search, and press space to select it. The list also has your direct and group conversations (`direct / @bob`), the most recent first. `Esc` clears the search. Press `tab` to go to the switches for direct messages and mentions. Press `ctrl+s` to add the source, then `q` to quit.
-4. Run `i2a run --once`. The default profile uses the `dry-run` driver, so `i2a` writes a digest file and starts no agent. Read the digest to see what an agent would get.
-5. Run `i2a config` again. Press `4` (the Profiles tab) and `enter` to edit `triage`. Set the driver to `orca` (`→`), the agent (for example `claude`) and the workspace folder, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed.
-6. Allow the agent to run `i2a card`. For Claude Code, add a rule to `.claude/settings.json` (or `settings.local.json`) in the workspace folder, with the path that `command -v i2a` shows:
+2. Run `i2a config`. Press `3` (Accounts), then `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Unsorted.
+3. Press `4` (Conversations). The table has your channels, groups and direct conversations. Press `/` to search, `space` to select rows, and `m` to move them to a space. In the move dialog, "+ New space" makes a space, for example "Company A". `l` changes the read level; `n` gives a conversation a name.
+4. Press `5` (Spaces). Each space starts with one sentence, for example "Company A reads 4 conversations from work → sends to triage · always". Select Unsorted to choose its read level for new conversations, and whether it sends or holds.
+5. Run `i2a run --once`. The default agent `triage` uses the `dry-run` driver, so `i2a` writes a digest file and starts no agent. Read the digest to see what an agent would get.
+6. Run `i2a config` again. Press `6` (Agents) and `enter` to edit `triage`. Set the driver to `orca` (`→`), the CLI (for example `claude`) and the workspace folder, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. Press `7` (Schedules) to change when the spaces send.
+7. Allow the agent to run `i2a card`. For Claude Code, add a rule to `.claude/settings.json` (or `settings.local.json`) in the workspace folder, with the path that `command -v i2a` shows:
 
    ```json
    { "permissions": { "allow": ["Bash(/Users/you/.local/bin/i2a card:*)"] } }
    ```
 
-7. Press `esc`, then `2` (the Overview tab), then `i` to install the background service. Or run `i2a service install`. `i2a` now runs in the background at login.
-8. Run `i2a`. The Feed shows the cards of the agent.
+8. Press `8` (Settings), `esc`, then `i` to install the background service. Or run `i2a service install`. `i2a` now runs in the background at login.
+9. Run `i2a`. The Feed shows the cards of the agent.
 
-Run `i2a status` to see the sources, the profiles, the message counts, the last dispatches and the service state.
+Run `i2a status` to see the accounts, the spaces with their next send, the agents, the schedules, the message counts and the service state.
 
 ### The dashboard
 
-`i2a` opens the dashboard on the Feed tab. `i2a config` opens it on the Overview tab. The dashboard has 6 tabs. Press `1` to `6` or `tab` to change the tab, or click a tab.
+`i2a` opens the dashboard on the Feed tab. `i2a config` opens it on the Spaces tab. Press `1` to `8` or `tab` to change the tab, or click a tab. The tab bar shows the model, and the line under it says what the item of the tab is:
+
+```
+1 Feed  2 Activity │ 3 Accounts → 4 Conversations 3 unsorted → 5 Spaces → 6 Agents + 7 Schedules │ 8 Settings
+```
 
 | Tab | Shows |
 |---|---|
-| 1 Feed | the cards of the agent at the left; the selected card at the right: summary (Markdown), suggested reply and source messages |
-| 2 Overview | the service state, the message counts, the sources, the profiles, the schedule, the files, the last dispatches (`i` installs or restarts the service, `u` uninstalls it) |
-| 3 Sources | your sources at the left; the form of the selected source at the right |
-| 4 Profiles | your profiles at the left; the form of the selected profile at the right |
-| 5 Schedule | the form of interval, lookback, active hours, retention and notifications |
-| 6 Activity | the last 50 dispatches (`enter` shows the digest file) |
+| 1 Feed | the cards of the agents at the left; the selected card at the right: space, summary (Markdown), suggested reply and source messages |
+| 2 Activity | the message counts and the last 50 sends, with the space and the agent (`enter` shows the digest file) |
+| 3 Accounts | your accounts at the left; at the right the server and username (Mattermost) or the phone number and name (WhatsApp), where its conversations are, the name, and the read interval |
+| 4 Conversations | one table of the conversations of all accounts: kind, account, space, read level, waiting messages |
+| 5 Spaces | Unsorted and your spaces at the left; at the right the sentence of the space, its name, agent, schedule and conversations |
+| 6 Agents | your agents at the left; at the right the spaces that use the agent and its form |
+| 7 Schedules | your schedules at the left; at the right the next send, a line of today with each send time, the spaces that use it, and its form |
+| 8 Settings | lookback, retention, notifications and the background service (`i` installs or restarts it, `u` uninstalls it) |
 
 In the Feed:
 
@@ -112,10 +154,25 @@ In the Feed:
 | `o` | Open the thread of the first source message in the browser |
 | `d` / `u` | Mark the card done / unread |
 | `s` | Sort by urgency (high first) or by newest |
-| `f` | Filter: all, action, question, info |
+| `f` | Filter by category: all, action, question, info |
+| `F` | Filter by space |
 | `a` | Show or hide the done cards |
 
 The Feed shows the card body as Markdown: headings, bold, lists, code and tables. A link in the body shows as text and cannot be opened. The suggested reply shows as plain text, because `c` copies it and `r` sends it as it is.
+
+In the Conversations tab:
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Move |
+| `space` | Select or clear the row; `esc` clears all |
+| `m` | Move the selected rows (or the row) to a space, or to a new space |
+| `l` | Change the read level: all → mentions → off |
+| `n` | Give the conversation a name. An empty name shows the name on the platform again. |
+| `/` | Search the name, the account or the space |
+| `f` | Filter: all, Unsorted, each account, each kind, each space |
+
+In the Spaces tab, `a` opens the unsorted conversations to add to the space, `c` shows the conversations of the space, and `x` deletes the space (its conversations go to Unsorted). In the Agents and Schedules tabs, `x` deletes the item; when spaces use it, you choose the item that they use instead.
 
 To add or edit, select the item (or "+ Add") and press `enter`: the form at the right gets the keyboard.
 
@@ -126,7 +183,7 @@ To add or edit, select the item (or "+ Add") and press `enter`: the form at the 
 | Save | `ctrl+s`, the first button, or `enter` in the last field |
 | Back to the list | `esc` (it asks before it discards changes) |
 
-A form saves to `config.toml` when you submit it. A running daemon reads the file again. In the Sources list, `D` and `m` switch "all direct" and "mentions" at once, and `x` removes a source. `?` shows all keys.
+A form saves to `config.toml` when you submit it. A running daemon reads the file again. Accounts, spaces, agents and schedules have an ID that does not change and a name that you can change. `?` shows the model and all keys.
 
 ## WhatsApp
 
@@ -134,42 +191,40 @@ A form saves to `config.toml` when you submit it. A running daemon reads the fil
 
 > **Risk:** WhatsApp does not allow unofficial clients, and it can ban an account that uses one. `i2a` uses [whatsmeow](https://github.com/tulir/whatsmeow), an unofficial library. `i2a` sends no messages, no read receipts and no presence, but the risk is not zero. Use it only if you accept this risk.
 
-To add a WhatsApp source:
+To add a WhatsApp account:
 
 1. Make the terminal at least 47 rows tall. The QR code needs about 33 rows. A shorter window tells you the number of rows that it needs.
-2. Run `i2a config`. Press `3`, then `enter`. Set Type to WhatsApp (`→`), type a source ID (for example `phone`), and press `ctrl+s`.
+2. Run `i2a config`. Press `3`, then `enter`. Set Platform to WhatsApp (`→`), type an account ID (for example `phone`) and a name, and press `ctrl+s`.
 3. On the phone, open WhatsApp › Settings › Linked devices › Link a device, and scan the QR code. The phone shows the device as "i2a". To type a code on the phone instead of a scan, type your phone number in international format (`+15551234567`) before you press `ctrl+s`.
-4. After the scan, select the direct chats and groups to follow, set "All direct" and "Mentions", and press `ctrl+s` to add the source.
+4. After the scan, the chats are in Unsorted. Press `4` and move each chat to a space, or set it to `off`.
 
-Or run `i2a source add whatsapp --id phone [--phone +15551234567] [--channels <jid>,...]`. It prints the QR code in the terminal and lists the chats after the scan.
+Or run `i2a account add whatsapp --id phone [--name "Personal phone"] [--phone +15551234567]`. It prints the QR code in the terminal.
 
-A WhatsApp source collects:
-
-- all messages in the chats that you select (direct chats and groups);
-- all direct messages, when "All direct" is on;
-- messages in any group that mention you or reply to one of your messages, when "Mentions" is on.
+A WhatsApp chat uses its read level, as each conversation does: `all` collects each message; `mentions` collects each message of a direct chat, and in a group only the messages that mention you or reply to one of your messages; `off` collects nothing.
 
 It does not collect your own messages, status updates, broadcast lists, WhatsApp channels, reactions, edits, deletes or poll votes. For media, the text is a placeholder and the caption, for example `[image] plan for Friday` or `[document: report.pdf]`. `i2a` does not download media. A reply starts with one `> ` line that has the first 200 characters of the quoted message. The link of a direct message is `https://wa.me/<phone number>`; a group message has no link.
 
 How it works:
 
-- The daemon keeps one connection open and polls the source file every `poll_every` (default `10s`). WhatsApp pushes each message to the connection, and `i2a` writes it to `~/.local/share/i2a/whatsapp-<id>.db` at once. Messages that arrive while `i2a` is off come at the next connect.
-- Only one process can hold the connection. When the daemon runs, `i2a run --once` fails for the WhatsApp source. Stop the service first (`launchctl bootout gui/$(id -u)/io.github.sondt2709.i2a`), then run `i2a service install` again after the run.
-- After the scan, the phone sends the history of the chats. `i2a` keeps the messages of the last `lookback` only, so a chat that you select later shows the messages of the last `lookback`.
-- The file `whatsapp-<id>.db` holds the keys of the linked device. A copy of the file gives full access to the account. `i2a` makes it with the mode 0600. `i2a source remove <id>` and `x` in the Sources tab log out the device and delete the file.
-- The phone removes a linked device that is offline for about 14 days. Then the source shows "not paired", the daemon shows one notification, and you remove the source and add it again.
+- The daemon keeps one connection open and reads the account file every `read_every` (default `10s`). WhatsApp pushes each message to the connection, and `i2a` writes it to `~/.local/share/i2a/whatsapp-<id>.db` at once. Messages that arrive while `i2a` is off come at the next connect.
+- Only one process can hold the connection. When the daemon runs, `i2a run --once` fails for the WhatsApp account. Stop the service first (`launchctl bootout gui/$(id -u)/io.github.sondt2709.i2a`), then run `i2a service install` again after the run.
+- After the scan, the phone sends the history of the chats. `i2a` keeps the messages of the last `lookback` only, so a chat that you move to a space later sends the messages of the last `lookback`.
+- The file `whatsapp-<id>.db` holds the keys of the linked device. A copy of the file gives full access to the account. `i2a` makes it with the mode 0600. `i2a account remove <id>` and `x` in the Accounts tab log out the device and delete the file.
+- The phone removes a linked device that is offline for about 14 days. Then the account shows "not paired", the daemon shows one notification, and you remove the account and add it again.
 - `i2a` sends delivery receipts (two grey ticks), as each linked device does. It never sends read receipts (blue ticks), so the chats stay unread on the phone.
 
 ## How it works
 
-1. The daemon polls each source on its `poll_every` interval and saves new messages in `inbox.db`.
-2. On each `interval`, inside the `active_hours`, the daemon makes one batch for each profile that has pending messages.
+1. The daemon reads each account on its `read_every` interval. It collects the messages of each conversation at its read level, and saves them in `inbox.db`.
+2. At each send time of the schedule of a space, the daemon finds the waiting messages whose conversations are in that space, and makes one batch. A space with no agent (Unsorted on hold) never sends; its messages wait until you move their conversations, or until they are older than `lookback`.
 3. The sanitizer writes each message as one JSON line in a fenced block with a random label, and writes the digest file.
-4. The driver gives the queued asks, then the batch, to the agent. When the driver reports `sent`, the messages are done. When it fails or the agent is busy, the messages stay pending, and the next interval sends them again.
+4. The driver gives the batch to the agent of the space, in the session of the space. When the driver reports `sent`, the messages are done. When it fails or the agent is busy, the messages wait for the next send time.
 5. The agent reads the batch and runs `i2a card add` with one card for each topic (see [Cards](#cards)).
-6. On macOS, `i2a card add` shows a notification for new cards, and the daemon shows one after each failed dispatch.
+6. On macOS, `i2a card add` shows a notification for new cards, and the daemon shows one after each failed send. Each minute, the daemon also sends the asks that wait for a busy agent.
 
-A `dry-run` batch is a preview. Its messages become `previewed`, not `sent`. When you change the profile to a real driver, the next batch contains them (if they are newer than `lookback`).
+The route is chosen when a space sends. If you move a conversation to another space, its waiting messages go with it.
+
+A `dry-run` batch is a preview. Its messages become `previewed`, not `sent`. When you change the agent to a real driver, the next batch contains them (if they are newer than `lookback`).
 
 `i2a` uses only read requests to collect messages. It does not mark Mattermost messages as read, and it sends no read receipts to WhatsApp. It writes to Mattermost only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
 
@@ -180,66 +235,104 @@ The file is `~/.config/i2a/config.toml`. The data (`inbox.db`, `digests/`, `i2a.
 Tokens are not in the file. `i2a` keeps them in the macOS keychain. Set `I2A_SECRET_BACKEND=file` to keep them in `secrets.json` (mode 0600) instead, for example on a server without a keychain.
 
 ```toml
-[timing]
-interval = "15m"          # time between dispatches
-lookback = "1d"           # first-run window and maximum message age
-active_hours = "08:00-20:00"  # local time; empty means always
+version = 2
+
+[settings]
+lookback = "1d"           # first-run window and maximum age of a waiting message
 retention = "7d"          # keep sent messages and digest files for this time
 
 [notify]
-enabled = true            # macOS notifications for new cards and failed dispatches
+enabled = true            # macOS notifications for new cards and failed sends
 min_urgency = "normal"    # the lowest card urgency that gives a notification: high, normal or low
 
-[[sources]]
-id = "work"
-type = "mattermost"
+[[accounts]]
+id = "work"               # does not change: the token, the store and the files use it
+name = "Company A"        # you can change it
+platform = "mattermost"
 url = "https://chat.example.com"
-poll_every = "1m"
-all_direct = true         # all direct and group messages (false: only the conversations in channels)
-mentions = true           # mentions of you in any channel
-channels = ["<channel-id>"]   # channels and direct or group conversations; see: i2a source channels work
-profile = "triage"
-[sources.channel_profiles]    # optional: send one channel to another profile
-"<channel-id>" = "reviewer"
+user = "alice"            # the username, saved when i2a checks the token
+read_every = "1m"
 
-[[sources]]
+[[accounts]]
 id = "phone"
-type = "whatsapp"         # no url and no token: pair in i2a config or with i2a source add whatsapp
-poll_every = "10s"
-all_direct = true         # all direct chats
-mentions = true           # group messages that mention you or reply to you
-channels = ["120363000000000001@g.us"]   # chats to follow; see: i2a source channels phone
-profile = "triage"
+name = "Personal phone"
+platform = "whatsapp"     # no url and no token: pair in i2a config or with i2a account add whatsapp
+read_every = "10s"
 
-[[profiles]]
-name = "triage"
+[[agents]]
+id = "claude-work"
+name = "Claude for work"
 driver = "orca"           # orca | dry-run
-agent = "claude"
+cli = "claude"
 workspace = "~/notes"     # a git folder, or a folder that you added in Orca
 session = "reuse"         # reuse | new | worktree
 payload = "pointer"       # pointer | inline
 inline_max_bytes = 8000
 message_max_chars = 2000
+
+[[schedules]]
+id = "work-hours"
+name = "Work hours"
+every = "15m"
+days = ["mon", "tue", "wed", "thu", "fri"]   # empty: every day
+hours = "08:00-18:00"     # local time; empty: all day; a range can cross midnight
+
+[unsorted]
+agent = ""                # empty: hold the messages until you sort their conversations
+schedule = "work-hours"
+read = "mentions"         # the read level of each conversation that no space lists
+
+[[spaces]]
+id = "company-a"
+name = "Company A"
+agent = "claude-work"
+schedule = "work-hours"
+
+[[spaces.conversations]]
+account = "work"
+id = "<channel-id>"       # see: i2a conversations --account work
+name = "release"          # the name on the platform
+read = "all"              # all | mentions | off
+
+[[spaces.conversations]]
+account = "phone"
+id = "120363000000000001@g.us"
+label = "Client group"    # your name for the conversation
+read = "all"
 ```
 
-## Profiles and delivery
+A conversation is in one space only. Find the IDs with `i2a conversations`, and move a conversation with `i2a conversation set <account> <id> --space <space> [--read all|mentions|off] [--label <name>]`.
 
-A profile tells `i2a` how to send a batch.
+### From version 1
+
+A file of an earlier `i2a` (with `[[sources]]`, `[[profiles]]` and `[timing]`) is converted when `i2a` loads it. The old file stays in `config.toml.v1.bak`, and the command shows a report:
+
+- Each source becomes an account, and each profile becomes an agent with the same name.
+- `interval` and `active_hours` become the schedule `default`.
+- The selected channels go to a space with the name of their profile (or of their `channel_profiles` entry), with the read level `all`.
+- All other conversations are in Unsorted, which sends to the profile of the first source. Its read level is `mentions` when a source had `all_direct` or `mentions` on.
+- `{{.Sources}}` and `{{.Profile}}` in a template become `{{.Accounts}}` and `{{.Agent}}`.
+
+The report names each account whose other conversations now go to a different agent, and each account that now gets direct messages or mentions that it did not get before.
+
+## Agents and delivery
+
+An agent tells `i2a` how to send a batch. Many spaces can use one agent. Each space has its own session, so the messages of one space never go to the session of another space.
 
 | Setting | Values | Effect |
 |---|---|---|
-| `session` | `reuse` | One long agent session. `i2a` sends the primer one time, when it starts the session. Each batch after that is the batch prompt only. If the session is closed, `i2a` starts a new one. If the agent is busy, `i2a` keeps the batch until the next interval. |
+| `session` | `reuse` | One long agent session for each space. `i2a` sends the primer one time, when it starts the session. Each batch after that is the batch prompt only. If the session is closed, `i2a` starts a new one. If the agent is busy, `i2a` keeps the batch until the next send time. |
 | | `new` | A new agent session for each batch, with the primer and the batch prompt. |
 | | `worktree` | A new Orca worktree `i2a-<batch-id>` for each batch. The workspace must be a git repository. |
 | `payload` | `pointer` | The prompt names the digest file. The agent reads the file. |
 | | `inline` | The prompt contains the messages. If the prompt is larger than `inline_max_bytes`, `i2a` sends a pointer for that batch. |
 
-Each profile has two templates in Go `text/template` syntax:
+Each agent has two templates in Go `text/template` syntax:
 
 - `primer`: the standing instructions.
 - `batch`: the prompt for each batch.
 
-The templates can use `.BatchID`, `.Profile`, `.Count`, `.Sources`, `.DigestPath`, `.Messages`, `.Nonce`, `.WindowStart` and `.WindowEnd`. Edit them in the TUI, or set `primer` and `batch` in the file. If a template is empty, `i2a` uses the default.
+The templates can use `.Space` (the name of the space), `.Agent`, `.BatchID`, `.Count`, `.Accounts`, `.DigestPath`, `.Messages`, `.Nonce`, `.WindowStart` and `.WindowEnd`. Edit them in the TUI, or set `primer` and `batch` in the file. If a template is empty, `i2a` uses the default.
 
 The `orca` driver needs the Orca app to run. It runs the `orca` CLI. If Orca does not know the workspace and the workspace is a git repository, `i2a` adds it with `orca repo add`.
 
@@ -247,7 +340,7 @@ The driver starts the agent, waits until it is ready, and then sends the prompt 
 
 ## Cards
 
-A card is one result of the agent: one topic, with a summary and a suggested reply. i2a adds a fixed section to the primer of each profile. The section tells the agent to run this command after each batch, with the absolute path of `i2a`:
+A card is one result of the agent: one topic, with a summary and a suggested reply. i2a adds a fixed section to the primer of each agent. The section tells the agent to run this command after each batch, with the absolute path of `i2a`:
 
 ```sh
 i2a card add <<'EOF'
@@ -308,7 +401,7 @@ i2a reply --card mm:pr-57          # the suggested reply of the card, to its new
 
 `--thread` and `--channel` change the place. Each send with `i2a reply` shows the notification "i2a · the agent sent a reply". The card section of the primer does not tell the agent about `i2a reply`. To let the agent send, do both:
 
-1. Tell the agent in the primer of the profile when it can reply, for example "When a message only reports news, thank the sender with one short sentence: `i2a reply --to <id>`".
+1. Tell the agent in the primer of the agent when it can reply, for example "When a message only reports news, thank the sender with one short sentence: `i2a reply --to <id>`".
 2. Allow the command in `.claude/settings.json` of the workspace: `"Bash(/Users/you/.local/bin/i2a reply:*)"`.
 
 When you use `I2A_SECRET_BACKEND=file`, put it before the command in the primer (`I2A_SECRET_BACKEND=file i2a reply ...`). Without it, `i2a reply` reads the token from the keychain.
@@ -319,17 +412,17 @@ You can ask the agent to do more about a card, for example "check the auth code 
 
 | Field | Meaning |
 |---|---|
-| Agent | the profile and the driver |
+| Agent | the agent, the driver and the space of the card |
 | Session | the Orca terminal that wrote the card, or the session that gets the ask |
 | Text | your instruction. 4,000 characters at most. |
 
 Press `ctrl+s` to send. The agent answers in the same card: it runs `i2a card add` with the key of the card, so the card becomes new again and you get the notification of an updated card. Until then, the card shows "↪ asked".
 
-- `i2a card add` records the Orca terminal of the agent (`ORCA_TERMINAL_HANDLE`). An ask goes back to that terminal when it still runs. Otherwise it goes to the agent of the profile, as a batch does: the reused session, or a new session (or worktree) with the primer.
+- `i2a card add` records the Orca terminal of the agent (`ORCA_TERMINAL_HANDLE`). An ask goes back to that terminal when it still runs. Otherwise it goes to the agent of the space of the card, as a batch does: the reused session, or a new session (or worktree) with the primer.
 - Your text is the instruction. The card and its messages go to the agent in a fenced data block, because the agent wrote the card from messages of other people.
 - When the agent is busy, `i2a` waits up to 2 minutes. Then the ask stays queued, and the daemon sends it on its next dispatch, before the batches. A queued ask that is older than `lookback` fails.
-- A batch and an ask never type into the same terminal at the same time. They take turns with the lock file `agent-<profile>.lock` in the data folder.
-- A `dry-run` profile does not take asks.
+- A batch and an ask never type into the same terminal at the same time. They take turns with the lock file `space-<id>.lock` in the data folder.
+- A space with a `dry-run` agent, or Unsorted on hold, does not take asks.
 
 ```sh
 i2a ask --card mm:lena-pf-login <<'EOF'
@@ -348,12 +441,12 @@ Other people write the messages, and an agent can run commands. A message can co
 3. It removes control characters, ANSI escape sequences, bidi overrides and zero-width characters.
 4. It truncates long messages.
 5. The default templates tell the agent that the data is untrusted.
-6. New profiles use the `dry-run` driver.
+6. New agents use the `dry-run` driver.
 
 7. It removes hidden characters from card text, shows at most 3 urgent notifications for each call, and opens only the stored URL of a source message (`o`), never a link from the card text. The Markdown view of a card body removes all terminal hyperlinks.
 8. A reply goes only to a message that `i2a` collected. Each reply that the agent sends shows a notification.
 9. An ask puts the card text in a fenced data block, never in the instruction. Only your text is the instruction.
-10. The keys of a WhatsApp linked device are in `whatsapp-<id>.db` with the mode 0600. Removing the source logs out the device and deletes the file.
+10. The keys of a WhatsApp linked device are in `whatsapp-<id>.db` with the mode 0600. Removing the account logs out the device and deletes the file.
 
 An agent that can run `i2a reply` can post as you in the conversations that `i2a` collects. A message can try to trick the agent into a reply. Allow `i2a reply` only when you need it, and tell the agent in the primer when it can reply.
 
@@ -368,16 +461,18 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | Command | Purpose |
 |---|---|
 | `i2a` | Open the dashboard on the Feed of cards |
-| `i2a config` | Open the dashboard on the Overview tab: sources, channels, profiles, schedule, service, activity |
+| `i2a config` | Open the dashboard on the Spaces tab: accounts, conversations, spaces, agents, schedules, settings |
 | `i2a card add` / `done --key <key>` / `list [--json] [--all]` | Add cards (JSON on stdin), close a card, list the cards |
 | `i2a reply --to <message id>` or `--card <id or key>`, `[--thread or --channel]` | Send a reply (text on stdin, or the suggested reply of the card) |
 | `i2a ask --card <id or key>` | Ask the agent about a card (text on stdin) |
-| `i2a run --once` | Poll all sources and send all pending messages now |
-| `i2a daemon` | Run in the foreground: poll and dispatch on the intervals |
-| `i2a status` | Show the paths, sources, profiles, messages and service state |
-| `i2a source add mattermost --id <id> --url <url> --token-stdin` | Add a source from a script |
-| `i2a source add whatsapp --id <id> [--phone <number>]` | Pair a WhatsApp account in the terminal and add the source |
-| `i2a source list` / `channels <id>` / `remove <id>` | List sources, list channel IDs, remove a source |
+| `i2a run --once` | Read all accounts and send the waiting messages of each space with an agent now |
+| `i2a daemon` | Run in the foreground: read the accounts and send each space on its schedule |
+| `i2a status` | Show the paths, accounts, spaces (agent, schedule, next send, waiting messages), agents, schedules, messages and service state |
+| `i2a account add mattermost --id <id> [--name <name>] --url <url> --token-stdin` | Add a Mattermost account from a script |
+| `i2a account add whatsapp --id <id> [--name <name>] [--phone <number>]` | Pair a WhatsApp account in the terminal and add it |
+| `i2a account list` / `remove <id>` | List the accounts, remove an account |
+| `i2a conversations [--account <id>] [--unsorted]` | List the conversations with their IDs, spaces and read levels |
+| `i2a conversation set <account> <id> [--space <id>] [--read <level>] [--label <name>]` | Move a conversation, set its read level, or give it a name |
 | `i2a service install` / `uninstall` / `status` | Manage the macOS LaunchAgent |
 
 ## Development

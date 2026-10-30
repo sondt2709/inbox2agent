@@ -1,4 +1,5 @@
-// Package daemon collects messages from the sources and dispatches batches to the drivers.
+// Package daemon reads the accounts and sends the waiting messages of each
+// space to its agent on the schedule of the space.
 package daemon
 
 import (
@@ -32,7 +33,7 @@ const deliverTimeout = 3 * time.Minute
 // the same as for a batch in reuse mode.
 const askIdleWait = 5 * time.Second
 
-// lockWait limits the wait for the delivery lock of a profile, which an ask
+// lockWait limits the wait for the delivery lock of a space, which an ask
 // can hold. Tests make it shorter.
 var lockWait = ask.LockWait
 
@@ -44,21 +45,21 @@ type Deps struct {
 	Log         *slog.Logger
 	HTTP        *http.Client
 	Now         func() time.Time
-	NewDriver   func(p config.Profile, s agent.Sessions) (agent.Driver, error)
-	BuildSource func(sc config.Source, env source.Env) (source.Source, error)
+	NewDriver   func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error)
+	BuildSource func(a config.Account, env source.Env) (source.Source, error)
 	Notify      notify.Notifier
 	// CardCommand runs this i2a for the agent ("i2a card add"). The default is
 	// the path of this executable, with I2A_HOME when it is set.
 	CardCommand string
 }
 
-// Engine runs polls and dispatches for one configuration.
+// Engine runs reads and dispatches for one configuration.
 type Engine struct {
 	d        Deps
 	cfg      *config.Config
 	sources  map[string]source.Source
 	lastPoll map[string]time.Time
-	unpaired map[string]bool // WhatsApp sources that got ErrNotPaired since their last good poll
+	unpaired map[string]bool // WhatsApp accounts that got ErrNotPaired since their last good read
 }
 
 // New returns an engine. Nil fields in Deps get the default values.
@@ -94,7 +95,7 @@ func New(d Deps, cfg *config.Config) *Engine {
 }
 
 // SetConfig replaces the configuration. It closes the old sources; sources
-// are built again on the next poll.
+// are built again on the next read, with the new read levels.
 func (e *Engine) SetConfig(cfg *config.Config) {
 	e.Close()
 	e.cfg = cfg
@@ -105,7 +106,7 @@ func (e *Engine) Close() {
 	for id, src := range e.sources {
 		if c, ok := src.(io.Closer); ok {
 			if err := c.Close(); err != nil {
-				e.d.Log.Error("close source", "source", id, "err", err)
+				e.d.Log.Error("close source", "account", id, "err", err)
 			}
 		}
 	}
@@ -115,40 +116,40 @@ func (e *Engine) Close() {
 // Config returns the current configuration.
 func (e *Engine) Config() *config.Config { return e.cfg }
 
-// PollResult is the result of one poll of one source.
+// PollResult is the result of one read of one account.
 type PollResult struct {
-	SourceID string
-	New      int
-	Err      error
+	AccountID string
+	New       int
+	Err       error
 }
 
-// Poll polls each source whose poll interval has passed. When force is true, it polls all sources.
+// Poll reads each account whose read interval has passed. When force is true, it reads all accounts.
 func (e *Engine) Poll(ctx context.Context, force bool) []PollResult {
 	var out []PollResult
 	now := e.d.Now()
-	for _, sc := range e.cfg.Sources {
-		if !force && now.Sub(e.lastPoll[sc.ID]) < sc.PollEvery.D() {
+	for _, sc := range e.cfg.Accounts {
+		if !force && now.Sub(e.lastPoll[sc.ID]) < sc.ReadEvery.D() {
 			continue
 		}
 		e.lastPoll[sc.ID] = now
 		n, err := e.pollOne(ctx, sc, now)
 		if err != nil {
-			e.d.Log.Error("poll failed", "source", sc.ID, "err", err)
+			e.d.Log.Error("poll failed", "account", sc.ID, "err", err)
 		} else {
-			e.d.Log.Info("poll", "source", sc.ID, "new", n)
+			e.d.Log.Info("poll", "account", sc.ID, "new", n)
 		}
 		e.notifyPaired(sc.ID, err)
-		out = append(out, PollResult{SourceID: sc.ID, New: n, Err: err})
+		out = append(out, PollResult{AccountID: sc.ID, New: n, Err: err})
 	}
 	return out
 }
 
-func (e *Engine) pollOne(ctx context.Context, sc config.Source, now time.Time) (int, error) {
+func (e *Engine) pollOne(ctx context.Context, sc config.Account, now time.Time) (int, error) {
 	src, ok := e.sources[sc.ID]
 	if !ok {
 		var err error
-		src, err = e.d.BuildSource(sc, source.Env{Secrets: e.d.Secrets, Lookback: e.cfg.Timing.Lookback.D(), HTTP: e.d.HTTP,
-			DataDir: e.d.Paths.DataDir, Log: e.d.Log})
+		src, err = e.d.BuildSource(sc, source.Env{Secrets: e.d.Secrets, Lookback: e.cfg.Settings.Lookback.D(), HTTP: e.d.HTTP,
+			DataDir: e.d.Paths.DataDir, Log: e.d.Log, Levels: e.cfg.Levels(sc.ID), Default: e.cfg.Unsorted.Read})
 		if err != nil {
 			return 0, err
 		}
@@ -165,9 +166,11 @@ func (e *Engine) pollOne(ctx context.Context, sc config.Source, now time.Time) (
 	return e.d.Store.SavePoll(ctx, sc.ID, msgs, next, now)
 }
 
-// BatchResult is the result of one dispatch.
+// BatchResult is the result of one dispatch of one space.
 type BatchResult struct {
-	Profile    string
+	Space      string // the ID of the space
+	SpaceName  string
+	Agent      string // the ID of the agent
 	Driver     string
 	Count      int
 	Status     string
@@ -184,19 +187,18 @@ type DispatchResult struct {
 }
 
 // Dispatch expires old messages, sends the queued asks, routes the pending
-// messages to profiles and delivers one batch for each profile.
-func (e *Engine) Dispatch(ctx context.Context) (DispatchResult, error) {
+// messages to their spaces and delivers one batch for each given space that
+// has an agent. spaces nil means all spaces. The messages of other spaces stay
+// pending.
+func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult, error) {
 	var res DispatchResult
 	now := e.d.Now()
-	n, err := e.d.Store.ExpirePending(ctx, now.Add(-e.cfg.Timing.Lookback.D()))
+	n, err := e.Expire(ctx)
 	if err != nil {
 		return res, err
 	}
 	res.Expired = n
-	if n > 0 {
-		e.d.Log.Info("expired old pending messages", "count", n, "lookback", e.cfg.Timing.Lookback.String())
-	}
-	if res.Asks, err = e.sendAsks(ctx); err != nil {
+	if res.Asks, err = e.SendAsks(ctx); err != nil {
 		return res, err
 	}
 	pending, err := e.d.Store.Pending(ctx)
@@ -205,32 +207,45 @@ func (e *Engine) Dispatch(ctx context.Context) (DispatchResult, error) {
 	}
 	groups := map[string][]inbox.Message{}
 	for _, m := range pending {
-		p := agent.Route(e.cfg, m)
-		groups[p] = append(groups[p], m)
+		sp := e.cfg.Route(m.SourceID, m.ChannelID)
+		groups[sp] = append(groups[sp], m)
 	}
-	for _, p := range e.cfg.Profiles {
-		msgs := groups[p.Name]
-		delete(groups, p.Name)
-		if p.Driver == config.DriverDryRun {
+	for _, s := range e.cfg.AllSpaces() {
+		if s.Agent == "" || (spaces != nil && !slices.Contains(spaces, s.ID)) {
+			continue
+		}
+		a, ok := e.cfg.Agent(s.Agent)
+		if !ok {
+			continue
+		}
+		msgs := groups[s.ID]
+		if a.Driver == config.DriverDryRun {
 			// A dry run previews each message one time.
 			msgs = slices.DeleteFunc(msgs, func(m inbox.Message) bool { return m.State == inbox.StatePreviewed })
 		}
 		if len(msgs) == 0 {
 			continue
 		}
-		br := e.deliver(ctx, p, msgs, now)
-		e.notify(p, br)
+		br := e.deliver(ctx, s, *a, msgs, now)
+		e.notify(*a, br)
 		res.Batches = append(res.Batches, br)
-	}
-	for name, msgs := range groups {
-		e.d.Log.Warn("messages route to a profile that does not exist", "profile", name, "count", len(msgs))
 	}
 	return res, nil
 }
 
-// sendAsks sends the queued asks, oldest first. An ask that stays busy stays
-// queued for the next dispatch.
-func (e *Engine) sendAsks(ctx context.Context) ([]inbox.Ask, error) {
+// Expire marks the pending messages older than the lookback expired. It also
+// ends the wait of messages that Unsorted holds.
+func (e *Engine) Expire(ctx context.Context) (int64, error) {
+	n, err := e.d.Store.ExpirePending(ctx, e.d.Now().Add(-e.cfg.Settings.Lookback.D()))
+	if err == nil && n > 0 {
+		e.d.Log.Info("expired old pending messages", "count", n, "lookback", e.cfg.Settings.Lookback.String())
+	}
+	return n, err
+}
+
+// SendAsks sends the queued asks, oldest first. An ask that stays busy stays
+// queued for the next try.
+func (e *Engine) SendAsks(ctx context.Context) ([]inbox.Ask, error) {
 	queued, err := e.d.Store.QueuedAsks(ctx)
 	if err != nil || len(queued) == 0 {
 		return nil, err
@@ -240,31 +255,31 @@ func (e *Engine) sendAsks(ctx context.Context) ([]inbox.Ask, error) {
 	out := make([]inbox.Ask, 0, len(queued))
 	for _, a := range queued {
 		actx, cancel := context.WithTimeout(ctx, deliverTimeout+ask.LockWait)
-		a, err := ask.Retry(actx, d, a, e.cfg.Timing.Lookback.D(), askIdleWait)
+		a, err := ask.Retry(actx, d, a, e.cfg.Settings.Lookback.D(), askIdleWait)
 		cancel()
 		if err != nil {
-			e.d.Log.Error("ask failed", "ask", a.ID, "card", a.CardID, "profile", a.Profile, "err", err)
+			e.d.Log.Error("ask failed", "ask", a.ID, "card", a.CardID, "space", a.Space, "err", err)
 		} else {
-			e.d.Log.Info("ask", "ask", a.ID, "card", a.CardID, "profile", a.Profile, "state", a.State, "detail", a.Detail)
+			e.d.Log.Info("ask", "ask", a.ID, "card", a.CardID, "space", a.Space, "state", a.State, "detail", a.Detail)
 		}
 		out = append(out, a)
 	}
 	return out, nil
 }
 
-func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Message, now time.Time) BatchResult {
-	br := BatchResult{Profile: p.Name, Driver: p.Driver, Count: len(msgs)}
+func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, msgs []inbox.Message, now time.Time) BatchResult {
+	br := BatchResult{Space: s.ID, SpaceName: s.Title(), Agent: p.ID, Driver: p.Driver, Count: len(msgs)}
 	fail := func(id int64, err error) BatchResult {
 		br.Status, br.Err = store.DispatchFailed, err
 		if id > 0 {
-			if ferr := e.d.Store.FinishDispatch(ctx, id, store.DispatchFailed, err.Error(), p.Name, "", nil); ferr != nil {
+			if ferr := e.d.Store.FinishDispatch(ctx, id, store.DispatchFailed, err.Error(), s.ID, "", nil); ferr != nil {
 				e.d.Log.Error("record dispatch", "err", ferr)
 			}
 		}
-		e.d.Log.Error("dispatch failed", "profile", p.Name, "driver", p.Driver, "messages", len(msgs), "err", err)
+		e.d.Log.Error("dispatch failed", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "err", err)
 		return br
 	}
-	id, err := e.d.Store.CreateDispatch(ctx, store.Dispatch{Profile: p.Name, Driver: p.Driver, CreatedAt: now, MessageCount: len(msgs)})
+	id, err := e.d.Store.CreateDispatch(ctx, store.Dispatch{Space: s.ID, Agent: p.ID, Driver: p.Driver, CreatedAt: now, MessageCount: len(msgs)})
 	if err != nil {
 		return fail(0, err)
 	}
@@ -272,7 +287,7 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	if p.Driver == config.DriverDryRun {
 		cardCommand = "" // no agent reads a dry run
 	}
-	r, err := render.Render(p, render.BatchID(now, p.Name, id), msgs, e.d.Paths.DigestDir, cardCommand)
+	r, err := render.Render(p, s.Title(), render.BatchID(now, s.ID, id), msgs, e.d.Paths.DigestDir, cardCommand)
 	if err != nil {
 		return fail(id, err)
 	}
@@ -280,11 +295,11 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	if err := e.d.Store.SetDigestPath(ctx, id, r.DigestPath); err != nil {
 		return fail(id, err)
 	}
-	drv, err := e.d.NewDriver(p, e.d.Store)
+	drv, err := e.d.NewDriver(p, s.ID, e.d.Store)
 	if err != nil {
 		return fail(id, err)
 	}
-	out, err := e.deliverLocked(ctx, p, drv, r)
+	out, err := e.deliverLocked(ctx, s.ID, p, drv, r)
 	if err != nil {
 		return fail(id, err)
 	}
@@ -298,21 +313,21 @@ func (e *Engine) deliver(ctx context.Context, p config.Profile, msgs []inbox.Mes
 	if p.Driver == config.DriverDryRun {
 		state = inbox.StatePreviewed
 	}
-	if err := e.d.Store.FinishDispatch(ctx, id, out.Status, br.Detail, p.Name, state, ids); err != nil {
+	if err := e.d.Store.FinishDispatch(ctx, id, out.Status, br.Detail, s.ID, state, ids); err != nil {
 		return fail(id, err)
 	}
-	e.d.Log.Info("dispatch", "profile", p.Name, "driver", p.Driver, "messages", len(msgs), "status", out.Status,
+	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "status", out.Status,
 		"detail", br.Detail, "digest", r.DigestPath)
 	return br
 }
 
 // deliverLocked calls the driver while it holds the delivery lock of the
-// profile, so a batch and an ask never type into one terminal at the same
+// space, so a batch and an ask never type into one terminal at the same
 // time. When an ask holds the lock longer than lockWait, the batch is held.
-func (e *Engine) deliverLocked(ctx context.Context, p config.Profile, drv agent.Driver, r *render.Rendered) (agent.Result, error) {
+func (e *Engine) deliverLocked(ctx context.Context, space string, p config.Agent, drv agent.Driver, r *render.Rendered) (agent.Result, error) {
 	if p.Driver != config.DriverDryRun {
 		lctx, cancel := context.WithTimeout(ctx, lockWait)
-		unlock, err := agent.Lock(lctx, e.d.Paths.DataDir, p.Name)
+		unlock, err := agent.Lock(lctx, e.d.Paths.DataDir, space)
 		cancel()
 		if errors.Is(err, agent.ErrBusy) {
 			return agent.Result{Status: agent.StatusHeld, Detail: err.Error()}, nil
@@ -329,16 +344,16 @@ func (e *Engine) deliverLocked(ctx context.Context, p config.Profile, drv agent.
 
 // notify shows a desktop notification for a failed dispatch to a real driver.
 // A sent batch gives no notification: the cards of the agent do (i2a card add).
-// The text has the profile, the count and the error, never message text.
-func (e *Engine) notify(p config.Profile, br BatchResult) {
+// The text has the space, the agent, the count and the error, never message text.
+func (e *Engine) notify(p config.Agent, br BatchResult) {
 	if !e.cfg.Notify.Enabled || p.Driver == config.DriverDryRun || br.Err == nil {
 		return
 	}
-	e.d.Notify("i2a: dispatch failed", notify.Short(fmt.Sprintf("Profile %s, %d messages stay pending: %v", p.Name, br.Count, br.Err), 200))
+	e.d.Notify("i2a: dispatch failed", notify.Short(fmt.Sprintf("Space %s (agent %s), %d messages stay pending: %v", br.SpaceName, p.Title(), br.Count, br.Err), 200))
 }
 
-// notifyPaired shows one notification when a source becomes not paired, and
-// again only after a good poll of that source.
+// notifyPaired shows one notification when an account becomes not paired, and
+// again only after a good read of that account.
 func (e *Engine) notifyPaired(id string, err error) {
 	if err == nil {
 		delete(e.unpaired, id)
@@ -349,13 +364,13 @@ func (e *Engine) notifyPaired(id string, err error) {
 	}
 	e.unpaired[id] = true
 	if e.cfg.Notify.Enabled {
-		e.d.Notify("i2a: WhatsApp not paired", "Source "+id+": pair again in i2a config (Sources).")
+		e.d.Notify("i2a: WhatsApp not paired", "Account "+id+": pair again in i2a config (Accounts).")
 	}
 }
 
 // Prune deletes old sent and expired messages and their digest files.
 func (e *Engine) Prune(ctx context.Context) error {
-	before := e.d.Now().Add(-e.cfg.Timing.Retention.D())
+	before := e.d.Now().Add(-e.cfg.Settings.Retention.D())
 	n, paths, err := e.d.Store.Prune(ctx, before)
 	if err != nil {
 		return err
@@ -380,18 +395,18 @@ func Summary(polls []PollResult, d DispatchResult) string {
 	total := 0
 	for _, p := range polls {
 		if p.Err != nil {
-			fmt.Fprintf(&b, "source %s: error: %v\n", p.SourceID, p.Err)
+			fmt.Fprintf(&b, "account %s: error: %v\n", p.AccountID, p.Err)
 			continue
 		}
 		total += p.New
-		fmt.Fprintf(&b, "source %s: %d new messages\n", p.SourceID, p.New)
+		fmt.Fprintf(&b, "account %s: %d new messages\n", p.AccountID, p.New)
 	}
 	fmt.Fprintf(&b, "collected %d new messages\n", total)
 	if d.Expired > 0 {
 		fmt.Fprintf(&b, "expired %d messages older than the lookback\n", d.Expired)
 	}
 	for _, a := range d.Asks {
-		fmt.Fprintf(&b, "ask %d about card %d for %s: %s", a.ID, a.CardID, a.Profile, a.State)
+		fmt.Fprintf(&b, "ask %d about card %d for the space %s: %s", a.ID, a.CardID, a.Space, a.State)
 		if a.Detail != "" {
 			fmt.Fprintf(&b, " - %s", a.Detail)
 		}
@@ -402,10 +417,10 @@ func Summary(polls []PollResult, d DispatchResult) string {
 	}
 	for _, br := range d.Batches {
 		if br.Err != nil {
-			fmt.Fprintf(&b, "batch for %s (%s, %d messages): failed: %v\n", br.Profile, br.Driver, br.Count, br.Err)
+			fmt.Fprintf(&b, "batch of %s to %s (%s, %d messages): failed: %v\n", br.SpaceName, br.Agent, br.Driver, br.Count, br.Err)
 			continue
 		}
-		fmt.Fprintf(&b, "batch for %s (%s, %d messages): %s", br.Profile, br.Driver, br.Count, br.Status)
+		fmt.Fprintf(&b, "batch of %s to %s (%s, %d messages): %s", br.SpaceName, br.Agent, br.Driver, br.Count, br.Status)
 		if br.Detail != "" {
 			fmt.Fprintf(&b, " - %s", br.Detail)
 		}

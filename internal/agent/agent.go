@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
-	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
 )
 
@@ -30,46 +29,31 @@ type Driver interface {
 	Deliver(ctx context.Context, b *render.Rendered) (Result, error)
 	// Ask sends the prompt of an ask (render.Ask). When handle is a live
 	// terminal, the ask goes there, and Ask waits up to wait for the agent
-	// to be idle. Otherwise the ask goes to the agent of the profile as a
+	// to be idle. Otherwise the ask goes to the agent of the space as a
 	// batch does, with the same wait for a busy reuse session.
 	Ask(ctx context.Context, handle string, wait time.Duration, a *render.Rendered) (Result, error)
 }
 
-// Sessions stores the terminal handle of each profile and the hash of the
-// primer that the session got.
+// Sessions stores the terminal handle of each space and the hash of the
+// primer that the session got. Two spaces with the same agent have two
+// sessions, so the data of one space never enters the session of another.
 type Sessions interface {
-	Session(ctx context.Context, profile string) (handle, primerHash string, err error)
-	SetSession(ctx context.Context, profile, handle, primerHash string, now time.Time) error
-	DeleteSession(ctx context.Context, profile string) error
+	Session(ctx context.Context, space string) (handle, primerHash string, err error)
+	SetSession(ctx context.Context, space, handle, primerHash string, now time.Time) error
+	DeleteSession(ctx context.Context, space string) error
 }
 
-// New returns the driver of a profile.
-func New(p config.Profile, sessions Sessions) (Driver, error) {
+// New returns the driver of an agent for one space. space is the ID of the
+// space; it is the key of the session.
+func New(p config.Agent, space string, sessions Sessions) (Driver, error) {
 	switch p.Driver {
 	case config.DriverDryRun:
 		return DryRun{}, nil
 	case config.DriverOrca:
-		return NewOrca(p, sessions), nil
+		return NewOrca(p, space, sessions), nil
 	default:
-		return nil, fmt.Errorf("profile %q: unknown driver %q", p.Name, p.Driver)
+		return nil, fmt.Errorf("agent %q: unknown driver %q", p.ID, p.Driver)
 	}
-}
-
-// Route returns the profile name for a message: the channel route of its source,
-// or else the profile of its source, or else the first profile.
-func Route(c *config.Config, m inbox.Message) string {
-	if s, ok := c.Source(m.SourceID); ok {
-		if p, ok := s.ChannelProfiles[m.ChannelID]; ok {
-			return p
-		}
-		if s.Profile != "" {
-			return s.Profile
-		}
-	}
-	if len(c.Profiles) > 0 {
-		return c.Profiles[0].Name
-	}
-	return ""
 }
 
 // DryRun only keeps the digest file, which the renderer already wrote.
@@ -80,7 +64,7 @@ func (DryRun) Deliver(_ context.Context, b *render.Rendered) (Result, error) {
 	return Result{Status: StatusSent, Detail: "dry-run: digest only"}, nil
 }
 
-// ErrDryRunAsk is the error of an ask to a dry-run profile: no agent reads it.
+// ErrDryRunAsk is the error of an ask to a dry-run agent: no agent reads it.
 var ErrDryRunAsk = errors.New("dry-run: no agent reads asks")
 
 // Ask returns ErrDryRunAsk.

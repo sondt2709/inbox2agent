@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"syscall"
 	"time"
@@ -41,16 +42,21 @@ type Loader func() (*config.Config, error)
 // tick is the time between loop steps. Tests make it shorter.
 var tick = time.Second
 
-// Run is the daemon loop. It polls the sources on their intervals, dispatches
-// on the timing interval inside the active hours, reloads the configuration
-// when the file changes, and prunes old data once each hour.
+// askEvery is the most time between two tries of the queued asks. A space
+// can send every few hours; an ask of the user must not wait for that.
+var askEvery = time.Minute
+
+// Run is the daemon loop. It reads the accounts on their intervals, sends
+// each space at the send times of its schedule, tries the queued asks each
+// minute, reloads the configuration when the file changes, and prunes old
+// data once each hour.
 func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 	log := e.d.Log
 	modTime := fileModTime(configFile)
-	lastDispatch := e.d.Now()
-	var lastPrune time.Time
-	log.Info("daemon started", "interval", e.cfg.Timing.Interval.String(), "sources", len(e.cfg.Sources),
-		"profiles", len(e.cfg.Profiles), "active_hours", e.cfg.Timing.ActiveHours)
+	var lastPrune, lastAsk time.Time
+	next := nextSends(e.cfg, e.d.Now())
+	log.Info("daemon started", "accounts", len(e.cfg.Accounts), "spaces", len(e.cfg.Spaces), "agents", len(e.cfg.Agents))
+	logNext(log, e.cfg, next)
 
 	t := time.NewTicker(tick)
 	defer t.Stop()
@@ -62,23 +68,37 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 				log.Error("configuration not reloaded, the previous configuration stays", "err", err)
 			} else {
 				e.SetConfig(cfg)
-				log.Info("configuration reloaded", "interval", cfg.Timing.Interval.String(), "sources", len(cfg.Sources))
+				next = nextSends(cfg, e.d.Now())
+				log.Info("configuration reloaded", "accounts", len(cfg.Accounts), "spaces", len(cfg.Spaces))
+				logNext(log, cfg, next)
 			}
 		}
 
 		e.Poll(ctx, false)
 
 		now := e.d.Now()
-		if now.Sub(lastDispatch) >= e.cfg.Timing.Interval.D() {
-			lastDispatch = now
-			hours, _ := config.ParseActiveHours(e.cfg.Timing.ActiveHours)
-			if hours.Contains(now) {
-				if _, err := e.Dispatch(ctx); err != nil {
-					log.Error("dispatch round failed", "err", err)
+		var due []string
+		for _, s := range e.cfg.AllSpaces() {
+			if at, ok := next[s.ID]; ok && !now.Before(at) {
+				due = append(due, s.ID)
+				if sc, ok := e.cfg.Schedule(s.Schedule); ok {
+					next[s.ID] = sc.Next(now)
 				}
-			} else {
-				counts, _ := e.d.Store.Counts(ctx)
-				log.Info("outside active hours, no dispatch", "active_hours", e.cfg.Timing.ActiveHours, "pending", counts["pending"])
+			}
+		}
+		switch {
+		case len(due) > 0:
+			lastAsk = now
+			if _, err := e.Dispatch(ctx, due); err != nil {
+				log.Error("dispatch round failed", "err", err)
+			}
+		case now.Sub(lastAsk) >= askEvery:
+			lastAsk = now
+			if _, err := e.Expire(ctx); err != nil {
+				log.Error("expire failed", "err", err)
+			}
+			if _, err := e.SendAsks(ctx); err != nil {
+				log.Error("asks failed", "err", err)
 			}
 		}
 
@@ -94,6 +114,32 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 			log.Info("daemon stopped")
 			return nil
 		case <-t.C:
+		}
+	}
+}
+
+// nextSends returns the next send time of each space that has an agent.
+func nextSends(cfg *config.Config, now time.Time) map[string]time.Time {
+	out := map[string]time.Time{}
+	for _, s := range cfg.AllSpaces() {
+		if s.Agent == "" {
+			continue
+		}
+		if sc, ok := cfg.Schedule(s.Schedule); ok {
+			if at := sc.Next(now); !at.IsZero() {
+				out[s.ID] = at
+			}
+		}
+	}
+	return out
+}
+
+func logNext(log *slog.Logger, cfg *config.Config, next map[string]time.Time) {
+	for _, s := range cfg.AllSpaces() {
+		if at, ok := next[s.ID]; ok {
+			log.Info("next send", "space", s.ID, "agent", s.Agent, "schedule", s.Schedule, "at", at.Format(time.DateTime))
+		} else {
+			log.Info("space does not send", "space", s.ID, "agent", s.Agent)
 		}
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
+	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
@@ -25,8 +26,12 @@ func (fakeStore) Counts(context.Context) (map[string]int, error) {
 	return map[string]int{"pending": 4, "sent": 12}, nil
 }
 
+func (fakeStore) PendingCounts(context.Context) (map[store.Conv]int, error) {
+	return map[store.Conv]int{{Account: "work", ID: "C1"}: 3, {Account: "work", ID: "D1"}: 1}, nil
+}
+
 func (fakeStore) Dispatches(context.Context, int) ([]store.Dispatch, error) {
-	return []store.Dispatch{{ID: 1, Profile: "triage", Driver: "orca", Status: store.DispatchSent, MessageCount: 3,
+	return []store.Dispatch{{ID: 1, Space: "acme", Agent: "claude-work", Driver: "orca", Status: store.DispatchSent, MessageCount: 3,
 		Detail: "new session term_1, turn started", CreatedAt: time.Now()}}, nil
 }
 
@@ -59,7 +64,9 @@ func (fakeStore) FinishAsk(context.Context, int64, string, string, string, time.
 }
 func (fakeStore) Asks(context.Context, []int64) (map[int64][]inbox.Ask, error) { return nil, nil }
 
-// newTestModel returns a dashboard of 120 × 40 with one source and its data loaded.
+// newTestModel returns a dashboard of 120 × 40 on the Spaces tab, with one
+// Mattermost account that lists 3 conversations, 2 agents, and the space Acme
+// with one of them. The other 2 conversations are in Unsorted.
 func newTestModel(t *testing.T) *model {
 	t.Helper()
 	dir := t.TempDir()
@@ -74,13 +81,24 @@ func newTestModel(t *testing.T) *model {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	cfg.Sources = append(cfg.Sources, config.NewMattermostSource("work", "https://chat.example.com"))
+	work := config.NewMattermostAccount("work", "https://chat.example.com")
+	work.User = "alice"
+	cfg.Accounts = append(cfg.Accounts, work)
+	cfg.Agents = append(cfg.Agents, config.NewAgent("claude-work"))
+	cfg.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: "claude-work", Schedule: "always",
+		Conversations: []config.Conversation{{Account: "work", ID: "C1", Name: "release", Read: config.ReadAll}}}}
 	if err := config.Save(paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
-	u := newUI(Deps{Paths: paths, Config: cfg, Secrets: sec, Store: fakeStore{}, Tab: TabOverview,
+	u := newUI(Deps{Paths: paths, Config: cfg, Secrets: sec, Store: fakeStore{}, Tab: TabSpaces,
+		Check:         func(context.Context, config.Account, string) (string, error) { return "alice", nil },
 		ServiceStatus: func() (service.State, error) { return service.State{Loaded: true, State: "running", PID: "42"}, nil }})
 	m := newModel(context.Background(), u)
+	m.chs["work"] = []mattermost.ChannelInfo{
+		{ID: "C1", Kind: inbox.KindChannel, Name: "release", Team: "eng"},
+		{ID: "D1", Kind: inbox.KindDirect, Name: "@bob"},
+		{ID: "G1", Kind: inbox.KindGroup, Name: "bob, carol"},
+	}
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m.Update(m.load()())
 	return m
@@ -162,29 +180,49 @@ func runWithTimeout(cmd tea.Cmd) tea.Msg {
 	}
 }
 
-func TestDashboardShowsTabsAndOverview(t *testing.T) {
+func TestDashboardShowsTheModel(t *testing.T) {
 	m := newTestModel(t)
+	tabBar := strings.Join(strings.Fields(strings.Split(screen(m), "\n")[1]), " ")
+	if want := "1 Feed 2 Activity │ 3 Accounts → 4 Conversations 2 unsorted → 5 Spaces → 6 Agents + 7 Schedules │ 8 Settings"; tabBar != want {
+		t.Errorf("tab bar = %q, want %q", tabBar, want)
+	}
+	if s := screen(m); !strings.Contains(s, "□ Unsorted") || !strings.Contains(s, "Unsorted reads 2 conversations from work → sends to triage") {
+		t.Errorf("the Spaces tab does not open on Unsorted:\n%s", s)
+	}
+	send(m, "down")
+	m.Update(tea.WindowSizeMsg{Width: 220, Height: 40}) // the sentence on one line
 	s := screen(m)
-	for _, want := range []string{"1 Feed", "2 Overview", "3 Sources", "6 Activity", "service running · pid 42", "work", "triage",
-		"pending", "turn started"} {
+	for _, want := range []string{"Space: your own group of conversations from any account", "service running · pid 42", "■ Acme",
+		"Acme reads 1 conversation from work → sends to claude-work · always (every 15m · every day · all day). Next send: ",
+		"with 3 messages now waiting."} {
 		if !strings.Contains(s, want) {
-			t.Errorf("the dashboard does not show %q", want)
+			t.Errorf("the dashboard does not show %q:\n%s", want, s)
 		}
 	}
 	if n := strings.Count(s, "\n") + 1; n != 40 {
 		t.Errorf("the dashboard has %d lines, want the window height 40", n)
 	}
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	send(m, "8", "enter", "ctrl+u", "9")
+	lines := strings.Split(screen(m), "\n")
+	if !strings.Contains(lines[1], "8 Settings") || !strings.Contains(lines[2], "● unsaved changes") {
+		t.Errorf("at 120 columns the tab bar or the unsaved mark does not fit:\n%s\n%s", lines[1], lines[2])
+	}
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	if bar := strings.Split(screen(m), "\n")[1]; !strings.Contains(bar, "4 Conversations 2 → 5 Spaces") || !strings.Contains(bar, "8 Settings") {
+		t.Errorf("at 100 columns the compact tab bar does not fit: %q", bar)
+	}
 }
 
 func TestTabKeys(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "5")
-	if m.tab != tabSchedule || !strings.Contains(screen(m), "Interval") {
-		t.Fatalf("key 5: tab %d", m.tab)
+	send(m, "7")
+	if m.tab != tabSchedules || !strings.Contains(screen(m), "Schedule: when a space sends") {
+		t.Fatalf("key 7: tab %d", m.tab)
 	}
 	send(m, "tab")
-	if m.tab != tabActivity {
-		t.Errorf("tab: tab %d, want Activity", m.tab)
+	if m.tab != tabSettings {
+		t.Errorf("tab: tab %d, want Settings", m.tab)
 	}
 	send(m, "tab")
 	if m.tab != tabFeed {
@@ -194,23 +232,23 @@ func TestTabKeys(t *testing.T) {
 
 func TestMouseClickOnTab(t *testing.T) {
 	m := newTestModel(t)
-	// Click where a person sees the tab: the text "4 Profiles" on the tab bar (row 1).
+	// Click where a person sees the tab: the text "6 Agents" on the tab bar (row 1).
 	tabBar := strings.Split(screen(m), "\n")[1]
-	x := len([]rune(tabBar[:strings.Index(tabBar, "4 Profiles")]))
+	x := len([]rune(tabBar[:strings.Index(tabBar, "6 Agents")]))
 	m.Update(tea.MouseClickMsg{X: x + 2, Y: 1, Button: tea.MouseLeft})
-	if m.tab != tabProfiles {
-		t.Fatalf("click on the Profiles tab: tab %d", m.tab)
+	if m.tab != tabAgents {
+		t.Fatalf("click on the Agents tab: tab %d", m.tab)
 	}
-	// Click the second row of the list ("+ Add profile"), then click it again to edit it.
+	// Click the third row of the list ("+ Add agent"), then click it again to edit it.
 	m.render()
-	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 3, Button: tea.MouseLeft})
-	if m.prof != 1 || m.form == nil || m.form.active {
-		t.Fatalf("first click: row %d", m.prof)
+	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 4, Button: tea.MouseLeft})
+	if m.agt != 2 || m.form == nil || m.form.active {
+		t.Fatalf("first click: row %d", m.agt)
 	}
-	if !strings.Contains(screen(m), "Create profile") {
-		t.Fatal("the detail panel does not show the new profile form")
+	if !strings.Contains(screen(m), "Create agent") {
+		t.Fatal("the detail panel does not show the new agent form")
 	}
-	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 3, Button: tea.MouseLeft})
+	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 4, Button: tea.MouseLeft})
 	if !m.form.active {
 		t.Fatal("second click did not give the keyboard to the form")
 	}
@@ -227,21 +265,21 @@ func fileText(t *testing.T, m *model) string {
 
 func TestEditInFormAndSave(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "5", "enter")
+	send(m, "8", "enter")
 	if m.form == nil || !m.form.active {
-		t.Fatal("enter on the Schedule tab did not give the keyboard to the form")
+		t.Fatal("enter on the Settings tab did not give the keyboard to the form")
 	}
-	send(m, "ctrl+u", "1", "0", "m")
+	send(m, "ctrl+u", "2", "d")
 	if !m.form.dirty() || !strings.Contains(screen(m), "unsaved changes") {
 		t.Fatal("the form does not show the unsaved change")
 	}
 	if quit := send(m, "ctrl+s"); quit {
 		t.Fatal("ctrl+s quit the dashboard")
 	}
-	if !strings.Contains(fileText(t, m), "interval = '10m'") {
+	if !strings.Contains(fileText(t, m), "lookback = '2d'") {
 		t.Fatalf("ctrl+s did not write the file:\n%s", fileText(t, m))
 	}
-	if m.form.active || m.form.dirty() || !strings.Contains(screen(m), "Saved the schedule.") {
+	if m.form.active || m.form.dirty() || !strings.Contains(screen(m), "Saved the settings.") {
 		t.Fatalf("after the save: active %v, dirty %v", m.form.active, m.form.dirty())
 	}
 	if !send(m, "q") {
@@ -252,7 +290,7 @@ func TestEditInFormAndSave(t *testing.T) {
 func TestFieldErrorKeepsTheFile(t *testing.T) {
 	m := newTestModel(t)
 	before := fileText(t, m)
-	send(m, "5", "enter", "ctrl+u", "a", "b", "c", "ctrl+s")
+	send(m, "8", "enter", "ctrl+u", "a", "b", "c", "ctrl+s")
 	s := screen(m)
 	if !strings.Contains(s, "is not a duration") || !strings.Contains(s, "Correct the fields in red.") {
 		t.Fatalf("no error under the field:\n%s", s)
@@ -265,13 +303,13 @@ func TestFieldErrorKeepsTheFile(t *testing.T) {
 func TestEscWithChangesAsksToDiscard(t *testing.T) {
 	m := newTestModel(t)
 	before := fileText(t, m)
-	send(m, "5", "enter", "ctrl+u", "4", "5", "m", "esc")
+	send(m, "8", "enter", "ctrl+u", "4", "5", "m", "esc")
 	if d := m.topDialog(); d == nil || d.title() != "Unsaved changes" {
 		t.Fatalf("esc with changes: dialog %v, want Unsaved changes", d)
 	}
 	send(m, "d")
-	if m.form.active || m.form.field("interval").value() != "15m" || fileText(t, m) != before {
-		t.Fatalf("after discard: active %v, interval %q", m.form.active, m.form.field("interval").value())
+	if m.form.active || m.form.field("lookback").value() != "1d" || fileText(t, m) != before {
+		t.Fatalf("after discard: active %v, lookback %q", m.form.active, m.form.field("lookback").value())
 	}
 	// Without changes, esc goes back to the list at once.
 	send(m, "enter", "esc")
@@ -282,7 +320,7 @@ func TestEscWithChangesAsksToDiscard(t *testing.T) {
 
 func TestQuitWithUnsavedFormAsks(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "5", "enter", "ctrl+u", "9", "m")
+	send(m, "8", "enter", "ctrl+u", "9", "d")
 	if send(m, "ctrl+c") {
 		t.Fatal("ctrl+c quit with an unsaved form")
 	}
@@ -294,38 +332,150 @@ func TestQuitWithUnsavedFormAsks(t *testing.T) {
 	}
 }
 
-func TestSourceFormSwitchAndQuickKeys(t *testing.T) {
+func TestConversationsMoveReadLevelAndRename(t *testing.T) {
 	m := newTestModel(t)
-	// The form: tab to "All direct", switch it with space, save.
-	send(m, "3", "enter", "tab", "tab", "tab", "space", "ctrl+s")
-	if !strings.Contains(fileText(t, m), "all_direct = false") {
-		t.Fatalf("the switch in the form was not saved:\n%s", fileText(t, m))
+	send(m, "4")
+	s := screen(m)
+	for _, want := range []string{"# release", "@ @bob (new)", "⧉ bob, carol (new)", "Unsorted", "Acme"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("the table does not show %q:\n%s", want, s)
+		}
 	}
-	// The quick key in the list saves at once.
-	send(m, "m")
-	if !strings.Contains(fileText(t, m), "mentions = false") {
-		t.Fatalf("m did not save the mentions switch:\n%s", fileText(t, m))
+	// Select the direct conversation and the group, and move both to a new space.
+	send(m, "down", "space", "space", "m")
+	d, ok := m.topDialog().(*pickDialog)
+	if !ok || len(d.options) != 3 {
+		t.Fatalf("m did not ask for the space: %v", m.topDialog())
+	}
+	send(m, "down", "down", "enter")
+	for _, k := range "Company B" {
+		send(m, string(k))
+	}
+	send(m, "enter")
+	c, err := config.Load(m.u.d.Paths.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Route("work", "D1") != "company-b" || c.Route("work", "G1") != "company-b" || c.Level("work", "D1") != config.ReadAll {
+		t.Fatalf("after the move: D1 in %s (%s), G1 in %s:\n%s", c.Route("work", "D1"), c.Level("work", "D1"), c.Route("work", "G1"), fileText(t, m))
+	}
+	if m.unsortedCount() != 0 || strings.Contains(screen(m), "unsorted ·") && !strings.Contains(screen(m), "0 unsorted") {
+		t.Errorf("unsorted count = %d", m.unsortedCount())
+	}
+	// The read level of the channel, then a new name for it.
+	send(m, "esc")
+	m.conv = 0
+	send(m, "l")
+	send(m, "n", "ctrl+u")
+	for _, k := range "Release channel" {
+		send(m, string(k))
+	}
+	send(m, "enter")
+	c, _ = config.Load(m.u.d.Paths.ConfigFile)
+	if cv, _, _ := c.Conversation("work", "C1"); cv.Read != config.ReadMentions || cv.Label != "Release channel" || cv.Name != "release" {
+		t.Errorf("C1 = %+v", cv)
+	}
+	if !strings.Contains(screen(m), "Release channel") {
+		t.Error("the table does not show the new name")
+	}
+}
+
+func TestDeleteAgentAsksForReplacement(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "6", "down", "x")
+	d, ok := m.topDialog().(*pickDialog)
+	if !ok || !strings.Contains(d.text, "1 space Acme use the agent claude-work") || len(d.options) != 1 {
+		t.Fatalf("x on a used agent: %v", m.topDialog())
+	}
+	send(m, "enter")
+	c, err := config.Load(m.u.d.Paths.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Agent("claude-work"); ok || c.Spaces[0].Agent != "triage" {
+		t.Errorf("after the delete: agents %+v, Acme uses %q", c.Agents, c.Spaces[0].Agent)
+	}
+}
+
+func TestSpaceRenameAndDelete(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "down", "enter", "ctrl+u")
+	for _, k := range "Acme Corp" {
+		send(m, string(k))
+	}
+	send(m, "ctrl+s")
+	if !strings.Contains(fileText(t, m), "name = 'Acme Corp'") || !strings.Contains(fileText(t, m), "id = 'acme'") {
+		t.Fatalf("rename:\n%s", fileText(t, m))
 	}
 	send(m, "x", "y")
-	if strings.Contains(fileText(t, m), "id = 'work'") {
-		t.Fatal("x then y did not remove the source from the file")
+	c, _ := config.Load(m.u.d.Paths.ConfigFile)
+	if len(c.Spaces) != 0 || c.Route("work", "C1") != config.UnsortedID || len(c.Unsorted.Conversations) != 1 {
+		t.Errorf("after the delete: %+v %+v", c.Spaces, c.Unsorted)
+	}
+}
+
+func TestUnsortedOnHold(t *testing.T) {
+	m := newTestModel(t)
+	next := clone(m.u.cfg)
+	next.Unsorted.Agent = ""
+	if err := m.u.commit(next, nil); err != nil {
+		t.Fatal(err)
+	}
+	m.buildForm(true)
+	if s := screen(m); !strings.Contains(s, "Unsorted holds 2 conversations from") && !strings.Contains(s, "It does not send to an agent") {
+		t.Errorf("the Unsorted panel does not say that it holds:\n%s", s)
+	}
+}
+
+func TestAccountShowsWhoAndRenames(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 220, Height: 40})
+	send(m, "3")
+	s := screen(m)
+	for _, want := range []string{"Server      https://chat.example.com", "User        @alice", "3 conversations: Unsorted 2 · Acme 1",
+		"Read every     1m"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the account panel does not show %q:\n%s", want, s)
+		}
+	}
+	send(m, "enter", "ctrl+u")
+	for _, k := range "Company A" {
+		send(m, string(k))
+	}
+	send(m, "ctrl+s")
+	if !strings.Contains(fileText(t, m), "name = 'Company A'") || !strings.Contains(fileText(t, m), "id = 'work'") {
+		t.Fatalf("rename:\n%s", fileText(t, m))
+	}
+}
+
+func TestScheduleDaysAreChecked(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "7")
+	if s := screen(m); !strings.Contains(s, "every 15m · every day · all day. Next send:") || !strings.Contains(s, "Today · each │ is one send") {
+		t.Fatalf("the schedule panel:\n%s", s)
+	}
+	send(m, "enter")
+	m.form.field("days").input.SetValue("monday")
+	send(m, "ctrl+s")
+	if !strings.Contains(screen(m), `"monday" is not a day`) {
+		t.Errorf("no error for a bad day:\n%s", screen(m))
 	}
 }
 
 func TestClickFormField(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "5")
+	send(m, "8")
 	lines := strings.Split(screen(m), "\n")
 	row := -1
 	for i, l := range lines {
-		if strings.Contains(l, "Notifications") {
+		if strings.Contains(l, "Notifications") && strings.Contains(l, "Off") {
 			row = i
 		}
 	}
-	col := strings.Index(lines[row], "Off")
-	if row < 0 || col < 0 {
+	if row < 0 {
 		t.Fatalf("no Notifications switch on the screen")
 	}
+	col := strings.Index(lines[row], "Off")
 	x := len([]rune(lines[row][:col]))
 	m.Update(tea.MouseClickMsg{X: x, Y: row, Button: tea.MouseLeft})
 	if !m.form.active || m.form.field("notify").value() != "off" {
@@ -340,8 +490,12 @@ func TestDigestViewer(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.dispatches[0].DigestPath = path
-	send(m, "6", "enter")
+	send(m, "2")
+	if s := screen(m); !strings.Contains(s, "Acme") || !strings.Contains(s, "claude-work") || !strings.Contains(s, "4 waiting") {
+		t.Errorf("the Activity tab:\n%s", s)
+	}
+	send(m, "enter")
 	if d := m.topDialog(); d == nil || !strings.Contains(screen(m), "line two") {
-		t.Fatalf("enter on a dispatch did not show the digest: %v", d)
+		t.Fatalf("enter on a send did not show the digest: %v", d)
 	}
 }

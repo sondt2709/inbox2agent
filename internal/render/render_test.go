@@ -120,8 +120,8 @@ func TestShortFieldsAreSanitized(t *testing.T) {
 
 func TestRenderPointerWritesDigest(t *testing.T) {
 	dir := t.TempDir()
-	p := config.NewProfile("triage")
-	r, err := Render(p, "20260102-030405-triage-1", []inbox.Message{m("one"), m("two"), m("three")}, dir, "")
+	p := config.NewAgent("triage")
+	r, err := Render(p, "Acme", "20260102-030405-triage-1", []inbox.Message{m("one"), m("two"), m("three")}, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,9 +152,9 @@ func TestRenderPointerWritesDigest(t *testing.T) {
 }
 
 func TestRenderInlineAndFallback(t *testing.T) {
-	p := config.NewProfile("triage")
+	p := config.NewAgent("triage")
 	p.Payload = config.PayloadInline
-	r, err := Render(p, "b1", []inbox.Message{m("short message")}, t.TempDir(), "")
+	r, err := Render(p, "Acme", "b1", []inbox.Message{m("short message")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestRenderInlineAndFallback(t *testing.T) {
 	big := []inbox.Message{m(strings.Repeat("x", 1900)), m(strings.Repeat("y", 1900)), m(strings.Repeat("z", 1900)),
 		m(strings.Repeat("w", 1900)), m(strings.Repeat("v", 1900))}
 	p.InlineMaxBytes = 8000
-	r, err = Render(p, "b2", big, t.TempDir(), "")
+	r, err = Render(p, "Acme", "b2", big, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,9 +177,9 @@ func TestRenderInlineAndFallback(t *testing.T) {
 }
 
 func TestCustomTemplate(t *testing.T) {
-	p := config.NewProfile("triage")
+	p := config.NewAgent("triage")
 	p.Batch = "Process {{.Count}} items in {{.DigestPath}}"
-	r, err := Render(p, "b3", []inbox.Message{m("a"), m("b")}, t.TempDir(), "")
+	r, err := Render(p, "Acme", "b3", []inbox.Message{m("a"), m("b")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,11 +188,30 @@ func TestCustomTemplate(t *testing.T) {
 	}
 }
 
-func TestCheckProfilesFindsUnknownField(t *testing.T) {
+func TestCheckAgentsFindsUnknownField(t *testing.T) {
 	c := config.Default()
-	c.Profiles[0].Batch = "{{.Nope}}"
-	err := CheckProfiles(c)
-	if err == nil || !strings.Contains(err.Error(), `profile "triage".batch`) {
+	c.Agents[0].Batch = "{{.Nope}}"
+	err := CheckAgents(c)
+	if err == nil || !strings.Contains(err.Error(), `agent "triage".batch`) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestTemplatesNameTheSpace(t *testing.T) {
+	p := config.NewAgent("claude-work")
+	p.Batch = "Process {{.Count}} items of {{.Space}} in {{.DigestPath}}"
+	r, err := Render(p, "Acme", "b1", []inbox.Message{m("a"), m("b")}, t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Process 2 items of Acme in " + r.DigestPath; r.Prompt != want {
+		t.Errorf("prompt = %q, want %q", r.Prompt, want)
+	}
+	if !strings.Contains(r.Primer, "for the space Acme") {
+		t.Errorf("the default primer does not name the space:\n%s", r.Primer)
+	}
+	b, _ := os.ReadFile(r.DigestPath)
+	if !strings.Contains(string(b), "- Space: Acme\n- Agent: claude-work") {
+		t.Errorf("digest:\n%s", b)
 	}
 }

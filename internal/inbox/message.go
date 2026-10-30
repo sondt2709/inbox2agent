@@ -34,7 +34,7 @@ type Message struct {
 	URL         string
 	CreatedAt   time.Time
 	State       string
-	Profile     string // the profile of the dispatch that sent the message; "" before a dispatch
+	Space       string // the space of the dispatch that sent the message; "" before a dispatch
 }
 
 // Cursor is the position of a source, as key and value pairs.

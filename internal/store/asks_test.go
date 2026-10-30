@@ -129,7 +129,7 @@ func TestMigrateV4WritesBackupAndKeepsData(t *testing.T) {
 	}
 	defer s.Close()
 	ctx := context.Background()
-	if v, _ := s.Version(ctx); v != 5 {
+	if v, _ := s.Version(ctx); v != SchemaVersion {
 		t.Errorf("version = %d, want 5", v)
 	}
 	if counts, _ := s.Counts(ctx); counts[inbox.StateSent] != 120 {
@@ -147,10 +147,10 @@ func TestMigrateV4WritesBackupAndKeepsData(t *testing.T) {
 		t.Errorf("replies = %d, %v, want 3", n, err)
 	}
 	msgs, err := s.MessagesByID(ctx, []int64{1})
-	if err != nil || len(msgs) != 1 || msgs[0].Profile != "triage" {
-		t.Errorf("message 1 = %+v, %v, want the profile triage", msgs, err)
+	if err != nil || len(msgs) != 1 || msgs[0].Space != "triage" {
+		t.Errorf("message 1 = %+v, %v, want the space triage", msgs, err)
 	}
-	if _, err := s.StartAsk(ctx, inbox.Ask{CardID: cards[0].ID, Profile: "triage", Text: "more", CreatedAt: time.Now()}); err != nil {
+	if _, err := s.StartAsk(ctx, inbox.Ask{CardID: cards[0].ID, Space: "triage", Text: "more", CreatedAt: time.Now()}); err != nil {
 		t.Errorf("save an ask after the upgrade: %v", err)
 	}
 
@@ -231,12 +231,12 @@ func TestAsks(t *testing.T) {
 	s, _ := open(t)
 	ctx := context.Background()
 	now := time.Now()
-	a1, err := s.StartAsk(ctx, inbox.Ask{CardID: 4, Profile: "triage", Text: "research more", CreatedAt: now})
+	a1, err := s.StartAsk(ctx, inbox.Ask{CardID: 4, Space: "triage", Text: "research more", CreatedAt: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	a2, _ := s.StartAsk(ctx, inbox.Ask{CardID: 4, Profile: "triage", Text: "and the effort", CreatedAt: now.Add(time.Second)})
-	a3, _ := s.StartAsk(ctx, inbox.Ask{CardID: 5, Profile: "triage", Text: "other", CreatedAt: now.Add(2 * time.Second)})
+	a2, _ := s.StartAsk(ctx, inbox.Ask{CardID: 4, Space: "triage", Text: "and the effort", CreatedAt: now.Add(time.Second)})
+	a3, _ := s.StartAsk(ctx, inbox.Ask{CardID: 5, Space: "triage", Text: "other", CreatedAt: now.Add(2 * time.Second)})
 
 	q, err := s.QueuedAsks(ctx)
 	if err != nil || len(q) != 3 || q[0].ID != a1 || q[0].State != inbox.AskQueued || q[0].Text != "research more" {

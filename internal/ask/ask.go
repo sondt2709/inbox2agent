@@ -23,7 +23,7 @@ import (
 const Wait = 2 * time.Minute
 
 // LockWait is the time that an ask waits for another delivery to the same
-// profile: longer than Wait and the 30 second submit. Tests make it shorter.
+// space: longer than Wait and the 30 second submit. Tests make it shorter.
 var LockWait = 3 * time.Minute
 
 // Store is the part of the store that an ask uses.
@@ -39,17 +39,18 @@ type Store interface {
 type Deps struct {
 	Store       Store
 	Config      *config.Config
-	NewDriver   func(p config.Profile, s agent.Sessions) (agent.Driver, error) // default agent.New
-	CardCommand string                                                         // the command of the card section; see render.CardCommand
-	LockDir     string                                                         // the directory of the profile locks
+	NewDriver   func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error) // default agent.New
+	CardCommand string                                                                     // the command of the card section; see render.CardCommand
+	LockDir     string                                                                     // the directory of the space locks
 	Now         func() time.Time
 }
 
-// DryRunError is the error of an ask to a dry-run profile.
-type DryRunError struct{ Profile string }
+// NoAgentError is the error of an ask about a card of a space that has no
+// agent (Unsorted on hold) or a dry-run agent.
+type NoAgentError struct{ Space string }
 
-func (e *DryRunError) Error() string {
-	return fmt.Sprintf("The profile %s uses dry-run; no agent reads asks.", e.Profile)
+func (e *NoAgentError) Error() string {
+	return fmt.Sprintf("The space %s has no agent that reads asks.", e.Space)
 }
 
 // CheckText applies the text rule of a reply: no hidden characters, no spaces
@@ -60,15 +61,19 @@ func CheckText(s string) (string, error) { return reply.CheckText(s) }
 type Target struct {
 	Card     inbox.Card
 	Messages []inbox.Message // the ref messages that still exist
-	Profile  config.Profile
+	Space    config.Space
+	Agent    config.Agent
 }
 
-// Agent names the profile and the driver for a person, for example "triage · orca".
-func (t Target) Agent() string { return t.Profile.Name + " · " + t.Profile.Driver }
+// AgentText names the agent, its driver and the space for a person, for
+// example "Claude for work · orca · space Acme".
+func (t Target) AgentText() string {
+	return t.Agent.Title() + " · " + t.Agent.Driver + " · space " + t.Space.Title()
+}
 
 // Session names the session that gets the ask for a person, for example
 // "terminal term_b9f22da8… (wrote the card)". When the terminal of the card
-// no longer runs, the ask goes to the agent of the profile instead.
+// no longer runs, the ask goes to the session of the space instead.
 func (t Target) Session() string {
 	switch {
 	case t.Card.Handle != "":
@@ -77,16 +82,17 @@ func (t Target) Session() string {
 			h = h[:13] + "…" // term_ and 8 characters
 		}
 		return "terminal " + h + " (wrote the card)"
-	case t.Profile.Session == config.SessionReuse:
-		return "the session of the profile"
-	case t.Profile.Session == config.SessionWorktree:
+	case t.Agent.Session == config.SessionReuse:
+		return "the session of the space"
+	case t.Agent.Session == config.SessionWorktree:
 		return "a new worktree"
 	}
 	return "a new session"
 }
 
-// Resolve finds the profile of the card: the profile of its newest ref
-// message that has one, or else the first profile.
+// Resolve finds the space of the card and its agent: the space of the newest
+// ref message that has one, or else the space that lists the conversation of
+// the newest ref message, or else Unsorted.
 func Resolve(ctx context.Context, d Deps, c inbox.Card) (Target, error) {
 	msgs, err := d.Store.MessagesByID(ctx, c.Refs)
 	if err != nil {
@@ -97,31 +103,38 @@ func Resolve(ctx context.Context, d Deps, c inbox.Card) (Target, error) {
 
 // TargetOf is Resolve with the ref messages of the card that the caller read.
 func TargetOf(cfg *config.Config, c inbox.Card, msgs []inbox.Message) (Target, error) {
-	name := ""
+	space := ""
 	var newest time.Time
 	for _, m := range msgs {
-		if m.Profile != "" && (name == "" || m.CreatedAt.After(newest)) {
-			name, newest = m.Profile, m.CreatedAt
+		if m.Space != "" && (space == "" || m.CreatedAt.After(newest)) {
+			space, newest = m.Space, m.CreatedAt
 		}
 	}
-	return target(cfg, c, msgs, name)
+	if space == "" && len(msgs) > 0 {
+		last := msgs[0]
+		for _, m := range msgs {
+			if m.CreatedAt.After(last.CreatedAt) {
+				last = m
+			}
+		}
+		space = cfg.Route(last.SourceID, last.ChannelID)
+	}
+	return target(cfg, c, msgs, space)
 }
 
-func target(cfg *config.Config, c inbox.Card, msgs []inbox.Message, name string) (Target, error) {
-	if name == "" {
-		if len(cfg.Profiles) == 0 {
-			return Target{}, errors.New("the configuration has no profile")
-		}
-		name = cfg.Profiles[0].Name
+func target(cfg *config.Config, c inbox.Card, msgs []inbox.Message, space string) (Target, error) {
+	if space == "" {
+		space = config.UnsortedID
 	}
-	p, ok := cfg.Profile(name)
+	s, ok := cfg.Space(space)
 	if !ok {
-		return Target{}, fmt.Errorf("the profile %q of the card is not in the configuration", name)
+		return Target{}, fmt.Errorf("the space %q of the card is not in the configuration", space)
 	}
-	if p.Driver == config.DriverDryRun {
-		return Target{}, &DryRunError{Profile: p.Name}
+	a, ok := cfg.Agent(s.Agent)
+	if !ok || a.Driver == config.DriverDryRun {
+		return Target{}, &NoAgentError{Space: s.Title()}
 	}
-	return Target{Card: c, Messages: msgs, Profile: *p}, nil
+	return Target{Card: c, Messages: msgs, Space: *s, Agent: *a}, nil
 }
 
 // Send checks the text, records the ask as queued and sends it. When the agent
@@ -136,7 +149,7 @@ func Send(ctx context.Context, d Deps, c inbox.Card, text string, wait time.Dura
 	if err != nil {
 		return inbox.Ask{}, err
 	}
-	a := inbox.Ask{CardID: c.ID, Profile: t.Profile.Name, Text: text, State: inbox.AskQueued, CreatedAt: d.Now().UTC()}
+	a := inbox.Ask{CardID: c.ID, Space: t.Space.ID, Text: text, State: inbox.AskQueued, CreatedAt: d.Now().UTC()}
 	if a.ID, err = d.Store.StartAsk(ctx, a); err != nil {
 		return inbox.Ask{}, err
 	}
@@ -144,8 +157,8 @@ func Send(ctx context.Context, d Deps, c inbox.Card, text string, wait time.Dura
 }
 
 // Retry sends a queued ask again, for the daemon. An ask older than maxAge,
-// an ask of a card that no longer exists and an ask of a profile that is not
-// in the configuration become failed.
+// an ask of a card that no longer exists and an ask of a space that is not
+// in the configuration or has no agent become failed.
 func Retry(ctx context.Context, d Deps, a inbox.Ask, maxAge, wait time.Duration) (inbox.Ask, error) {
 	now := d.Now()
 	if now.Sub(a.CreatedAt) > maxAge {
@@ -162,7 +175,7 @@ func Retry(ctx context.Context, d Deps, a inbox.Ask, maxAge, wait time.Duration)
 	if err != nil {
 		return a, err
 	}
-	t, err := target(d.Config, c, msgs, a.Profile)
+	t, err := target(d.Config, c, msgs, a.Space)
 	if err != nil {
 		return finish(ctx, d, a, inbox.AskFailed, "", err.Error())
 	}
@@ -171,7 +184,7 @@ func Retry(ctx context.Context, d Deps, a inbox.Ask, maxAge, wait time.Duration)
 
 func deliver(ctx context.Context, d Deps, t Target, a inbox.Ask, wait time.Duration) (inbox.Ask, error) {
 	lctx, cancel := context.WithTimeout(ctx, LockWait)
-	unlock, err := agent.Lock(lctx, d.LockDir, t.Profile.Name)
+	unlock, err := agent.Lock(lctx, d.LockDir, t.Space.ID)
 	cancel()
 	if errors.Is(err, agent.ErrBusy) {
 		return finish(ctx, d, a, inbox.AskQueued, "", err.Error())
@@ -181,7 +194,7 @@ func deliver(ctx context.Context, d Deps, t Target, a inbox.Ask, wait time.Durat
 	}
 	defer unlock()
 
-	r, err := render.Ask(t.Profile, render.AskID(d.Now(), t.Profile.Name, a.ID),
+	r, err := render.Ask(t.Agent, t.Space.Title(), render.AskID(d.Now(), t.Space.ID, a.ID),
 		render.AskInput{ID: a.ID, Card: t.Card, Messages: t.Messages, Text: a.Text}, d.CardCommand)
 	if err != nil {
 		return finish(ctx, d, a, inbox.AskFailed, "", err.Error())
@@ -190,7 +203,7 @@ func deliver(ctx context.Context, d Deps, t Target, a inbox.Ask, wait time.Durat
 	if newDriver == nil {
 		newDriver = agent.New
 	}
-	drv, err := newDriver(t.Profile, d.Store)
+	drv, err := newDriver(t.Agent, t.Space.ID, d.Store)
 	if err != nil {
 		return finish(ctx, d, a, inbox.AskFailed, "", err.Error())
 	}

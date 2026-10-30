@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -15,6 +16,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
@@ -22,21 +24,40 @@ type tabID int
 
 const (
 	tabFeed tabID = iota
-	tabOverview
-	tabSources
-	tabProfiles
-	tabSchedule
 	tabActivity
+	tabAccounts
+	tabConversations
+	tabSpaces
+	tabAgents
+	tabSchedules
+	tabSettings
 )
 
-var tabNames = []string{"Feed", "Overview", "Sources", "Profiles", "Schedule", "Activity"}
+var tabNames = []string{"Feed", "Activity", "Accounts", "Conversations", "Spaces", "Agents", "Schedules", "Settings"}
+
+// tabBefore is the mark before each tab in the tab bar. The setup tabs show
+// the model: Accounts → Conversations → Spaces → Agents + Schedules.
+var tabBefore = []string{"", "", "│", "→", "→", "→", "+", "│"}
+
+// tabDefs defines the item of each tab in one sentence, under the tab bar.
+var tabDefs = []string{
+	"Feed: the cards that your agents send back. r replies, t asks the agent.",
+	"Activity: each send of a space to its agent, and the result.",
+	"Account: one login to a chat tool. It only connects; i2a finds its conversations.",
+	"Conversation: one DM, group or channel. Each is in one space, with a read level.",
+	"Space: your own group of conversations from any account. It sends to one agent on one schedule.",
+	"Agent: how i2a sends a batch to an AI agent. Each space has its own session.",
+	"Schedule: when a space sends. Outside it, i2a still reads, and the messages wait.",
+	"Settings: how long i2a keeps messages, notifications, and the background service.",
+}
 
 // refreshEvery is the time between two reads of the store and the service state.
 const refreshEvery = 2 * time.Second
 
-// Layout rows: the header bar is row 0, the tab bar is row 1, the content
-// starts at row 2, and the footer is the last row.
-const contentTop = 2
+// Layout rows: the header bar is row 0, the tab bar is row 1, the definition
+// of the tab is row 2, the content starts at row 3, and the footer is the
+// last row.
+const contentTop = 3
 
 type (
 	asyncMsg struct {
@@ -51,12 +72,15 @@ type (
 		opened     Store // the store that load opened, or nil
 		svc        service.State
 		svcErr     error
-		waStates   map[string]string // the state of each WhatsApp source
+		waStates   map[string]string          // the state of each WhatsApp account
+		waDevices  map[string]whatsapp.Device // the phone and the name of each WhatsApp account
+		pending    map[store.Conv]int         // the waiting messages of each conversation
 	}
 	channelsMsg struct {
-		source string
-		chs    []mattermost.ChannelInfo
-		err    error
+		account string
+		user    string // the Mattermost username; "" for WhatsApp
+		chs     []mattermost.ChannelInfo
+		err     error
 	}
 )
 
@@ -88,8 +112,14 @@ type model struct {
 	svcErr     error
 	loaded     bool
 
-	src, prof, act             int // cursors of the lists
-	srcOff, profOff, actOffset int // first visible rows
+	acc, conv, spc, agt, sch, act                      int // cursors of the lists
+	accOff, convOff, spcOff, agtOff, schOff, actOffset int // first visible rows
+
+	convFilter string          // "", "unsorted", "space:<id>", "account:<id>" or "kind:<kind>"
+	convSel    map[string]bool // the selected conversations (convKey)
+	search     textinput.Model // the search of the Conversations tab
+	searching  bool            // the search has the keyboard
+	feedSpace  int             // index in feedSpaces(): 0 is all spaces
 
 	cards      []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
 	refs       map[int64]inbox.Message // the source messages of the cards
@@ -108,12 +138,14 @@ type model struct {
 	// form is the form of the detail panel; formFor names what it edits.
 	form    *form
 	formFor string
-	newSrc  *pendingSource // the source that the add form connected, before it is added
-	pair    *pairing       // the WhatsApp pairing that runs, or nil
+	pair    *pairing // the WhatsApp pairing that runs, or nil
 
-	waStates map[string]string // "paired" or "not paired" for each WhatsApp source, from the last load
+	waStates  map[string]string          // "paired" or "not paired" for each WhatsApp account, from the last load
+	waDevices map[string]whatsapp.Device // the phone and the name of each WhatsApp account
+	mmUsers   map[string]string          // the Mattermost username of each account, from the last list
+	pending   map[store.Conv]int         // the waiting messages of each conversation
 
-	chs      map[string][]mattermost.ChannelInfo // the channels of each source
+	chs      map[string][]mattermost.ChannelInfo // the conversations that each account lists
 	chsErr   map[string]string
 	chsBusy  map[string]bool
 	tabZones []zone
@@ -126,20 +158,24 @@ func newModel(ctx context.Context, u *ui) *model {
 		ctx: ctx, u: u, now: time.Now, tab: u.d.Tab, feedSort: sortUrgency, refs: map[int64]inbox.Message{},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		chs:  map[string][]mattermost.ChannelInfo{}, chsErr: map[string]string{}, chsBusy: map[string]bool{},
+		convSel: map[string]bool{}, mmUsers: map[string]string{}, search: newSearch(),
 	}
 }
 
-func (m *model) Init() tea.Cmd { return tea.Batch(m.load(), m.spin.Tick) }
+// Init reads the store and lists the conversations of the accounts in the
+// background, so the unsorted count of the tab bar is right from the start.
+func (m *model) Init() tea.Cmd { return tea.Batch(m.load(), m.spin.Tick, m.loadConversations()) }
 
 // load reads the store and the service state outside the UI loop.
 func (m *model) load() tea.Cmd {
 	all, st, open := m.feedAll, m.u.d.Store, m.u.d.OpenStore
 	var wa []string
-	for _, sc := range m.u.cfg.Sources {
-		if sc.Type == config.SourceWhatsApp {
-			wa = append(wa, sc.ID)
+	for _, a := range m.u.cfg.Accounts {
+		if a.Platform == config.PlatformWhatsApp {
+			wa = append(wa, a.ID)
 		}
 	}
+	dataDir := m.u.d.Paths.DataDir
 	return func() tea.Msg {
 		var d dataMsg
 		if st == nil && open != nil {
@@ -151,12 +187,14 @@ func (m *model) load() tea.Cmd {
 		if st != nil {
 			d.counts, _ = st.Counts(m.ctx)
 			d.dispatches, _ = st.Dispatches(m.ctx, 50)
+			d.pending, _ = st.PendingCounts(m.ctx)
 			d.feed = readFeed(m.ctx, st, all)
 		}
 		d.svc, d.svcErr = m.u.d.ServiceStatus()
-		d.waStates = map[string]string{}
+		d.waStates, d.waDevices = map[string]string{}, map[string]whatsapp.Device{}
 		for _, id := range wa {
 			d.waStates[id] = m.whatsAppState(id)
+			d.waDevices[id], _ = whatsapp.ReadDevice(m.ctx, dataDir, id)
 		}
 		return d
 	}
@@ -232,26 +270,37 @@ func (m *model) buildForm(force bool) {
 
 func (m *model) formTarget() (string, func() *form) {
 	switch m.tab {
-	case tabSources:
-		if sc := m.selectedSource(); sc != nil {
-			id := sc.ID
-			return "src:" + id, func() *form { return m.sourceForm(id) }
-		}
-		if m.newSrc != nil {
-			return "src:+connected", m.newSourceStep2
+	case tabAccounts:
+		if a := m.selectedAccount(); a != nil {
+			id := a.ID
+			return "acc:" + id, func() *form { return m.accountForm(id) }
 		}
 		if m.pair != nil {
-			return "src:+pair", m.pairForm
+			return "acc:+pair", m.pairForm
 		}
-		return "src:+", m.newSourceForm
-	case tabProfiles:
-		if m.prof < len(m.u.cfg.Profiles) {
-			name := m.u.cfg.Profiles[m.prof].Name
-			return "prof:" + name, func() *form { return m.profileForm(name) }
+		return "acc:+", m.newAccountForm
+	case tabSpaces:
+		if id, ok := m.selectedSpace(); ok {
+			if id == config.UnsortedID {
+				return "spc:" + id, m.unsortedForm
+			}
+			return "spc:" + id, func() *form { return m.spaceForm(id) }
 		}
-		return "prof:+", func() *form { return m.profileForm("") }
-	case tabSchedule:
-		return "sched", m.scheduleForm
+		return "spc:+", func() *form { return m.spaceForm("") }
+	case tabAgents:
+		if m.agt < len(m.u.cfg.Agents) {
+			id := m.u.cfg.Agents[m.agt].ID
+			return "agt:" + id, func() *form { return m.agentForm(id) }
+		}
+		return "agt:+", func() *form { return m.agentForm("") }
+	case tabSchedules:
+		if m.sch < len(m.u.cfg.Schedules) {
+			id := m.u.cfg.Schedules[m.sch].ID
+			return "sch:" + id, func() *form { return m.scheduleForm(id) }
+		}
+		return "sch:+", func() *form { return m.scheduleForm("") }
+	case tabSettings:
+		return "settings", m.settingsForm
 	case tabFeed:
 		if c, ok := m.selectedCard(); ok && c.ID == m.replyCard {
 			return fmt.Sprintf("reply:%d", c.ID), func() *form { return m.replyForm(c) }
@@ -268,11 +317,7 @@ func (m *model) focusForm() tea.Cmd {
 	if m.form == nil {
 		return nil
 	}
-	cmd := m.form.activate()
-	if m.tab == tabSources {
-		return tea.Batch(cmd, m.loadChannels())
-	}
-	return cmd
+	return m.form.activate()
 }
 
 // leaveForm gives the keyboard back to the list. With unsaved changes, it asks first.
@@ -286,7 +331,6 @@ func (m *model) leaveForm() {
 	}
 	m.openDialog(&confirmDialog{name: "Unsaved changes", text: "Discard the changes in this form?",
 		choices: []choice{{"d", "Discard", func() tea.Cmd {
-			m.newSrc = nil
 			m.buildForm(true)
 			m.setStatus("Changes discarded.", false)
 			return nil
@@ -321,7 +365,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			m.u.d.Store = msg.opened
 		}
 		m.counts, m.dispatches, m.svc, m.svcErr, m.loaded = msg.counts, msg.dispatches, msg.svc, msg.svcErr, true
-		m.waStates = msg.waStates
+		m.waStates, m.waDevices, m.pending = msg.waStates, msg.waDevices, msg.pending
 		m.setFeed(msg.feed)
 		return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} })
 	case feedMsg:
@@ -331,8 +375,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.setStatus(msg.text, msg.isErr)
 		return nil
 	case channelsMsg:
-		m.gotChannels(msg)
-		return nil
+		return m.gotChannels(msg)
 	case asyncMsg:
 		if msg.id != m.busyID {
 			return nil // cancelled
@@ -355,7 +398,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			m.cancelAsk()
 			return nil
 		}
-		if m.pair != nil && m.formFor == "src:+pair" {
+		if m.pair != nil && m.formFor == "acc:+pair" {
 			m.cancelPairing()
 			return nil
 		}
@@ -382,6 +425,9 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 				return m.quit()
 			}
 			return m.form.key(msg)
+		}
+		if m.searching {
+			return m.searchKey(msg)
 		}
 		return m.key(msg.String())
 	case tea.MouseClickMsg:
@@ -418,7 +464,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 // then the keys of the tab.
 func (m *model) key(k string) tea.Cmd {
 	switch k {
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7", "8":
 		return m.setTab(tabID(k[0] - '1'))
 	case "tab", "]":
 		return m.setTab((m.tab + 1) % tabID(len(tabNames)))
@@ -444,14 +490,20 @@ func (m *model) tabKey(k string) tea.Cmd {
 	switch m.tab {
 	case tabFeed:
 		cmd = m.keyFeed(k)
-	case tabOverview:
-		cmd = m.keyOverview(k)
-	case tabSources:
-		cmd = m.keySources(k)
-	case tabProfiles:
-		cmd = m.keyProfiles(k)
 	case tabActivity:
 		cmd = m.keyActivity(k)
+	case tabAccounts:
+		cmd = m.keyAccounts(k)
+	case tabConversations:
+		cmd = m.keyConversations(k)
+	case tabSpaces:
+		cmd = m.keySpaces(k)
+	case tabAgents:
+		cmd = m.keyAgents(k)
+	case tabSchedules:
+		cmd = m.keySchedules(k)
+	case tabSettings:
+		cmd = m.keySettings(k)
 	}
 	m.buildForm(false)
 	return cmd
@@ -459,9 +511,11 @@ func (m *model) tabKey(k string) tea.Cmd {
 
 func (m *model) setTab(t tabID) tea.Cmd {
 	m.tab = t
+	m.searching = false
 	m.buildForm(true)
-	if t == tabSources {
-		return m.loadChannels()
+	switch t {
+	case tabAccounts, tabConversations, tabSpaces:
+		return m.loadConversations()
 	}
 	return nil
 }
@@ -484,8 +538,7 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 		ox := 2 // the panel border and the padding
 		oy := 2 // the panel border and the panel title
 		switch m.tab {
-		case tabSchedule:
-			oy += 2 // the state line and an empty line
+		case tabSettings:
 		case tabFeed:
 			ox += feedListWidth(m.w)
 			oy++ // the filter bar
@@ -503,10 +556,16 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 	switch m.tab {
 	case tabFeed:
 		return m.clickFeed(x, y-1) // the filter bar is above the panels
-	case tabSources:
-		return m.clickList(y, &m.src, m.srcOff, len(m.u.cfg.Sources)+1)
-	case tabProfiles:
-		return m.clickList(y, &m.prof, m.profOff, len(m.u.cfg.Profiles)+1)
+	case tabAccounts:
+		return m.clickList(y, &m.acc, m.accOff, len(m.u.cfg.Accounts)+1)
+	case tabSpaces:
+		return m.clickList(y, &m.spc, m.spcOff, len(m.u.cfg.Spaces)+2)
+	case tabAgents:
+		return m.clickList(y, &m.agt, m.agtOff, len(m.u.cfg.Agents)+1)
+	case tabSchedules:
+		return m.clickList(y, &m.sch, m.schOff, len(m.u.cfg.Schedules)+1)
+	case tabConversations:
+		return m.clickConversations(y)
 	case tabActivity:
 		// The table has a header row under the panel title.
 		row := y - 3 + m.actOffset
@@ -549,26 +608,30 @@ func (m *model) quit() tea.Cmd {
 	return nil
 }
 
-const helpText = `Tabs        1-6 or tab / shift+tab, or click a tab
+const helpText = `The model   Account → Conversation → Space → Agent + Schedule
+            An account only connects. Each DM, group or channel is in one
+            space, with a read level: all, mentions (messages for you) or off.
+            A space sends its conversations to one agent on one schedule.
+            Unsorted holds the conversations that no space lists.
+
+Tabs        1-8 or tab / shift+tab, or click a tab
 Move        ↑ ↓ or j k in a list, or the mouse wheel
 Edit        enter or → opens the form at the right; or click it
 Form        tab / shift+tab or ↑ ↓ move between the fields
             ←/→ or space change a choice or a switch
-            enter goes to the next field; in the last field it saves
             ctrl+s saves the form · esc goes back to the list
-Quit        q or ctrl+c
-Refresh     ctrl+r
+Quit        q or ctrl+c · Refresh ctrl+r
 
-Feed        r reply (ctrl+s sends, esc cancels) · c copy the reply
-            t ask the agent about the card (ctrl+s sends, esc cancels)
-            o open the thread · d done · u unread
-            s sort (urgency or newest) · f filter · a show done cards
-Sources     enter edit · D direct on/off · m mentions on/off · x remove
-Profiles    enter edit · x delete
-Overview    i install or restart the service · u uninstall it
-Activity    enter show the digest file
-
-Channel list: type to search · space select · ctrl+a all shown · esc clear`
+Feed           r reply · t ask the agent · c copy the reply · o open the thread
+               d done · u unread · s sort · f category · F space · a done cards
+Accounts       enter edit · x remove
+Conversations  space select · m move to a space · l read level · n rename
+               / search · f filter (all, Unsorted, account, kind, space)
+Spaces         enter edit · a add conversations · c show its conversations · x delete
+Agents         enter edit · x delete (choose a replacement)
+Schedules      enter edit · x delete (choose a replacement)
+Settings       enter edit · i install or restart the service · u uninstall it
+Activity       enter show the digest file`
 
 // ---- view ----
 
@@ -588,10 +651,11 @@ func (m *model) render() string {
 	}
 	header := m.renderHeader()
 	tabs := m.renderTabs()
-	contentH := m.h - 3
+	def := m.renderDef()
+	contentH := m.h - 4
 	content := lipgloss.NewStyle().Width(m.w).Height(contentH).MaxHeight(contentH).Render(m.renderTab(m.w, contentH))
 	footer := m.renderFooter()
-	base := lipgloss.JoinVertical(lipgloss.Left, header, tabs, content, footer)
+	base := lipgloss.JoinVertical(lipgloss.Left, header, tabs, def, content, footer)
 
 	d := m.topDialog()
 	if d == nil {
@@ -637,27 +701,63 @@ func (m *model) serviceBadge() string {
 }
 
 func (m *model) renderTabs() string {
+	if bar := m.tabBar(false); lipgloss.Width(bar) <= m.w {
+		return bar
+	}
+	return m.tabBar(true) // a narrow window: less padding, the unsorted count only
+}
+
+// tabBar draws the tab bar and records the mouse zone of each tab.
+func (m *model) tabBar(compact bool) string {
 	m.tabZones = m.tabZones[:0]
-	x := 1
+	x := 0
 	var b strings.Builder
-	b.WriteString(" ")
+	active, inactive := tabActive, tabInactive
+	if compact {
+		active, inactive = tabActive.Padding(0, 0), tabInactive.Padding(0, 0)
+	}
 	for i, name := range tabNames {
+		if mark := tabBefore[i]; mark != "" {
+			if compact {
+				mark = " " + mark + " "
+			}
+			b.WriteString(faint.Render(mark))
+			x += lipgloss.Width(mark)
+		} else if compact && i > 0 {
+			b.WriteString("  ")
+			x += 2
+		}
+		badge := ""
+		if tabID(i) == tabConversations {
+			if n := m.unsortedCount(); n > 0 {
+				badge = warnStyle.Render(fmt.Sprintf("%d unsorted", n)) + " "
+				if compact {
+					badge = " " + warnStyle.Render(fmt.Sprint(n))
+				}
+			}
+		}
 		var s string
 		if tabID(i) == m.tab {
-			s = tabActive.Render(fmt.Sprintf("%d %s", i+1, name))
+			s = active.Render(fmt.Sprintf("%d %s", i+1, name)) + badge
 		} else {
-			s = tabInactive.Render(tabKey.Render(fmt.Sprint(i+1)) + faint.Render(" "+name))
+			s = inactive.Render(tabKey.Render(fmt.Sprint(i+1))+faint.Render(" "+name)) + badge
 		}
 		w := lipgloss.Width(s)
 		m.tabZones = append(m.tabZones, zone{x0: x, x1: x + w, y: 1, tab: tabID(i)})
-		b.WriteString(s + " ")
-		x += w + 1
+		b.WriteString(s)
+		x += w
 	}
-	left := b.String()
+	return b.String()
+}
+
+// renderDef is the definition of the current tab, with the unsaved mark of a
+// form at the right.
+func (m *model) renderDef() string {
 	right := ""
 	if m.form != nil && m.form.dirty() && m.replyCard == 0 && m.askCard == 0 {
 		right = dirtyStyle.Render("● unsaved changes") + faint.Render(" · ctrl+s save · esc discard ")
 	}
+	left := " " + faint.Render(truncate(tabDefs[m.tab], max(10, m.w-2-lipgloss.Width(right))))
 	gap := max(1, m.w-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", gap) + right
 }
@@ -694,34 +794,42 @@ func (m *model) renderFooter() string {
 
 func (m *model) renderTab(w, h int) string {
 	switch m.tab {
-	case tabFeed:
-		return m.viewFeed(w, h)
-	case tabSources:
-		return m.viewSources(w, h)
-	case tabProfiles:
-		return m.viewProfiles(w, h)
-	case tabSchedule:
-		return m.viewSchedule(w, h)
 	case tabActivity:
 		return m.viewActivity(w, h)
+	case tabAccounts:
+		return m.viewAccounts(w, h)
+	case tabConversations:
+		return m.viewConversations(w, h)
+	case tabSpaces:
+		return m.viewSpaces(w, h)
+	case tabAgents:
+		return m.viewAgents(w, h)
+	case tabSchedules:
+		return m.viewSchedules(w, h)
+	case tabSettings:
+		return m.viewSettings(w, h)
 	}
-	return m.viewOverview(w, h)
+	return m.viewFeed(w, h)
 }
 
 func (m *model) tabHints() []hint {
 	switch m.tab {
-	case tabFeed:
-		return feedHints()
-	case tabSources:
-		return m.hintsSources()
-	case tabProfiles:
-		return m.hintsProfiles()
-	case tabSchedule:
-		return []hint{{"enter", "edit the schedule"}}
 	case tabActivity:
 		return []hint{{"↑↓", "move"}, {"enter", "show digest"}}
+	case tabAccounts:
+		return m.hintsAccounts()
+	case tabConversations:
+		return m.hintsConversations()
+	case tabSpaces:
+		return m.hintsSpaces()
+	case tabAgents:
+		return m.hintsAgents()
+	case tabSchedules:
+		return m.hintsSchedules()
+	case tabSettings:
+		return []hint{{"enter", "edit"}, {"i", "install service"}, {"u", "uninstall"}}
 	}
-	return []hint{{"i", "install service"}, {"u", "uninstall"}, {"3", "sources"}}
+	return feedHints()
 }
 
 // listWidth is the width of the list panel at the left of a master-detail tab.

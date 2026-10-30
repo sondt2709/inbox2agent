@@ -22,12 +22,12 @@ func (m memSecrets) Delete(k string) error { delete(m, k); return nil }
 func (m memSecrets) Backend() string       { return "memory" }
 
 func TestBuildReplier(t *testing.T) {
-	cfg := &config.Config{Sources: []config.Source{{ID: "work", Type: config.SourceMattermost, URL: "http://mm.example"}}}
+	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost, URL: "http://mm.example"}}}
 	sec := memSecrets{secrets.TokenKey("work"): "token"}
 	if r, err := BuildReplier(cfg, "work", sec, nil); err != nil || r == nil {
 		t.Errorf("work: %v, %v, want a replier", r, err)
 	}
-	if _, err := BuildReplier(cfg, "gone", sec, nil); err == nil || !strings.Contains(err.Error(), `source "gone" is not in the configuration`) {
+	if _, err := BuildReplier(cfg, "gone", sec, nil); err == nil || !strings.Contains(err.Error(), `account "gone" is not in the configuration`) {
 		t.Errorf("gone: %v", err)
 	}
 	if _, err := BuildReplier(cfg, "work", memSecrets{}, nil); err == nil {
@@ -36,7 +36,7 @@ func TestBuildReplier(t *testing.T) {
 }
 
 func TestCanReply(t *testing.T) {
-	cfg := &config.Config{Sources: []config.Source{{ID: "work", Type: config.SourceMattermost}, {ID: "chat", Type: "whatsapp"}}}
+	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost}, {ID: "chat", Platform: "whatsapp"}}}
 	if err := CanReply(cfg, "work"); err != nil {
 		t.Errorf("work: %v", err)
 	}

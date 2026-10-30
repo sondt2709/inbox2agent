@@ -135,6 +135,9 @@ func (m *model) visibleCards() []inbox.Card {
 		if f := feedFilters[m.feedFilter]; f != "" && c.Category != f {
 			continue
 		}
+		if sp := m.feedSpaces()[min(m.feedSpace, len(m.feedSpaces())-1)]; sp != "" && m.cardSpace(c) != sp {
+			continue
+		}
 		v = append(v, c)
 	}
 	slices.SortStableFunc(v, func(a, b inbox.Card) int {
@@ -224,6 +227,11 @@ func (m *model) keyFeed(k string) tea.Cmd {
 		m.feedFilter = (m.feedFilter + 1) % len(feedFilters)
 		m.feedSel = 0
 		m.setStatus("Filter: "+orStr(feedFilters[m.feedFilter], "all")+".", false)
+	case "F":
+		sp := m.feedSpaces()
+		m.feedSpace = (m.feedSpace + 1) % len(sp)
+		m.feedSel = 0
+		m.setStatus("Space: "+orStr(m.spaceNames()[sp[m.feedSpace]], "all")+".", false)
 	case "a":
 		m.feedAll = !m.feedAll
 		m.setStatus(map[bool]string{true: "Done cards are shown.", false: "Done cards are hidden."}[m.feedAll], false)
@@ -368,6 +376,9 @@ func (m *model) viewFeed(w, h int) string {
 	if m.feedAll {
 		right += faint.Render(" · done shown")
 	}
+	if sp := m.feedSpaces()[min(m.feedSpace, len(m.feedSpaces())-1)]; sp != "" {
+		right = faint.Render("space: ") + warnStyle.Render(m.spaceNames()[sp]) + faint.Render(" · ") + right
+	}
 	gap := max(1, w-lipgloss.Width(bar.String())-lipgloss.Width(right)-1)
 	top := bar.String() + strings.Repeat(" ", gap) + right
 	h--
@@ -395,7 +406,7 @@ func (m *model) viewFeed(w, h int) string {
 		if m.waiting(c) {
 			asked = "↪ asked"
 		}
-		meta := truncate(strings.Join(nonEmpty(c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied, asked), " · "), inner-2)
+		meta := truncate(strings.Join(nonEmpty(m.spaceNames()[m.cardSpace(c)], c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied, asked), " · "), inner-2)
 		if i == m.feedSel {
 			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %-6s ", strings.ToUpper(c.Category), c.Urgency)+title))
 			list = append(list, selectedRow.Width(inner).Render("▌     "+meta))
@@ -457,6 +468,8 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 	var b strings.Builder
 	b.WriteString(boldStyle.Render(wrap.Render(c.Title)) + "\n")
 	b.WriteString(catBadge(c.Category) + " " + urgStyles[c.Urgency].Render(c.Urgency))
+	space := orStr(m.spaceNames()[m.cardSpace(c)], "unknown")
+	b.WriteString(faint.Render(" · space ") + warnStyle.Render(space))
 	if c.Group != "" {
 		b.WriteString(faint.Render(" · " + c.Group))
 	}
@@ -702,7 +715,7 @@ func (m *model) openAsk(c inbox.Card) tea.Cmd {
 
 func (m *model) askForm(c inbox.Card) *form {
 	t, err := ask.TargetOf(m.u.cfg, c, m.refMessages(c))
-	agentLine, sessionLine := "Agent      "+t.Agent(), "Session    "+t.Session()
+	agentLine, sessionLine := "Agent      "+t.AgentText(), "Session    "+t.Session()
 	if err != nil {
 		agentLine, sessionLine = "Agent      "+err.Error(), ""
 	}
@@ -783,7 +796,7 @@ func (m *model) askDone(msg askDoneMsg) tea.Cmd {
 		m.closeAsk()
 	}
 	if msg.ask.State == inbox.AskSent {
-		m.setStatus(fmt.Sprintf("Sent to the agent (%s). It answers in this card.", msg.ask.Profile), false)
+		m.setStatus(fmt.Sprintf("Sent to the agent of %s. It answers in this card.", orStr(m.spaceNames()[msg.ask.Space], msg.ask.Space)), false)
 	} else {
 		m.setStatus("The agent is busy. i2a sends the ask on the next dispatch.", false)
 	}
@@ -793,5 +806,41 @@ func (m *model) askDone(msg askDoneMsg) tea.Cmd {
 
 func feedHints() []hint {
 	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
-		{"u", "unread"}, {"s", "sort"}, {"f", "filter"}, {"a", "done cards"}}
+		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"F", "space"}, {"a", "done cards"}}
+}
+
+// feedSpaces returns the space filters of the F key: "" (all), then each
+// space, Unsorted first.
+func (m *model) feedSpaces() []string {
+	out := []string{""}
+	for _, s := range m.u.cfg.AllSpaces() {
+		out = append(out, s.ID)
+	}
+	return out
+}
+
+// cardSpace returns the ID of the space of a card: the space of its newest ref
+// message that a dispatch sent, or else the space of the conversation of its
+// newest ref message, or "" when no ref message exists.
+func (m *model) cardSpace(c inbox.Card) string {
+	var newest, sent inbox.Message
+	for _, id := range c.Refs {
+		msg, ok := m.refs[id]
+		if !ok {
+			continue
+		}
+		if msg.CreatedAt.After(newest.CreatedAt) {
+			newest = msg
+		}
+		if msg.Space != "" && msg.CreatedAt.After(sent.CreatedAt) {
+			sent = msg
+		}
+	}
+	switch {
+	case sent.Space != "":
+		return sent.Space
+	case newest.SourceID != "":
+		return m.u.cfg.Route(newest.SourceID, newest.ChannelID)
+	}
+	return ""
 }

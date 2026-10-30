@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
 
@@ -22,13 +23,12 @@ const maxPages = 50
 
 // Settings are the values that the source needs from the configuration.
 type Settings struct {
-	ID        string
-	URL       string
-	Channels  []string
-	AllDirect bool
-	Mentions  bool
-	Lookback  time.Duration
-	PerPage   int // 0 means 200
+	ID       string
+	URL      string
+	Levels   map[string]string // the read level of each channel that has an entry
+	Default  string            // the read level of the other channels (unsorted.read)
+	Lookback time.Duration
+	PerPage  int // 0 means 200
 }
 
 // Source collects new posts for one Mattermost user.
@@ -218,15 +218,11 @@ func (src *Source) ListChannels(ctx context.Context) ([]ChannelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	selected := map[string]bool{}
-	for _, id := range src.s.Channels {
-		selected[id] = true
-	}
 	out := make([]ChannelInfo, 0, len(chs))
 	for _, ch := range chs {
 		info := ChannelInfo{
 			ID: ch.ID, Team: ch.teamName, Kind: ch.kind, Private: ch.Type == "P",
-			Name: ch.label, Selected: selected[ch.ID],
+			Name: ch.label, Selected: src.s.Levels[ch.ID] != "",
 		}
 		if ch.LastPostAt > 0 {
 			info.LastPost = time.UnixMilli(ch.LastPostAt)
@@ -275,18 +271,21 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 	if len(teams) > 0 {
 		defaultTeam = teams[0].Name
 	}
-	selected := map[string]bool{}
-	for _, id := range src.s.Channels {
-		selected[id] = true
-	}
 	mention := mentionMatcher(me.Username)
 	floor := now.Add(-src.s.Lookback).UnixMilli()
 
 	var msgs []inbox.Message
 	next := inbox.Cursor{}
 	for _, ch := range chs {
-		all := selected[ch.ID] || (src.s.AllDirect && (ch.Type == "D" || ch.Type == "G"))
-		if !all && !src.s.Mentions {
+		// A direct channel has only the user and one other person, so each post
+		// in it is for the user: the level mentions reads all of it.
+		var all bool
+		switch src.level(ch.ID) {
+		case config.ReadAll:
+			all = true
+		case config.ReadMentions:
+			all = ch.Type == "D"
+		default:
 			continue
 		}
 		since := floor
@@ -339,6 +338,14 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 	}
 	sort.SliceStable(msgs, func(i, j int) bool { return msgs[i].CreatedAt.Before(msgs[j].CreatedAt) })
 	return msgs, next, nil
+}
+
+// level returns the read level of a channel.
+func (src *Source) level(id string) string {
+	if l, ok := src.s.Levels[id]; ok {
+		return l
+	}
+	return src.s.Default
 }
 
 // newPosts reads pages of a channel, newest first, until it reaches a post

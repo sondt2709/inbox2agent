@@ -9,13 +9,13 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
 
-const askCols = `id, card_id, profile, handle, text, state, detail, created_at, sent_at`
+const askCols = `id, card_id, space, handle, text, state, detail, created_at, sent_at`
 
 func scanAsk(sc interface{ Scan(...any) error }) (inbox.Ask, error) {
 	var a inbox.Ask
 	var sent sql.NullInt64
 	var created int64
-	if err := sc.Scan(&a.ID, &a.CardID, &a.Profile, &a.Handle, &a.Text, &a.State, &a.Detail, &created, &sent); err != nil {
+	if err := sc.Scan(&a.ID, &a.CardID, &a.Space, &a.Handle, &a.Text, &a.State, &a.Detail, &created, &sent); err != nil {
 		return a, err
 	}
 	a.CreatedAt = time.UnixMilli(created).UTC()
@@ -40,8 +40,8 @@ func scanAsks(rows *sql.Rows) ([]inbox.Ask, error) {
 
 // StartAsk records a new ask with the state queued and returns its ID.
 func (s *Store) StartAsk(ctx context.Context, a inbox.Ask) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO asks(card_id, profile, text, state, detail, created_at)
-	  VALUES (?, ?, ?, 'queued', ?, ?)`, a.CardID, a.Profile, a.Text, a.Detail, a.CreatedAt.UnixMilli())
+	res, err := s.db.ExecContext(ctx, `INSERT INTO asks(card_id, space, text, state, detail, created_at)
+	  VALUES (?, ?, ?, 'queued', ?, ?)`, a.CardID, a.Space, a.Text, a.Detail, a.CreatedAt.UnixMilli())
 	if err != nil {
 		return 0, err
 	}

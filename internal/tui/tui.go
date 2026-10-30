@@ -1,7 +1,8 @@
-// Package tui is the configuration dashboard (i2a config). It is one
-// full-screen Bubble Tea program with tabs. Each tab is a list and a detail
-// panel; add and edit are forms in the detail panel. A form writes the file
-// and the secrets when the user saves it.
+// Package tui is the dashboard (i2a and i2a config). It is one full-screen
+// Bubble Tea program with tabs. The setup tabs follow the model: Accounts →
+// Conversations → Spaces → Agents + Schedules. Most tabs are a list and a
+// detail panel; add and edit are forms in the detail panel. A form writes the
+// file and the secrets when the user saves it.
 package tui
 
 import (
@@ -30,7 +31,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
-// OrcaWarning is shown when a profile uses the orca driver.
+// OrcaWarning is shown when an agent uses the orca driver.
 const OrcaWarning = "Orca can start agents with permission prompts off. " +
 	"Message text can contain instructions from other people. " +
 	"i2a marks message text as untrusted data, but an agent can still obey it. " +
@@ -39,6 +40,7 @@ const OrcaWarning = "Orca can start agents with permission prompts off. " +
 // Store is the part of the message store that the dashboard reads and writes.
 type Store interface {
 	Counts(ctx context.Context) (map[string]int, error)
+	PendingCounts(ctx context.Context) (map[store.Conv]int, error)
 	Dispatches(ctx context.Context, limit int) ([]store.Dispatch, error)
 	Cards(ctx context.Context, all bool) ([]inbox.Card, error)
 	SetCardState(ctx context.Context, id int64, key, state string, now time.Time) error
@@ -56,8 +58,8 @@ type TabID = tabID
 
 // Tabs that Run can open first.
 const (
-	TabFeed     TabID = tabFeed
-	TabOverview TabID = tabOverview
+	TabFeed   TabID = tabFeed
+	TabSpaces TabID = tabSpaces
 )
 
 // Deps are the inputs of the TUI. Nil functions get the default values.
@@ -69,16 +71,17 @@ type Deps struct {
 	// OpenStore opens the store when Store is nil and the store file exists
 	// now. It returns nil and no error when the file does not exist.
 	OpenStore func() (Store, error)
-	Tab       tabID // the first tab: TabFeed or TabOverview
-	Check     func(ctx context.Context, sc config.Source, token string) (string, error)
-	Out       io.Writer
+	Tab       tabID // the first tab: TabFeed or TabSpaces
+	// Check checks a Mattermost URL and token and returns the username.
+	Check func(ctx context.Context, a config.Account, token string) (string, error)
+	Out   io.Writer
 
 	Copy func(text string) error // copies a card reply; the default runs pbcopy
 	Open func(url string) error  // opens a message link; the default runs open or xdg-open
 	// Replier builds the source that sends a reply; the default is source.BuildReplier.
-	Replier func(cfg *config.Config, sourceID string) (source.Replier, error)
+	Replier func(cfg *config.Config, accountID string) (source.Replier, error)
 	// AskDriver builds the driver that sends an ask; the default is agent.New.
-	AskDriver func(p config.Profile, s agent.Sessions) (agent.Driver, error)
+	AskDriver func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error)
 	// CardCommand is the command of the card section in the primer of a new
 	// session; the default is this executable, with I2A_HOME when it is set.
 	CardCommand string
@@ -109,8 +112,8 @@ func newUI(d Deps) *ui {
 	}
 	if d.Replier == nil {
 		sec := d.Secrets
-		d.Replier = func(cfg *config.Config, sourceID string) (source.Replier, error) {
-			return source.BuildReplier(cfg, sourceID, sec, nil)
+		d.Replier = func(cfg *config.Config, accountID string) (source.Replier, error) {
+			return source.BuildReplier(cfg, accountID, sec, nil)
 		}
 	}
 	if d.AskDriver == nil {
@@ -158,13 +161,13 @@ func clone(c *config.Config) *config.Config {
 }
 
 // commit validates next, writes the tokens, deletes the tokens of removed
-// sources, and writes the configuration file. On success next becomes the
+// accounts, and writes the configuration file. On success next becomes the
 // configuration of the dashboard. On error nothing changes.
 func (u *ui) commit(next *config.Config, tokens map[string]string, removed ...string) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	if err := render.CheckProfiles(next); err != nil {
+	if err := render.CheckAgents(next); err != nil {
 		return err
 	}
 	for id, tok := range tokens {
@@ -237,23 +240,11 @@ func intRange(lo, hi int) func(string) error {
 	}
 }
 
-func nextID(c *config.Config) string {
-	for i := 0; ; i++ {
-		id := "work"
-		if i > 0 {
-			id = fmt.Sprintf("work%d", i+1)
-		}
-		if _, ok := c.Source(id); !ok {
-			return id
-		}
+// newID returns base, or base2, base3 ... when used reports that it is taken.
+func newID(base string, used func(string) bool) string {
+	id := base
+	for i := 2; used(id); i++ {
+		id = fmt.Sprintf("%s%d", base, i)
 	}
-}
-
-func nextProfileName(c *config.Config) string {
-	for i := 2; ; i++ {
-		n := fmt.Sprintf("profile%d", i)
-		if _, ok := c.Profile(n); !ok {
-			return n
-		}
-	}
+	return id
 }

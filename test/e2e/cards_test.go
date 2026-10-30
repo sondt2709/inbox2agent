@@ -93,7 +93,7 @@ func shims(t *testing.T) (dir, copied, opened string) {
 func TestS23CardFeed(t *testing.T) {
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S23")
-	p.addSource(w, w.Selected)
+	p.addAccount(w, w.Selected)
 	w.Post(t, w.Bob, w.Selected, "S23 can PF get their own login for the demo?")
 	if s, code := p.run("run --once"); code != 0 || !strings.Contains(s, "collected 1 new messages") {
 		t.Fatalf("run --once: exit %d\n%s", code, s)
@@ -234,7 +234,7 @@ func TestS24CardUpdateDoneAndReject(t *testing.T) {
 // suggested reply stays plain.
 func TestS36MarkdownBody(t *testing.T) {
 	p := newPerson(t, "S36")
-	if err := os.WriteFile(filepath.Join(p.home, "config.toml"), []byte("[[profiles]]\nname = \"triage\"\ndriver = \"dry-run\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(p.home, "config.toml"), []byte("version = 2\n[[agents]]\nid = \"triage\"\ndriver = \"dry-run\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, code := p.addCards(`[{"category":"action","urgency":"high","title":"S36 release is blocked",

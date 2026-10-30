@@ -8,6 +8,7 @@ import (
 
 	waLog "go.mau.fi/whatsmeow/util/log"
 
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
 
@@ -57,12 +58,13 @@ func TestCollectFilters(t *testing.T) {
 		s    Settings
 		want []string
 	}{
-		{"selected group, all direct, mentions", Settings{Channels: []string{group1}, AllDirect: true, Mentions: true},
+		{"unsorted mentions, one group all", Settings{Levels: map[string]string{group1: config.ReadAll}, Default: config.ReadMentions},
 			[]string{"01", "02", "05", "0B", "0D", "0F", "11", "13", "14", "17"}},
-		{"selected direct chat only", Settings{Channels: []string{direct5}}, []string{"0F", "11"}},
-		{"mentions only", Settings{Mentions: true}, []string{"05"}},
-		{"all direct only", Settings{AllDirect: true}, []string{"0B", "0D", "0F", "11", "13"}},
-		{"nothing selected", Settings{}, nil},
+		{"one direct chat all, others off", Settings{Levels: map[string]string{direct5: config.ReadAll}, Default: config.ReadOff}, []string{"0F", "11"}},
+		{"mentions in a direct chat is each message", Settings{Levels: map[string]string{direct5: config.ReadMentions}, Default: config.ReadOff}, []string{"0F", "11"}},
+		{"mentions in one group", Settings{Levels: map[string]string{group2: config.ReadMentions}, Default: config.ReadOff}, []string{"05"}},
+		{"group off, others mentions", Settings{Levels: map[string]string{group2: config.ReadOff}, Default: config.ReadMentions}, []string{"0B", "0D", "0F", "11", "13"}},
+		{"all off", Settings{Default: config.ReadOff}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := fixtureDB(t)
@@ -83,7 +85,7 @@ func TestCollectFilters(t *testing.T) {
 
 func TestCollectFields(t *testing.T) {
 	db := fixtureDB(t)
-	msgs, _, err := collect(context.Background(), db, Settings{ID: "phone", Channels: []string{group1, group2, direct5, direct7},
+	msgs, _, err := collect(context.Background(), db, Settings{ID: "phone", Levels: map[string]string{group1: config.ReadAll, group2: config.ReadAll, direct5: config.ReadAll, direct7: config.ReadAll},
 		Lookback: 24 * time.Hour}, nil, now)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +119,7 @@ func TestCollectFields(t *testing.T) {
 func TestCollectCursorLookbackAndPrune(t *testing.T) {
 	ctx := context.Background()
 	db := fixtureDB(t)
-	s := Settings{ID: "phone", AllDirect: true, Lookback: 24 * time.Hour}
+	s := Settings{ID: "phone", Default: config.ReadMentions, Lookback: 24 * time.Hour}
 
 	_, cur, err := collect(ctx, db, s, nil, now)
 	if err != nil {
@@ -176,5 +178,13 @@ func TestSaveChatKeepsNameAndNewestTime(t *testing.T) {
 	}
 	if len(chats) != 2 || chats[0].JID != group2 || chats[0].Name != "Group two" || !chats[0].Last.Equal(now) {
 		t.Errorf("chats = %+v; want group 2 first with its name and the newest time", chats)
+	}
+}
+
+func TestPhoneOfDeviceJID(t *testing.T) {
+	for jid, want := range map[string]string{"15550000001:12@s.whatsapp.net": "+15550000001", "15550000001@s.whatsapp.net": "+15550000001", "": ""} {
+		if got := phoneOf(jid); got != want {
+			t.Errorf("phoneOf(%q) = %q, want %q", jid, got, want)
+		}
 	}
 }
