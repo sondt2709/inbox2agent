@@ -725,3 +725,33 @@ func TestNotifyNotPairedOnceUntilAGoodPoll(t *testing.T) {
 		t.Errorf("after a good poll, notifications = %q, want 2", got)
 	}
 }
+
+// A space can send every few hours, or not today: the loop still sends a
+// queued ask within askEvery, with no dispatch.
+func TestLoopSendsQueuedAsksWithoutADispatch(t *testing.T) {
+	oldTick, oldAsk := tick, askEvery
+	tick, askEvery = 10*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { tick, askEvery = oldTick, oldAsk })
+
+	c := orcaCfg()
+	start := time.Now().Add(2 * time.Hour)
+	c.Schedules[0].Hours = fmt.Sprintf("%s-%s", start.Format("15:04"), start.Add(time.Hour).Format("15:04"))
+	h := newHarness(t, c)
+	a := queueAsk(t, h, time.Now())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() {
+		done <- Run(ctx, h.e, filepath.Join(t.TempDir(), "none.toml"), func() (*config.Config, error) { return c, nil })
+	}()
+	waitFor(t, func() bool {
+		q, _ := h.st.QueuedAsks(context.Background())
+		return len(q) == 0
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if h.drv.count() != 0 || len(h.drv.asks) != 1 {
+		t.Errorf("batches %d, asks %d; want only the ask %d", h.drv.count(), len(h.drv.asks), a.ID)
+	}
+}

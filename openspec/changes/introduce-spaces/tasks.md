@@ -75,6 +75,6 @@
 
 ## 9. Verify and release
 
-- [ ] 9.1 Run the test plan again on the last commit; save the results with the SHA in `tmp/evidence/clarify-sources-profiles-schedule/after/`
-- [ ] 9.2 Record the screens of the real app and compare them with the playground; report the differences
+- [x] 9.1 Run the test plan again on the last commit; save the results with the SHA in `tmp/evidence/clarify-sources-profiles-schedule/after/`
+- [x] 9.2 Record the screens of the real app and compare them with the playground; report the differences
 - [ ] 9.3 PR title `feat!: replace sources and profiles with accounts, spaces, agents and schedules`, with a `BREAKING CHANGE` footer
