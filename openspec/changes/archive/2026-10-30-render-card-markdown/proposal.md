@@ -11,7 +11,7 @@ Agents write card bodies in Markdown (headings, lists, `code`, tables), but the 
 - The card section of the primer tells the agent that the body can use Markdown and that links cannot be opened.
 - When the render fails, the Feed shows the plain body.
 
-Research: Orca (`~/dev/opensource/orca`) renders Markdown only in its Electron GUI (`marked`, `react-markdown`, `rehype-sanitize`); its CLI prints plain text. No Go library is in Orca. glamour is the Go equivalent for a terminal.
+Research: the Orca source code renders Markdown only in its Electron GUI (`marked`, `react-markdown`, `rehype-sanitize`); its CLI prints plain text. No Go library is in Orca. glamour is the Go equivalent for a terminal.
 
 ## Capabilities
 
