@@ -90,7 +90,7 @@ Example:
 	mm.Flags().StringVar(&profile, "profile", "", "profile for this source (default: the first profile)")
 	_ = mm.MarkFlagRequired("id")
 	_ = mm.MarkFlagRequired("url")
-	cmd.AddCommand(mm)
+	cmd.AddCommand(mm, newSourceAddWhatsAppCmd())
 	return cmd
 }
 
@@ -133,13 +133,15 @@ func newSourceListCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 2, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tTYPE\tURL\tCHANNELS\tDIRECT\tMENTIONS\tPROFILE\tTOKEN")
+			fmt.Fprintln(tw, "ID\tTYPE\tURL OR STATE\tCHANNELS\tDIRECT\tMENTIONS\tPROFILE\tTOKEN")
 			for _, s := range cfg.Sources {
 				tok := "saved"
-				if _, err := e.secrets.Get(secrets.TokenKey(s.ID)); err != nil {
+				if s.Type == config.SourceWhatsApp {
+					tok = "-"
+				} else if _, err := e.secrets.Get(secrets.TokenKey(s.ID)); err != nil {
 					tok = "missing"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\n", s.ID, s.Type, s.URL, len(s.Channels),
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\n", s.ID, s.Type, sourcePlace(s, e.paths.DataDir), len(s.Channels),
 					onOff(s.AllDirect), onOff(s.Mentions), or(s.Profile, cfg.Profiles[0].Name), tok)
 			}
 			return tw.Flush()
@@ -164,6 +166,9 @@ func newSourceChannelsCmd() *cobra.Command {
 			sc, ok := cfg.Source(args[0])
 			if !ok {
 				return fmt.Errorf("no source with the ID %q", args[0])
+			}
+			if sc.Type == config.SourceWhatsApp {
+				return printWhatsAppChats(cmd.Context(), cmd.OutOrStdout(), e.paths.DataDir, sc)
 			}
 			token, err := e.secrets.Get(secrets.TokenKey(sc.ID))
 			if err != nil {
@@ -191,7 +196,7 @@ func newSourceChannelsCmd() *cobra.Command {
 func newSourceRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <source-id>",
-		Short: "Remove a source and its token",
+		Short: "Remove a source and its token (WhatsApp: log out and delete its file)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			e, err := newEnv()
@@ -202,9 +207,11 @@ func newSourceRemoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, ok := cfg.Source(args[0]); !ok {
+			removed, ok := cfg.Source(args[0])
+			if !ok {
 				return fmt.Errorf("no source with the ID %q", args[0])
 			}
+			kind := removed.Type
 			var keep []config.Source
 			for _, s := range cfg.Sources {
 				if s.ID != args[0] {
@@ -214,6 +221,13 @@ func newSourceRemoveCmd() *cobra.Command {
 			cfg.Sources = keep
 			if err := config.Save(e.paths.ConfigFile, cfg); err != nil {
 				return err
+			}
+			if kind == config.SourceWhatsApp {
+				if warn := RemoveWhatsApp(cmd.Context(), e.paths.DataDir, args[0], nil); warn != "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), warn)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed source %s and its WhatsApp file\n", args[0])
+				return nil
 			}
 			if err := e.secrets.Delete(secrets.TokenKey(args[0])); err != nil {
 				return err

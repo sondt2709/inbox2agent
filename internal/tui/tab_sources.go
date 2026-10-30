@@ -15,7 +15,35 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/source"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
+
+// Help texts of the WhatsApp switches.
+const (
+	waDirectHelp   = "All direct chats. Off: only the chats that you select"
+	waMentionsHelp = "Group messages that mention you or reply to a message of yours, in any group."
+)
+
+// validPhone accepts an empty value or a phone number in international format.
+func validPhone(s string) error {
+	if s == "" {
+		return nil
+	}
+	digits := 0
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == '+' || r == ' ' || r == '-' || r == '(' || r == ')':
+		default:
+			return errors.New("use digits, for example +15551234567")
+		}
+	}
+	if digits < 7 || strings.HasPrefix(strings.TrimLeft(s, "+ "), "0") {
+		return errors.New("use the international format with the country code, for example +15551234567")
+	}
+	return nil
+}
 
 // pendingSource is a source that the add form connected and that the user did not add yet.
 type pendingSource struct {
@@ -75,8 +103,13 @@ func (m *model) keySources(k string) tea.Cmd {
 		}
 		m.saved(fmt.Sprintf("%s of %s: %s. Saved.", what, id, onOff(on)))
 	case "x":
-		m.openDialog(&confirmDialog{name: "Remove source " + id, text: "Remove the source " + id + " and delete its token?",
+		text := "Remove the source " + id + " and delete its token?"
+		if m.isWhatsApp(id) {
+			text = "Remove the source " + id + ", log out the linked device and delete its file?"
+		}
+		m.openDialog(&confirmDialog{name: "Remove source " + id, text: text,
 			choices: []choice{{"y", "Remove", func() tea.Cmd {
+				wa := m.isWhatsApp(id)
 				next := clone(m.u.cfg)
 				next.Sources = slices.DeleteFunc(next.Sources, func(s config.Source) bool { return s.ID == id })
 				if err := m.u.commit(next, nil, id); err != nil {
@@ -84,6 +117,11 @@ func (m *model) keySources(k string) tea.Cmd {
 					return nil
 				}
 				m.src = min(m.src, len(next.Sources))
+				delete(m.chs, id)
+				if wa {
+					m.saved("Removed source " + id + ". Logging out the linked device ...")
+					return m.removeWhatsApp(id)
+				}
 				m.saved("Removed source " + id + ".")
 				return nil
 			}}}})
@@ -99,7 +137,7 @@ func (m *model) viewSources(w, h int) string {
 	}
 	items = append(items, "+ Add source")
 	m.src = min(m.src, len(items)-1)
-	title := "New Mattermost source"
+	title := "New source"
 	if sc := m.selectedSource(); sc != nil {
 		title = sc.ID + " · " + sc.Type
 	}
@@ -116,6 +154,14 @@ func (m *model) loadChannels() tea.Cmd {
 	}
 	if _, done := m.chs[sc.ID]; done || m.chsBusy[sc.ID] {
 		return nil
+	}
+	if sc.Type == config.SourceWhatsApp {
+		m.chsBusy[sc.ID] = true
+		id, dataDir := sc.ID, m.u.d.Paths.DataDir
+		return func() tea.Msg {
+			chats, err := whatsapp.ReadChats(m.ctx, dataDir, id)
+			return channelsMsg{source: id, chs: chatInfos(chats), err: err}
+		}
 	}
 	token, err := m.u.d.Secrets.Get(secretsKey(sc.ID))
 	if err != nil {
@@ -235,17 +281,37 @@ func (m *model) profileChoice(current string) *formField {
 // sourceForm edits a saved source.
 func (m *model) sourceForm(id string) *form {
 	sc, _ := m.u.cfg.Source(id)
+	wa := sc.Type == config.SourceWhatsApp
+	notWA := func(f *formField) *formField {
+		if wa {
+			f.hidden = func() bool { return true }
+		}
+		return f
+	}
+	directHelp, mentionsHelp := "All direct and group messages. Off: only the conversations that you select below.",
+		"Posts that mention you in any channel."
+	if wa {
+		directHelp, mentionsHelp = waDirectHelp+" below.", waMentionsHelp
+	}
 	fm := &form{}
-	fm.fields = []*formField{
-		textField("url", "Server URL", sc.URL, "https://chat.example.com", "The address of the Mattermost server.", validURL),
-		secretField("token", "Token", "stored in the "+m.u.d.Secrets.Backend()+" · type a new token to replace it",
-			"A personal access token. Leave it empty to keep the saved token.", nil),
-		textField("poll", "Poll every", sc.PollEvery.String(), "1m", "Time between two reads of this source.", minDuration(10*time.Second)),
-		switchField("direct", "All direct", "All direct and group messages. Off: only the conversations that you select below.", sc.AllDirect),
-		switchField("mentions", "Mentions", "Posts that mention you in any channel.", sc.Mentions),
+	if wa {
+		state := m.whatsAppState(id)
+		st := okStyle
+		if state != "paired" {
+			st, state = errStyle, state+": remove this source and add it again to pair"
+		}
+		fm.fields = append(fm.fields, noteField("WhatsApp · linked device \""+whatsapp.DeviceName+"\" · "+state, st))
+	}
+	fm.fields = append(fm.fields,
+		notWA(textField("url", "Server URL", sc.URL, "https://chat.example.com", "The address of the Mattermost server.", validURL)),
+		notWA(secretField("token", "Token", "stored in the "+m.u.d.Secrets.Backend()+" · type a new token to replace it",
+			"A personal access token. Leave it empty to keep the saved token.", nil)),
+		textField("poll", "Poll every", sc.PollEvery.String(), "1m", "Time between two reads of this source.", minDuration(5*time.Second)),
+		switchField("direct", "All direct", directHelp, sc.AllDirect),
+		switchField("mentions", "Mentions", mentionsHelp, sc.Mentions),
 		m.profileChoice(sc.Profile),
 		channelsField(m, id, sc.Channels),
-	}
+	)
 	fm.buttons = []button{
 		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveSource(id) }},
 		{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
@@ -320,24 +386,44 @@ func (m *model) saveSource(id string) tea.Cmd {
 func (m *model) newSourceForm() *form {
 	u := m.u
 	fm := &form{}
+	kind := choiceField("type", "Type", "Mattermost: a server and a personal access token. WhatsApp: i2a becomes a linked device of your phone.",
+		[]string{config.SourceMattermost, config.SourceWhatsApp}, []string{"Mattermost", "WhatsApp"}, config.SourceMattermost)
+	isWA := func() bool { return kind.value() == config.SourceWhatsApp }
+	mmOnly := func(f *formField) *formField { f.hidden = isWA; return f }
+	phone := textField("phone", "Phone number", "", "optional, for example +15551234567",
+		"Empty: scan a QR code. A number in international format: type a pairing code on the phone instead.", validPhone)
+	phone.hidden = func() bool { return !isWA() }
+	warn := noteField("WhatsApp does not allow unofficial clients and can ban an account. i2a only reads messages, and never sends read receipts or presence.", warnStyle)
+	warn.hidden = phone.hidden
 	fm.fields = []*formField{
-		noteField("Connect a Mattermost account. WhatsApp, GitHub and Linear come later.", faint),
-		textField("id", "Source ID", nextID(u.cfg), "work", "A short name for this account, for example work.", func(s string) error {
+		noteField("Connect a Mattermost account, or pair a WhatsApp account. GitHub and Linear come later.", faint),
+		kind,
+		textField("id", "Source ID", nextID(u.cfg), "work", "A short name for this account, for example work or phone.", func(s string) error {
 			if _, ok := u.cfg.Source(s); ok {
 				return fmt.Errorf("the ID %q is used", s)
 			}
 			return validName(s)
 		}),
-		textField("url", "Server URL", "", "https://chat.example.com", "The address of the Mattermost server.", validURL),
-		secretField("token", "Token", "personal access token", "Mattermost: Profile › Security › Personal Access Tokens. i2a keeps it in the "+
+		mmOnly(textField("url", "Server URL", "", "https://chat.example.com", "The address of the Mattermost server.", validURL)),
+		mmOnly(secretField("token", "Token", "personal access token", "Mattermost: Profile › Security › Personal Access Tokens. i2a keeps it in the "+
 			u.d.Secrets.Backend()+", not in config.toml.", func(s string) error {
 			if s == "" {
 				return errors.New("the token is necessary")
 			}
 			return nil
-		}),
+		})),
+		phone,
+		warn,
 	}
-	fm.buttons = []button{{label: "Connect", primary: true, run: func() tea.Cmd { return m.connectSource() }}}
+	fm.buttons = []button{{label: "Connect", primary: true, run: func() tea.Cmd {
+		if isWA() {
+			if !fm.validate() {
+				return nil
+			}
+			return m.startPairing(fm.field("id").value(), fm.field("phone").value())
+		}
+		return m.connectSource()
+	}}}
 	return fm
 }
 
@@ -377,12 +463,20 @@ func (m *model) newSourceStep2() *form {
 	ch := &formField{key: "channels", label: "Channels", kind: kindChannels,
 		help: "Type to search · space selects · channels and direct or group conversations, the most recent first"}
 	ch.picker = m.newChannelPicker(m.chs["+new"], nil)
+	note := "✓ Connected as " + p.user + " · " + p.sc.URL + " · source " + p.sc.ID
+	directHelp, mentionsHelp := "All direct and group messages. Off: only the conversations that you select above.",
+		"Posts that mention you in any channel."
+	if p.sc.Type == config.SourceWhatsApp {
+		note = "✓ Paired · source " + p.sc.ID + " · select the chats to follow"
+		ch.label, ch.help = "Chats", "Type to search · space selects · groups and direct chats, the most recent first"
+		directHelp, mentionsHelp = waDirectHelp+" above.", waMentionsHelp
+	}
 	fm := &form{}
 	fm.fields = []*formField{
-		noteField("✓ Connected as "+p.user+" · "+p.sc.URL+" · source "+p.sc.ID, okStyle),
+		noteField(note, okStyle),
 		ch,
-		switchField("direct", "All direct", "All direct and group messages. Off: only the conversations that you select above.", true),
-		switchField("mentions", "Mentions", "Posts that mention you in any channel.", true),
+		switchField("direct", "All direct", directHelp, true),
+		switchField("mentions", "Mentions", mentionsHelp, true),
 		m.profileChoice(""),
 	}
 	fm.buttons = []button{
@@ -408,7 +502,11 @@ func (m *model) addSource() tea.Cmd {
 	sc.Profile = fm.field("profile").value()
 	next := clone(m.u.cfg)
 	next.Sources = append(next.Sources, sc)
-	if err := m.u.commit(next, map[string]string{sc.ID: p.token}); err != nil {
+	var tokens map[string]string
+	if p.token != "" {
+		tokens = map[string]string{sc.ID: p.token}
+	}
+	if err := m.u.commit(next, tokens); err != nil {
 		fm.err = "Cannot save: " + err.Error()
 		return nil
 	}

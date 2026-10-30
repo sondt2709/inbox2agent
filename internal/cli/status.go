@@ -33,7 +33,7 @@ func newStatusCmd() *cobra.Command {
 			case err != nil:
 				fmt.Fprintf(w, "\nThe configuration file has errors:\n%v\n", err)
 			default:
-				printConfig(w, cfg)
+				printConfig(w, cfg, e.paths.DataDir)
 			}
 			if err := printStore(w, e); err != nil {
 				return err
@@ -51,7 +51,7 @@ func onOff(b bool) string {
 	return "off"
 }
 
-func printConfig(w io.Writer, c *config.Config) {
+func printConfig(w io.Writer, c *config.Config, dataDir string) {
 	fmt.Fprintf(w, "\nTiming: interval %s, lookback %s, retention %s, active hours %s\n",
 		c.Timing.Interval, c.Timing.Lookback, c.Timing.Retention, or(c.Timing.ActiveHours, "always"))
 	fmt.Fprintln(w, "\nSources:")
@@ -60,7 +60,7 @@ func printConfig(w io.Writer, c *config.Config) {
 	}
 	tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	for _, s := range c.Sources {
-		fmt.Fprintf(tw, "  %s\t%s\t%s\tchannels=%d\tdirect=%s\tmentions=%s\tprofile=%s\n", s.ID, s.Type, s.URL,
+		fmt.Fprintf(tw, "  %s\t%s\t%s\tchannels=%d\tdirect=%s\tmentions=%s\tprofile=%s\n", s.ID, s.Type, sourcePlace(s, dataDir),
 			len(s.Channels), onOff(s.AllDirect), onOff(s.Mentions), or(s.Profile, c.Profiles[0].Name))
 	}
 	tw.Flush()

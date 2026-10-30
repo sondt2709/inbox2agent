@@ -94,10 +94,14 @@ func (m *model) viewOverview(w, h int) string {
 	// Sources
 	var src []string
 	if len(cfg.Sources) == 0 {
-		src = append(src, warnStyle.Render("No source yet."), faint.Render("Press 3, then a, to add Mattermost."))
+		src = append(src, warnStyle.Render("No source yet."), faint.Render("Press 3, then a, to add Mattermost or WhatsApp."))
 	}
 	for _, s := range cfg.Sources {
-		src = append(src, boldStyle.Render(s.ID)+faint.Render("  "+s.Type+" · to "+orStr(s.Profile, cfg.Profiles[0].Name)),
+		kind := s.Type
+		if st := m.waStates[s.ID]; st != "" {
+			kind += " · " + st
+		}
+		src = append(src, boldStyle.Render(s.ID)+faint.Render("  "+kind+" · to "+orStr(s.Profile, cfg.Profiles[0].Name)),
 			faint.Render("  "+watchSummary(s)))
 	}
 	sourcesCard := card("Sources", strings.Join(src, "\n"), colW)

@@ -37,7 +37,10 @@ const (
 )
 
 // Source types.
-const SourceMattermost = "mattermost"
+const (
+	SourceMattermost = "mattermost"
+	SourceWhatsApp   = "whatsapp"
+)
 
 // Limits for inline prompts. Orca passes prompts as command arguments.
 const (
@@ -130,6 +133,18 @@ func NewMattermostSource(id, url string) Source {
 		Type:      SourceMattermost,
 		URL:       strings.TrimRight(url, "/"),
 		PollEvery: Duration(time.Minute),
+		AllDirect: true,
+		Mentions:  true,
+	}
+}
+
+// NewWhatsAppSource returns a WhatsApp source with the default values.
+// It reads a local file on each poll, so it polls more often than Mattermost.
+func NewWhatsAppSource(id string) Source {
+	return Source{
+		ID:        id,
+		Type:      SourceWhatsApp,
+		PollEvery: Duration(10 * time.Second),
 		AllDirect: true,
 		Mentions:  true,
 	}
@@ -357,11 +372,14 @@ func (c *Config) Validate() error {
 			add("%s: the ID is used two times", at)
 		}
 		ids[s.ID] = true
-		if s.Type != SourceMattermost {
-			add("%s.type: %q is not supported (use mattermost)", at, s.Type)
-		}
-		if !strings.HasPrefix(s.URL, "https://") && !strings.HasPrefix(s.URL, "http://") {
-			add("%s.url: %q must start with https:// or http://", at, s.URL)
+		switch s.Type {
+		case SourceMattermost:
+			if !strings.HasPrefix(s.URL, "https://") && !strings.HasPrefix(s.URL, "http://") {
+				add("%s.url: %q must start with https:// or http://", at, s.URL)
+			}
+		case SourceWhatsApp:
+		default:
+			add("%s.type: %q is not supported (use mattermost or whatsapp)", at, s.Type)
 		}
 		if s.PollEvery < Duration(5*time.Second) {
 			add("%s.poll_every: %q is shorter than 5s", at, s.PollEvery)

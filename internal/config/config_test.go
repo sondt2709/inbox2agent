@@ -59,6 +59,8 @@ func TestValidationErrors(t *testing.T) {
 		{"duplicate profile", "[[profiles]]\nname = \"a\"\n[[profiles]]\nname = \"a\"\n", "the name is used two times"},
 		{"orca needs workspace", "[[profiles]]\nname = \"a\"\ndriver = \"orca\"\n", "needs a workspace"},
 		{"unknown field", "[timing]\nintervall = \"5m\"\n", "intervall"},
+		{"unknown source type", "[[sources]]\nid = \"chat\"\ntype = \"slack\"\n", `source "chat".type: "slack" is not supported`},
+		{"mattermost needs url", "[[sources]]\nid = \"work\"\ntype = \"mattermost\"\n", `source "work".url: "" must start with https://`},
 		{"bad min urgency", "[notify]\nmin_urgency = \"urgent\"\n", `notify.min_urgency: "urgent" is not high, normal or low`},
 	}
 	for _, tc := range cases {
@@ -71,6 +73,20 @@ func TestValidationErrors(t *testing.T) {
 				t.Fatalf("error = %q, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestWhatsAppSourceNeedsNoURL(t *testing.T) {
+	c, err := Parse([]byte("[[sources]]\nid = \"phone\"\ntype = \"whatsapp\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := c.Sources[0].Type; got != SourceWhatsApp {
+		t.Errorf("type = %q", got)
+	}
+	c.Sources = []Source{NewWhatsAppSource("phone")}
+	if err := c.Validate(); err != nil {
+		t.Errorf("NewWhatsAppSource: %v", err)
 	}
 }
 

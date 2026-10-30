@@ -6,8 +6,8 @@
 
 ```
  Mattermost ──┐                                         ┌─► Orca: new session, reused session or new worktree
- (WhatsApp,   │   i2a daemon ─► inbox.db ─► sanitizer ─►│     (Claude Code, Codex, OpenCode and more)
-  GitHub,     ├─  polls the channels      one JSON line  └─► dry-run: writes the digest file only
+ WhatsApp   ──┤   i2a daemon ─► inbox.db ─► sanitizer ─►│     (Claude Code, Codex, OpenCode and more)
+ (GitHub,     ├─  polls the channels      one JSON line  └─► dry-run: writes the digest file only
   Linear:     │   that you select         per message,             │
   planned)  ──┘                           fenced block             │ the agent runs "i2a card add"
                                                                    ▼
@@ -28,9 +28,11 @@
 | Cards from the agent, Feed tab, card notifications | Available |
 | Replies from the Feed and with `i2a reply` (Mattermost) | Available |
 | Asks to the agent about a card, from the Feed and with `i2a ask` | Available |
+| WhatsApp source (linked device, receive only) | Available |
 | Release binaries for macOS and Linux (amd64, arm64) | Available |
 | Homebrew package | Planned |
-| WhatsApp, GitHub and Linear sources | Planned |
+| Replies to WhatsApp | Planned |
+| GitHub and Linear sources | Planned |
 | OAuth sign-in, direct `claude` / `codex` / `opencode` drivers | Planned |
 
 `i2a` runs on macOS. The binary also builds for Linux, but the background service is macOS only.
@@ -124,6 +126,38 @@ To add or edit, select the item (or "+ Add") and press `enter`: the form at the 
 
 A form saves to `config.toml` when you submit it. A running daemon reads the file again. In the Sources list, `D` and `m` switch "all direct" and "mentions" at once, and `x` removes a source. `?` shows all keys.
 
+## WhatsApp
+
+`i2a` connects to your personal WhatsApp account as a linked device, as WhatsApp Web does. It only reads messages.
+
+> **Risk:** WhatsApp does not allow unofficial clients, and it can ban an account that uses one. `i2a` uses [whatsmeow](https://github.com/tulir/whatsmeow), an unofficial library. `i2a` sends no messages, no read receipts and no presence, but the risk is not zero. Use it only if you accept this risk.
+
+To add a WhatsApp source:
+
+1. Make the terminal at least 47 rows tall. The QR code needs about 33 rows. A shorter window tells you the number of rows that it needs.
+2. Run `i2a config`. Press `3`, then `enter`. Set Type to WhatsApp (`→`), type a source ID (for example `phone`), and press `ctrl+s`.
+3. On the phone, open WhatsApp › Settings › Linked devices › Link a device, and scan the QR code. The phone shows the device as "i2a". To type a code on the phone instead of a scan, type your phone number in international format (`+15551234567`) before you press `ctrl+s`.
+4. After the scan, select the direct chats and groups to follow, set "All direct" and "Mentions", and press `ctrl+s` to add the source.
+
+Or run `i2a source add whatsapp --id phone [--phone +15551234567] [--channels <jid>,...]`. It prints the QR code in the terminal and lists the chats after the scan.
+
+A WhatsApp source collects:
+
+- all messages in the chats that you select (direct chats and groups);
+- all direct messages, when "All direct" is on;
+- messages in any group that mention you or reply to one of your messages, when "Mentions" is on.
+
+It does not collect your own messages, status updates, broadcast lists, WhatsApp channels, reactions, edits, deletes or poll votes. For media, the text is a placeholder and the caption, for example `[image] plan for Friday` or `[document: report.pdf]`. `i2a` does not download media. A reply starts with one `> ` line that has the first 200 characters of the quoted message. The link of a direct message is `https://wa.me/<phone number>`; a group message has no link.
+
+How it works:
+
+- The daemon keeps one connection open and polls the source file every `poll_every` (default `10s`). WhatsApp pushes each message to the connection, and `i2a` writes it to `~/.local/share/i2a/whatsapp-<id>.db` at once. Messages that arrive while `i2a` is off come at the next connect.
+- Only one process can hold the connection. When the daemon runs, `i2a run --once` fails for the WhatsApp source. Stop the service first (`launchctl bootout gui/$(id -u)/io.github.sondt2709.i2a`), then run `i2a service install` again after the run.
+- After the scan, the phone sends the history of the chats. `i2a` keeps the messages of the last `lookback` only, so a chat that you select later shows the messages of the last `lookback`.
+- The file `whatsapp-<id>.db` holds the keys of the linked device. A copy of the file gives full access to the account. `i2a` makes it with the mode 0600. `i2a source remove <id>` and `x` in the Sources tab log out the device and delete the file.
+- The phone removes a linked device that is offline for about 14 days. Then the source shows "not paired", the daemon shows one notification, and you remove the source and add it again.
+- `i2a` sends delivery receipts (two grey ticks), as each linked device does. It never sends read receipts (blue ticks), so the chats stay unread on the phone.
+
 ## How it works
 
 1. The daemon polls each source on its `poll_every` interval and saves new messages in `inbox.db`.
@@ -135,7 +169,7 @@ A form saves to `config.toml` when you submit it. A running daemon reads the fil
 
 A `dry-run` batch is a preview. Its messages become `previewed`, not `sent`. When you change the profile to a real driver, the next batch contains them (if they are newer than `lookback`).
 
-`i2a` uses only read requests to collect messages. It does not mark Mattermost messages as read. It writes to Mattermost only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
+`i2a` uses only read requests to collect messages. It does not mark Mattermost messages as read, and it sends no read receipts to WhatsApp. It writes to Mattermost only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
 
 ## Configuration
 
@@ -165,6 +199,15 @@ channels = ["<channel-id>"]   # channels and direct or group conversations; see:
 profile = "triage"
 [sources.channel_profiles]    # optional: send one channel to another profile
 "<channel-id>" = "reviewer"
+
+[[sources]]
+id = "phone"
+type = "whatsapp"         # no url and no token: pair in i2a config or with i2a source add whatsapp
+poll_every = "10s"
+all_direct = true         # all direct chats
+mentions = true           # group messages that mention you or reply to you
+channels = ["120363000000000001@g.us"]   # chats to follow; see: i2a source channels phone
+profile = "triage"
 
 [[profiles]]
 name = "triage"
@@ -247,6 +290,7 @@ You can send a reply to the conversation of a card, as yourself. Press `r` on a 
 
 Press `ctrl+s` to send. After the send, the card is done, and the card shows "✓ Replied <time> by you". When the send fails, the form keeps your text and shows the error.
 
+- Replies to WhatsApp messages are not available yet. A reply to a WhatsApp message fails with "cannot send replies yet".
 - The reply always goes to a message that `i2a` collected. `i2a` never sends to a channel, a person or a link from the card text.
 - `i2a` does not change the read state. Mattermost keeps the read state for a reply in a thread, and marks the channel read for a post in the channel or the chat, as for any post that you write.
 - `i2a` does not send the same text to the same message two times. When a send times out, send again: `i2a` looks for the post first, so it does not post two times.
@@ -307,6 +351,7 @@ Other people write the messages, and an agent can run commands. A message can co
 7. It removes hidden characters from card text, shows at most 3 urgent notifications for each call, and opens only the stored URL of a source message (`o`), never a link from the card text.
 8. A reply goes only to a message that `i2a` collected. Each reply that the agent sends shows a notification.
 9. An ask puts the card text in a fenced data block, never in the instruction. Only your text is the instruction.
+10. The keys of a WhatsApp linked device are in `whatsapp-<id>.db` with the mode 0600. Removing the source logs out the device and deletes the file.
 
 An agent that can run `i2a reply` can post as you in the conversations that `i2a` collects. A message can try to trick the agent into a reply. Allow `i2a reply` only when you need it, and tell the agent in the primer when it can reply.
 
@@ -329,6 +374,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | `i2a daemon` | Run in the foreground: poll and dispatch on the intervals |
 | `i2a status` | Show the paths, sources, profiles, messages and service state |
 | `i2a source add mattermost --id <id> --url <url> --token-stdin` | Add a source from a script |
+| `i2a source add whatsapp --id <id> [--phone <number>]` | Pair a WhatsApp account in the terminal and add the source |
 | `i2a source list` / `channels <id>` / `remove <id>` | List sources, list channel IDs, remove a source |
 | `i2a service install` / `uninstall` / `status` | Manage the macOS LaunchAgent |
 
