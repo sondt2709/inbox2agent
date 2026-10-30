@@ -19,7 +19,7 @@ A probe with glamour v2.0.1 (dark style, wrap 60) showed:
 Use `charm.land/glamour/v2` v2.0.1. It matches `charm.land/lipgloss/v2` v2.0.6 and Bubble Tea v2. Alternative: a small renderer on `github.com/yuin/goldmark` with lipgloss styles (about 1 MB, no syntax colors), but more code to keep. Alternative: `github.com/MichaelMure/go-term-markdown`, which is not maintained for lipgloss v2. glamour is the choice, unless the size (D5) is not acceptable.
 
 ### D2. Style
-Start from `styles.DarkStyleConfig`; set the document margin to 0; set the heading, link, code and quote colors to the i2a tokens (`accent #7D56F4`, `blue #58A6FF`, `mutedFg 244`). Remove the trailing spaces of each output line, so the panel does not wrap them.
+Start from `styles.DarkStyleConfig`; set the document margin to 0; set the heading, link and image colors to the i2a tokens (`accent #7D56F4`, `blue #58A6FF`, `mutedFg 244`); remove the `##` marks of the headings. Remove the trailing spaces of each output line, so the panel does not wrap them.
 
 ### D3. No hyperlinks from card text
 After the render, remove each OSC 8 sequence (`ESC ] 8 ; params ; uri` ended by `BEL` or `ESC \`) with one function, `stripOSC`. The URL stays visible as plain text. A test renders `[x](https://evil.example)` and `![i](https://evil.example/i.png)` and checks that the output has no `ESC ] 8`.
@@ -28,7 +28,7 @@ After the render, remove each OSC 8 sequence (`ESC ] 8 ; params ; uri` ended by 
 Cache the rendered body by card ID, `updated_at` and width. The 2-second refresh does not render again. A new width or a card update renders again.
 
 ### D5. Size
-The dependency adds about 7.8 MB to the binary (probe). If the stakeholder does not accept it, use the goldmark alternative of D1.
+The dependency adds about 7.8 MB to a probe binary. The real `bin/i2a` grows by 5.8 MB (26,373,138 to 32,201,650 bytes). If the stakeholder does not accept it, use the goldmark alternative of D1.
 
 ### D6. Primer
 Add one line to the card section: "body: … You can use Markdown (headings, lists, bold, code, tables). Links show as text and cannot be opened." The primer hash changes, so each `reuse` session starts again one time.

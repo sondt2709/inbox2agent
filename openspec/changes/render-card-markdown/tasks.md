@@ -16,7 +16,7 @@
 
 - [x] 4.1 Unit tests for each scenario of the spec (bold and list, link with no `ESC ]`, raw HTML hidden, reply plain, cache hit; the fallback on a render error has no test, because glamour gave no input that fails); break each test one time and restore the code
 - [x] 4.2 e2e (CI): a card with a Markdown body shows bold text and bullets in the Feed, with no `**`
-- [ ] 4.3 `task test`, `task lint`, `task e2e`, `task leakcheck`
+- [x] 4.3 `task test`, `task lint`, `task e2e`, `task leakcheck`
 
 ## 5. Docs
 
@@ -26,4 +26,4 @@
 
 ## 6. Verify
 
-- [ ] 6.1 Run the test plan again on the last commit; save the results with the SHA in `tmp/evidence/render-card-markdown/after/`; screenshot of the Feed before and after
+- [x] 6.1 Run the test plan again on the last commit; save the results with the SHA in `tmp/evidence/render-card-markdown/after/`; screenshot of the Feed before and after

@@ -23,7 +23,7 @@ Research: Orca (`~/dev/opensource/orca`) renders Markdown only in its Electron G
 
 ## Impact
 
-- New dependency `charm.land/glamour/v2` v2.0.1 with `github.com/yuin/goldmark` and `github.com/alecthomas/chroma/v2`. Pure Go; builds with `CGO_ENABLED=0`. A stripped probe binary grows by about 7.8 MB (3.1 MB to 10.9 MB), mostly from `chroma`.
+- New dependency `charm.land/glamour/v2` v2.0.1 with `github.com/yuin/goldmark` and `github.com/alecthomas/chroma/v2`. Pure Go; builds with `CGO_ENABLED=0`. `bin/i2a` grows by 5.8 MB (26,373,138 to 32,201,650 bytes), mostly from `chroma`.
 - Code: `internal/tui/tab_feed.go` (body render and a cache by card, update time and width), a new `internal/tui/markdown.go`, `internal/render/primer.go` (card section text).
 - The card section text changes, so each `reuse` session starts again one time (new primer hash).
 - Independent of `introduce-spaces`; both edit `cardDetail` in `tab_feed.go`.
