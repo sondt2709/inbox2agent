@@ -2,7 +2,6 @@
 
 ## Purpose
 This capability collects the messages of a personal WhatsApp account. i2a connects as a linked device, stores each received message in the file of the source, and collects the selected chats, the direct chats and the group mentions. It only reads: it sends no messages, no read receipts and no presence.
-
 ## Requirements
 ### Requirement: Pair as a linked device
 The system SHALL connect a WhatsApp source as a linked device of the personal account of the user. Pairing SHALL show a QR code that changes when WhatsApp sends a new code, or, when the user gives a phone number in international format, one 8-character pairing code. The device name on the phone SHALL be "i2a". Pairing SHALL stop when WhatsApp stops giving codes (after about 160 seconds) with no scan. When the window is too short for the QR code, the TUI SHALL say how many rows it needs.
@@ -41,47 +40,6 @@ The daemon SHALL open the connection of a WhatsApp source on the first poll and 
 - **WHEN** the daemon runs with a WhatsApp source
 - **THEN** `<data>/whatsapp-<id>.lock` is locked by the daemon process
 
-### Requirement: Collect messages from selected chats
-A WhatsApp source SHALL collect the messages that arrived after the cursor in these chats:
-
-- the selected chats in `channels`, which can be direct chats and groups;
-- all direct chats, when `all_direct` is on;
-- any group, but only messages that mention the user or quote a message of the user, when `mentions` is on.
-
-The source SHALL skip messages of the user, status updates, broadcast lists, WhatsApp channels (newsletters), reactions, edits, deletes and poll votes.
-
-#### Scenario: Direct message
-- **WHEN** `all_direct` is on and a contact sends a direct message
-- **THEN** the next poll returns the message with the kind `direct`, the contact name as the author and as the channel name
-
-#### Scenario: Selected group
-- **WHEN** a member posts in a group that is in `channels`
-- **THEN** the next poll returns the message with the kind `group` and the group name
-
-#### Scenario: Group that is not selected
-- **WHEN** `mentions` is on and a member posts in a group that is not selected, with no mention and no quote of the user
-- **THEN** the poll does not return the message
-
-#### Scenario: Mention in a group that is not selected
-- **WHEN** `mentions` is on and a member posts `@<user> please check` with a WhatsApp mention of the user in a group that is not selected
-- **THEN** the poll returns the message
-
-#### Scenario: Quote of a message of the user
-- **WHEN** `mentions` is on and a member replies to a message of the user in a group that is not selected
-- **THEN** the poll returns the reply
-
-#### Scenario: Selected direct chat only
-- **WHEN** `all_direct` and `mentions` are off and the direct chat with one contact is selected
-- **THEN** the poll returns the messages of that contact only
-
-#### Scenario: Own message
-- **WHEN** the user sends a message from the phone in a selected chat
-- **THEN** the poll does not return the message
-
-#### Scenario: Status update
-- **WHEN** a contact posts a status update
-- **THEN** the poll does not return it
-
 ### Requirement: Message text
 The source SHALL use the text of the message. For media, the text SHALL start with a placeholder: `[image]`, `[video]`, `[document: <file name>]`, `[voice message]`, `[audio]`, `[sticker]`, `[contact: <name>]`, `[location: <name>]` or `[poll] <question>`, followed by the caption when it exists. A message that quotes another message SHALL start with one line `> ` and at most 200 characters of the quoted text. The source SHALL NOT download media.
 
@@ -112,9 +70,32 @@ The source SHALL NOT send read receipts, typing state or online presence to What
 - **THEN** the chat is still unread on the phone, and the contact does not see blue ticks
 
 ### Requirement: Not paired
-When the file of a source has no device keys, because the source was never paired or because the phone unlinked it, a poll SHALL fail with the error "not paired: pair again in i2a config". `i2a status` and the Sources tab SHALL show the state `paired` or `not paired` for each WhatsApp source.
+When the file of a source has no device keys, because the source was never paired or because the phone unlinked it, a poll SHALL fail with the error "not paired: pair again in i2a config". `i2a status`, `i2a account list` and the Accounts tab SHALL show the state `paired` or `not paired` for each WhatsApp account.
 
 #### Scenario: Phone unlinks i2a
 - **WHEN** the user removes "i2a" from Linked devices on the phone while the daemon runs
 - **THEN** the log shows "not paired" for the source, and `i2a status` shows `not paired`
+
+### Requirement: Collect messages by read level
+The source SHALL use, for each chat, the read level of the conversation in the configuration, or `unsorted.read` when no space lists the chat. It SHALL collect: each message for `all`; for `mentions`, each message of a direct chat and, in a group, only messages that mention the user or quote a message of the user; no message for `off`. The source SHALL skip messages of the user, status updates, broadcast lists, WhatsApp channels (newsletters), reactions, edits, deletes and poll votes.
+
+#### Scenario: Direct chat with read level mentions
+- **WHEN** a direct chat has the read level `mentions` and the contact sends a message
+- **THEN** the source collects it with the kind `direct`
+
+#### Scenario: Group with read level all
+- **WHEN** a member posts in a group with the read level `all`
+- **THEN** the source collects the message with the kind `group`
+
+#### Scenario: Unsorted group without a mention
+- **WHEN** `unsorted.read = "mentions"` and a member posts in a group that no space lists, with no mention and no quote of the user
+- **THEN** the source does not collect the message
+
+#### Scenario: Reply to the user in an unsorted group
+- **WHEN** `unsorted.read = "mentions"` and a member replies to a message of the user in a group that no space lists
+- **THEN** the source collects the message
+
+#### Scenario: Group off
+- **WHEN** a group has the read level `off` and a member mentions the user
+- **THEN** the source does not collect the message
 
