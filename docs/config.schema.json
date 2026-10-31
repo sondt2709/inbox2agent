@@ -243,7 +243,7 @@
             "type": "string"
           },
           "conversations": {
-            "description": "The conversations of the space. A conversation is in one space only.",
+            "description": "The conversations of the space. A conversation can be in many spaces, each with its own read level; it is not two times in one space.",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -264,7 +264,7 @@
                   "type": "string"
                 },
                 "read": {
-                  "description": "all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted.",
+                  "description": "all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted. The source reads at the widest level of the links of a conversation; each space gets the messages of its own level.",
                   "enum": [
                     "",
                     "all",
@@ -335,7 +335,7 @@
                 "type": "string"
               },
               "read": {
-                "description": "all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted.",
+                "description": "all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted. The source reads at the widest level of the links of a conversation; each space gets the messages of its own level.",
                 "enum": [
                   "",
                   "all",

@@ -85,15 +85,22 @@ func (m *model) deleteSpace(id string) {
 	name := s.Title()
 	n := len(s.Conversations)
 	m.openDialog(&confirmDialog{name: "Delete space " + name,
-		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted. Its cards stay in the Feed.", name, plural(n, "conversation", "conversations")),
+		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted, except the ones that another space also lists. Its cards stay in the Feed.",
+			name, plural(n, "conversation", "conversations")),
 		choices: []choice{{"y", "Delete", func() tea.Cmd {
 			if err := m.u.commit(func(c *config.Config) error {
 				cur, ok := c.Space(id)
 				if !ok {
 					return config.MissingError{Kind: config.KindSpace, ID: id}
 				}
-				c.Unsorted.Conversations = append(c.Unsorted.Conversations, cur.Conversations...)
+				gone := cur.Conversations
 				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
+				for _, cv := range gone {
+					// A conversation that another space lists stays in that space only.
+					if _, _, listed := c.Conversation(cv.Account, cv.ID); !listed {
+						c.Unsorted.Conversations = append(c.Unsorted.Conversations, cv)
+					}
+				}
 				return nil
 			}, nil); err != nil {
 				m.setStatus("Cannot delete: "+err.Error(), true)
@@ -109,7 +116,7 @@ func (m *model) deleteSpace(id string) {
 func (m *model) spaceWaiting(id string) int {
 	n := 0
 	for c, k := range m.pending {
-		if m.u.cfg.Route(c.Account, c.ID) == id {
+		if slices.Contains(m.u.cfg.Routes(c.Account, c.ID), id) {
 			n += k
 		}
 	}
@@ -121,7 +128,7 @@ func (m *model) spaceWaiting(id string) int {
 func (m *model) spaceRows(id string) []convRow {
 	var out []convRow
 	for _, r := range m.convRows() {
-		if r.Space == id {
+		if slices.Contains(r.Spaces, id) {
 			out = append(out, r)
 		}
 	}

@@ -54,7 +54,8 @@ func (f *fakeSource) add(ids ...string) {
 	defer f.mu.Unlock()
 	for _, id := range ids {
 		f.msgs = append(f.msgs, inbox.Message{SourceID: f.id, SourceType: "fake", ExternalID: id, ChannelID: "C" + id[:1],
-			ChannelName: "chan", ChannelKind: inbox.KindChannel, Author: "bob", Text: "text " + id, CreatedAt: time.Now()})
+			ChannelName: "chan", ChannelKind: inbox.KindChannel, Author: "bob", Text: "text " + id, CreatedAt: time.Now(),
+			ForMe: true}) // a real source marks it; the read level mentions of Unsorted wants it
 	}
 }
 

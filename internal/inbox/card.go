@@ -54,6 +54,7 @@ type Card struct {
 	Refs      []int64
 	State     string
 	Handle    string // the Orca terminal of the agent that wrote the card; "" when not known
+	Space     string // the space of the session of Handle; "" when no session has it
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
