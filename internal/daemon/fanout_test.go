@@ -188,3 +188,21 @@ func TestRemovedLinkEndsTheWait(t *testing.T) {
 		t.Errorf("pending = %+v, want none: each space that wants it has it", p)
 	}
 }
+
+// A message that a dry run only previewed stays previewed when no link wants
+// it now, so a real driver can send it later.
+func TestPreviewOnlyStaysPreviewedWhenNoLinkWantsIt(t *testing.T) {
+	h := newHarness(t, twoSpaces())
+	m := inbox.Message{SourceID: "work", ChannelID: "Cr", State: inbox.StatePending, Delivered: map[string]string{"review": inbox.StatePreviewed}}
+	c := twoSpaces()
+	c.Spaces[0].Conversations[0].Read = config.ReadOff
+	c.Spaces[1].Conversations = nil
+	h.e.SetConfig(c)
+	if st := h.e.aggregate(m, nil, "", ""); st != inbox.StatePreviewed {
+		t.Errorf("state = %s, want previewed", st)
+	}
+	m.Delivered["team"] = inbox.StateSent
+	if st := h.e.aggregate(m, nil, "", ""); st != inbox.StateSent {
+		t.Errorf("state = %s, want sent", st)
+	}
+}

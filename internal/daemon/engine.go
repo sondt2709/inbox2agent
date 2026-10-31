@@ -312,7 +312,7 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 // space that wants it has a sent delivery, previewed when each has a delivery
 // and one has only a preview, else pending. round has the deliveries of this
 // round; space and state add one more. A message that no link wants and that
-// a space has is sent (for example its link was removed).
+// a space sent is sent (for example its link was removed).
 func (e *Engine) aggregate(m inbox.Message, round map[string]string, space, state string) string {
 	have := map[string]string{}
 	for sp, st := range m.Delivered {
@@ -340,8 +340,18 @@ func (e *Engine) aggregate(m inbox.Message, round map[string]string, space, stat
 			want = inbox.StatePending
 		}
 	}
-	if !wanted && len(have) == 0 {
-		return inbox.StatePending // no space has it yet: it waits until lookback expires it, as before
+	if !wanted {
+		// No link wants it now: it is sent when a space sent it, previewed
+		// when the spaces only previewed it (a real driver can still send it
+		// later), and it waits when no space has it, until lookback expires it.
+		state := inbox.StatePending
+		for _, st := range have {
+			if st == inbox.StateSent {
+				return inbox.StateSent
+			}
+			state = inbox.StatePreviewed
+		}
+		return state
 	}
 	return want
 }
