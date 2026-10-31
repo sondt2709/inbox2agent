@@ -147,8 +147,8 @@ func TestMigrateV5RenamesProfileToSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if v, _ := s.Version(ctx); v != 6 {
-		t.Fatalf("version = %d, want 6", v)
+	if v, _ := s.Version(ctx); v != SchemaVersion {
+		t.Fatalf("version = %d, want %d", v, SchemaVersion)
 	}
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE space = 'triage'`).Scan(&n); err != nil || n != 120 {
@@ -203,5 +203,166 @@ func TestPendingCounts(t *testing.T) {
 	got, err := s.PendingCounts(ctx)
 	if err != nil || got[Conv{"work", "C1"}] != 2 || got[Conv{"phone", "g@g.us"}] != 1 || len(got) != 2 {
 		t.Errorf("counts = %v, %v", got, err)
+	}
+}
+
+// schemaV6 is the schema of i2a with store version 6 (internal/store/store.go
+// before the deliveries), with its version row.
+const schemaV6 = `
+CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS messages (
+  id            INTEGER PRIMARY KEY,
+  source_id     TEXT NOT NULL,
+  source_type   TEXT NOT NULL,
+  external_id   TEXT NOT NULL,
+  channel_id    TEXT NOT NULL,
+  channel_name  TEXT NOT NULL,
+  channel_kind  TEXT NOT NULL,
+  thread_id     TEXT NOT NULL DEFAULT '',
+  author        TEXT NOT NULL,
+  text          TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  collected_at  INTEGER NOT NULL,
+  space         TEXT NOT NULL DEFAULT '',
+  dispatch_id   INTEGER,
+  state         TEXT NOT NULL DEFAULT 'pending',
+  UNIQUE(source_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS messages_state ON messages(state, created_at);
+CREATE TABLE IF NOT EXISTS cursors (
+  source_id TEXT NOT NULL,
+  key       TEXT NOT NULL,
+  value     TEXT NOT NULL,
+  PRIMARY KEY(source_id, key)
+);
+CREATE TABLE IF NOT EXISTS dispatches (
+  id            INTEGER PRIMARY KEY,
+  space         TEXT NOT NULL,
+  agent         TEXT NOT NULL DEFAULT '',
+  driver        TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  status        TEXT NOT NULL,
+  digest_path   TEXT NOT NULL,
+  message_count INTEGER NOT NULL,
+  detail        TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  space       TEXT PRIMARY KEY,
+  handle      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  primer_hash TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS cards (
+  id         INTEGER PRIMARY KEY,
+  key        TEXT,
+  category   TEXT NOT NULL,
+  urgency    TEXT NOT NULL,
+  grp        TEXT NOT NULL DEFAULT '',
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  reply      TEXT NOT NULL DEFAULT '',
+  refs       TEXT NOT NULL DEFAULT '[]',
+  state      TEXT NOT NULL DEFAULT 'new',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  done_at    INTEGER,
+  handle     TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cards_key ON cards(key) WHERE key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS cards_state ON cards(state, updated_at);
+CREATE TABLE IF NOT EXISTS replies (
+  id           INTEGER PRIMARY KEY,
+  message_id   INTEGER NOT NULL,
+  card_id      INTEGER,
+  source_id    TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  place        TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  by           TEXT NOT NULL,
+  state        TEXT NOT NULL,
+  pending_id   TEXT NOT NULL,
+  external_id  TEXT NOT NULL DEFAULT '',
+  url          TEXT NOT NULL DEFAULT '',
+  error        TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  sent_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS replies_card ON replies(card_id);
+CREATE INDEX IF NOT EXISTS replies_target ON replies(message_id, place);
+CREATE TABLE IF NOT EXISTS asks (
+  id         INTEGER PRIMARY KEY,
+  card_id    INTEGER NOT NULL,
+  space      TEXT NOT NULL,
+  handle     TEXT NOT NULL DEFAULT '',
+  text       TEXT NOT NULL,
+  state      TEXT NOT NULL,
+  detail     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  sent_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS asks_card ON asks(card_id);
+CREATE INDEX IF NOT EXISTS asks_state ON asks(state, created_at);
+INSERT INTO schema_version(version) VALUES (6);
+`
+
+func TestMigrateV6AddsTheDeliveries(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "inbox.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(schemaV6); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO dispatches(space, agent, driver, created_at, status, digest_path, message_count)
+	  VALUES ('triage', 'triage', 'orca', 1, 'sent', '', 3)`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		space, state, dispatch := "triage", "sent", any(1)
+		if i == 3 {
+			space, state, dispatch = "", "pending", nil
+		}
+		if _, err := db.Exec(`INSERT INTO messages(source_id, source_type, external_id, channel_id, channel_name, channel_kind,
+		  author, text, url, created_at, collected_at, space, dispatch_id, state) VALUES ('work', 'mattermost', ?, 'c', 'general', 'channel',
+		  'bob', 'hi', '', 1, 1, ?, ?, ?)`, i, space, dispatch, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO cards(category, urgency, title, created_at, updated_at, handle) VALUES ('info', 'low', 'old', 1, 1, 'term_a')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if v, _ := s.Version(ctx); v != 7 {
+		t.Fatalf("version = %d, want 7", v)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM deliveries WHERE space = 'triage' AND state = 'sent' AND dispatch_id = 1`).Scan(&n); err != nil || n != 3 {
+		t.Errorf("sent deliveries of triage = %d, %v, want 3", n, err)
+	}
+	p, err := s.Pending(ctx)
+	if err != nil || len(p) != 1 || p[0].Delivered != nil || !p[0].ForMe {
+		t.Errorf("pending = %+v, %v, want one message with no delivery and the mark 1 of an old message", p, err)
+	}
+	cs, err := s.Cards(ctx, true)
+	if err != nil || len(cs) != 1 || cs[0].Space != "" || cs[0].Handle != "term_a" {
+		t.Errorf("cards = %+v, %v, want the old card with no space", cs, err)
+	}
+	old, err := sql.Open("sqlite", "file:"+path+".v6.bak?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	var v int
+	if err := old.QueryRow(`SELECT version FROM schema_version`).Scan(&v); err != nil || v != 6 {
+		t.Errorf("backup version = %d, %v, want 6", v, err)
 	}
 }

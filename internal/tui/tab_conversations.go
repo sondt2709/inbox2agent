@@ -24,13 +24,15 @@ type mattermostChannel = mattermost.ChannelInfo
 type convRow struct {
 	Account config.Account
 	ID      string
-	Name    string // the platform name
-	Label   string // the name that the user gave
-	Kind    string // inbox.KindDirect, KindGroup, KindChannel, or "" when the account did not list it
-	Space   string // the ID of the space
-	Read    string
-	Entry   bool // the configuration has an entry
-	Listed  bool // the account lists it
+	Name    string   // the platform name
+	Label   string   // the name that the user gave
+	Kind    string   // inbox.KindDirect, KindGroup, KindChannel, or "" when the account did not list it
+	Space   string   // the ID of the first space
+	Spaces  []string // the IDs of all spaces that list it (Space first)
+	Read    string   // the read level of the first link
+	Reads   []string // the read level of each link, in the order of Spaces
+	Entry   bool     // the configuration has an entry
+	Listed  bool     // the account lists it
 	Last    time.Time
 }
 
@@ -61,8 +63,9 @@ func (m *model) convRows() []convRow {
 		seen := map[string]bool{}
 		for _, ch := range m.chs[a.ID] {
 			cv, space, entry := cfg.Conversation(a.ID, ch.ID)
+			sp, rd := links(cfg, a.ID, ch.ID)
 			out = append(out, convRow{Account: a, ID: ch.ID, Name: orStr(cv.Name, ch.Name), Label: cv.Label, Kind: ch.Kind,
-				Space: space, Read: cv.Read, Entry: entry, Listed: true, Last: ch.LastPost})
+				Space: space, Spaces: sp, Read: cv.Read, Reads: rd, Entry: entry, Listed: true, Last: ch.LastPost})
 			if ch.Name != "" {
 				out[len(out)-1].Name = ch.Name
 			}
@@ -73,11 +76,43 @@ func (m *model) convRows() []convRow {
 				if cv.Account != a.ID || seen[cv.ID] {
 					continue
 				}
-				out = append(out, convRow{Account: a, ID: cv.ID, Name: cv.Name, Label: cv.Label, Space: s.ID, Read: cv.Read, Entry: true})
+				seen[cv.ID] = true // one row for a conversation in many spaces
+				first, _, _ := cfg.Conversation(a.ID, cv.ID)
+				sp, rd := links(cfg, a.ID, cv.ID)
+				out = append(out, convRow{Account: a, ID: cv.ID, Name: cv.Name, Label: first.Label, Space: s.ID, Spaces: sp,
+					Read: cv.Read, Reads: rd, Entry: true})
 			}
 		}
 	}
 	return out
+}
+
+// links returns the spaces and the read levels of the links of a conversation.
+func links(cfg *config.Config, account, id string) (spaces, reads []string) {
+	for _, l := range cfg.Links(account, id) {
+		spaces, reads = append(spaces, l.Space), append(reads, l.Read)
+	}
+	return spaces, reads
+}
+
+// spacesText names the spaces of a row: "Review, Team".
+func (m *model) spacesText(r convRow) string {
+	names := m.spaceNames()
+	var out []string
+	for _, id := range r.Spaces {
+		out = append(out, orStr(names[id], id))
+	}
+	return strings.Join(out, ", ")
+}
+
+// readsText is the read level of a row, or each level when the links differ: "all, mentions".
+func readsText(r convRow) string {
+	for _, l := range r.Reads {
+		if l != r.Read {
+			return strings.Join(r.Reads, ", ")
+		}
+	}
+	return r.Read
 }
 
 // unsortedCount is the number of conversations in Unsorted that are not off.
@@ -141,7 +176,6 @@ func (m *model) filterLabel(f string) string {
 // shownConvs applies the filter and the search.
 func (m *model) shownConvs() []convRow {
 	q := strings.ToLower(strings.TrimSpace(m.search.Value()))
-	names := m.spaceNames()
 	k, v, _ := strings.Cut(m.convFilter, ":")
 	var out []convRow
 	for _, r := range m.convRows() {
@@ -149,10 +183,10 @@ func (m *model) shownConvs() []convRow {
 		case k == "unsorted" && r.Space != config.UnsortedID,
 			k == "account" && r.Account.ID != v,
 			k == "kind" && r.Kind != v,
-			k == "space" && r.Space != v:
+			k == "space" && !slices.Contains(r.Spaces, v):
 			continue
 		}
-		if q != "" && !strings.Contains(strings.ToLower(r.Title()+" "+r.Name+" "+r.Account.Title()+" "+names[r.Space]+" "+r.Kind), q) {
+		if q != "" && !strings.Contains(strings.ToLower(r.Title()+" "+r.Name+" "+r.Account.Title()+" "+m.spacesText(r)+" "+r.Kind), q) {
 			continue
 		}
 		out = append(out, r)
@@ -164,7 +198,7 @@ func (m *model) hintsConversations() []hint {
 	if len(m.convSel) > 0 {
 		return []hint{{"space", "select"}, {"m", fmt.Sprintf("move %d", len(m.convSel))}, {"l", "read level"}, {"esc", "clear"}}
 	}
-	return []hint{{"↑↓", "move"}, {"space", "select"}, {"a", "select all"}, {"m", "move to space"}, {"l", "read level"}, {"n", "rename"}, {"/", "search"}, {"f", "filter"}}
+	return []hint{{"↑↓", "move"}, {"space", "select"}, {"a", "select all"}, {"m", "move to space"}, {"L", "one more space"}, {"l", "read level"}, {"n", "rename"}, {"/", "search"}, {"f", "filter"}}
 }
 
 // targets returns the selected conversations, or the conversation under the cursor.
@@ -231,6 +265,10 @@ func (m *model) keyConversations(k string) tea.Cmd {
 		}
 	case "l":
 		return m.cycleRead(m.targets())
+	case "L":
+		if t := m.targets(); len(t) > 0 {
+			m.linkDialog(t)
+		}
 	case "n":
 		if t := m.targets(); len(t) == 1 {
 			m.renameDialog(t[0])
@@ -264,14 +302,20 @@ func (m *model) searchKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *model) setConversations(rows []convRow, space, read, done string) tea.Cmd {
 	if err := m.u.commit(func(c *config.Config) error {
 		for _, r := range rows {
+			if space == "" {
+				// Only the level: each link of the conversation gets it, and the links stay.
+				if err := c.SetLevel(r.Account.ID, r.ID, read); err != nil {
+					return err
+				}
+				continue
+			}
 			// The space and the level of the file, which another process can have changed.
 			cur, curSpace, _ := c.Conversation(r.Account.ID, r.ID)
-			sp := orStr(space, curSpace)
 			lv := read
-			if lv == "" && sp == curSpace {
+			if lv == "" && space == curSpace {
 				lv = cur.Read
 			}
-			if err := c.SetConversation(r.Account.ID, r.ID, sp, lv, r.Name); err != nil {
+			if err := c.SetConversation(r.Account.ID, r.ID, space, lv, r.Name); err != nil {
 				return err
 			}
 		}
@@ -298,6 +342,51 @@ func (m *model) cycleRead(rows []convRow) tea.Cmd {
 		what = plural(len(rows), "conversation", "conversations")
 	}
 	return m.setConversations(rows, "", level, fmt.Sprintf("%s: read %s. Saved.", what, level))
+}
+
+// linkDialog asks for one more space of the conversations. The other spaces
+// keep them; each new link reads all.
+func (m *model) linkDialog(rows []convRow) {
+	what := rows[0].Title()
+	if len(rows) > 1 {
+		what = plural(len(rows), "conversation", "conversations")
+	}
+	var opts []pickOption
+	for _, s := range m.u.cfg.Spaces {
+		all := true // each row is in the space already
+		for _, r := range rows {
+			all = all && slices.Contains(r.Spaces, s.ID)
+		}
+		if all {
+			continue
+		}
+		note := "→ " + s.Agent + " · " + s.Schedule
+		opts = append(opts, pickOption{label: s.Title(), note: note, run: func() tea.Cmd {
+			if err := m.u.commit(func(c *config.Config) error {
+				for _, r := range rows {
+					if slices.Contains(c.Routes(r.Account.ID, r.ID), s.ID) {
+						continue
+					}
+					if err := c.AddLink(r.Account.ID, r.ID, s.ID, config.ReadAll); err != nil {
+						return err
+					}
+				}
+				return nil
+			}, nil); err != nil {
+				m.setStatus("Cannot save: "+err.Error(), true)
+				return nil
+			}
+			clear(m.convSel)
+			m.saved(fmt.Sprintf("%s is also in %s now, with the read level all. Saved.", what, s.Title()))
+			return nil
+		}})
+	}
+	if len(opts) == 0 {
+		m.setStatus("Each space lists "+what+" already. Add a space in tab 5.", true)
+		return
+	}
+	m.openDialog(&pickDialog{name: "Add to one more space",
+		text: "The spaces that list " + what + " keep it. Each space gets its own copy of each message, for its own agent.", options: opts})
 }
 
 // moveDialog asks for the space of the conversations.
@@ -409,7 +498,6 @@ func (m *model) viewConversations(w, h int) string {
 		status = faint.Render(truncate(strings.Join(loading, " · "), inner))
 	}
 
-	names := m.spaceNames()
 	cols := []int{2, 2, max(16, inner/4), 8, max(10, inner/7), max(12, inner/6), 9, 8}
 	head := colHeadStyle.Render(fmt.Sprintf("%-*s%-*s%-*s %-*s %-*s %-*s %-*s %s", cols[0], "", cols[1], "", cols[2], "CONVERSATION",
 		cols[3], "KIND", cols[4], "ACCOUNT", cols[5], "SPACE", cols[6], "READ", "WAITING"))
@@ -433,8 +521,8 @@ func (m *model) viewConversations(w, h int) string {
 			wait = fmt.Sprint(m.waitingIn(r.Account.ID, r.ID))
 		}
 		text := fmt.Sprintf("%-*s%-*s%-*s %-*s %-*s %-*s %-*s %s", cols[0], mark, cols[1], kindMark(r.Kind), cols[2], truncate(title, cols[2]),
-			cols[3], orStr(r.Kind, "?"), cols[4], truncate(r.Account.Title(), cols[4]), cols[5], truncate(names[r.Space], cols[5]),
-			cols[6], r.Read, wait)
+			cols[3], orStr(r.Kind, "?"), cols[4], truncate(r.Account.Title(), cols[4]), cols[5], truncate(m.spacesText(r), cols[5]),
+			cols[6], truncate(readsText(r), cols[6]), wait)
 		switch {
 		case i == m.conv:
 			lines = append(lines, selectedRow.Width(inner).Render(truncate(text, inner)))

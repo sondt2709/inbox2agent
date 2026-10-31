@@ -34,7 +34,14 @@ type Message struct {
 	URL         string
 	CreatedAt   time.Time
 	State       string
-	Space       string // the space of the dispatch that sent the message; "" before a dispatch
+	Space       string // the space of the last dispatch that sent the message; "" before a dispatch
+	// ForMe is true for a message for the user: a message of a direct
+	// conversation, a mention of the user or a reply to the user. A link
+	// with the read level mentions gets only these messages.
+	ForMe bool
+	// Delivered is the state of the delivery of the message to each space
+	// that got it (sent or previewed). Store.Pending fills it.
+	Delivered map[string]string
 }
 
 // Cursor is the position of a source, as key and value pairs.

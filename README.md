@@ -35,7 +35,7 @@
 | Item | What it is |
 |---|---|
 | Account | One login to a chat tool: a Mattermost server and token, or a WhatsApp linked device. It only connects. |
-| Conversation | One direct conversation, group or channel of an account. `i2a` finds them. Each conversation is in one space and has a read level. |
+| Conversation | One direct conversation, group or channel of an account. `i2a` finds them. Each conversation is in one space or more, with a read level in each. |
 | Space | Your own group of conversations, for example a company, a project or personal. It can hold conversations from many accounts. It sends to one agent on one schedule. |
 | Agent | How `i2a` sends a batch to an AI agent (the driver, the agent CLI, the workspace, the prompts). Many spaces can use one agent; each space has its own session. |
 | Schedule | When a space sends: every 15 minutes, on some days, between some hours. |
@@ -49,6 +49,10 @@ The read level is the same choice for each kind of conversation:
 The built-in space **Unsorted** holds each conversation that no space lists, for example a new direct conversation. It has its own read level for these conversations. It sends to an agent, or holds the messages until you move their conversations to a space.
 
 One account can feed many spaces. For example, one WhatsApp account can send the group of a client to the space Company A, a project group to Project B, and the family chat to Personal.
+
+One conversation can also be in many spaces. For example, the channel `release` is in the space Review with the read level `all`, so the agent `reviewer` checks each release note, and in the space Team with `mentions`, so the agent `triage` sees only the release posts for you. Each space gets its own copy of each message that its read level allows, in its own batch, for its own agent. `i2a` reads the conversation one time, at the widest level. In the Conversations tab, `L` adds a conversation to one more space; `m` moves it to one space.
+
+A card goes to the space of the agent that wrote it (the space of its terminal), so `t` asks that agent.
 
 ## Status
 
@@ -96,6 +100,8 @@ go install github.com/sondt2709/inbox2agent/cmd/i2a@latest
 After you install a new version, run `i2a service install`. It restarts the background service with the new binary.
 
 The spaces change the configuration to version 2 and the store from schema version 5 to 6. The first start converts `config.toml` (the old file stays in `config.toml.v1.bak`, see [From version 1](#from-version-1)) and writes a copy of the old store to `inbox.db.v5.bak`. To go back, install the older binary, run `i2a service uninstall`, copy `config.toml.v1.bak` to `config.toml` and `inbox.db.v5.bak` to `inbox.db`, and run `i2a service install`. Scripts that call `i2a source` must call `i2a account` and `i2a conversations` now.
+
+One conversation in many spaces changes the store from schema version 6 to 7. The first start writes a copy of the old store to `inbox.db.v6.bak`. An older `i2a` cannot open the new store. To go back, install the older binary, run `i2a service uninstall`, replace `inbox.db` with `inbox.db.v6.bak`, remove the second entries of each conversation that is in two spaces from `config.toml`, and run `i2a service install`.
 
 The next major version removes `i2a conversation set`. A script edits `[[spaces.conversations]]` in `config.toml` and checks it with `i2a config check` (see [The file is the interface for scripts and agents](#the-file-is-the-interface-for-scripts-and-agents)).
 
@@ -321,7 +327,7 @@ label = "Client group"    # your name for the conversation
 read = "all"
 ```
 
-A conversation is in one space only. To move a conversation, remove its `[[spaces.conversations]]` entry from one space and add it to the other. Find the IDs with `i2a conversations` (or `--json`).
+A conversation can be in many spaces: add a `[[spaces.conversations]]` entry to each space, each with its own `read`. It cannot be two times in one space, or in `[unsorted]` and in a space. To move a conversation, remove its entry from one space and add it to the other. Find the IDs with `i2a conversations` (or `--json`).
 
 ### The file is the interface for scripts and agents
 

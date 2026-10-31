@@ -62,7 +62,11 @@ func TestConversationsJSON(t *testing.T) {
 		if err := c.SetConversation("phone", "g1@g.us", "acme", config.ReadMentions, "Team"); err != nil {
 			return err
 		}
-		return c.SetLabel("phone", "g1@g.us", "Acme team")
+		if err := c.SetLabel("phone", "g1@g.us", "Acme team"); err != nil {
+			return err
+		}
+		c.Spaces = append(c.Spaces, config.Space{ID: "atlas", Name: "Atlas", Agent: "claude-work", Schedule: "always"})
+		return c.AddLink("phone", "g1@g.us", "atlas", config.ReadAll)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -70,17 +74,25 @@ func TestConversationsJSON(t *testing.T) {
 	if r.err != nil {
 		t.Fatal(r.err)
 	}
-	var rows []map[string]string
+	var rows []map[string]any
 	if err := json.Unmarshal([]byte(r.out), &rows); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, r.out)
 	}
-	want := map[string]string{"account": "phone", "id": "g1@g.us", "kind": "", "name": "Team", "label": "Acme team", "space": "acme", "read": "mentions"}
-	if len(rows) != 1 || len(rows[0]) != len(want) {
+	want := map[string]any{"account": "phone", "id": "g1@g.us", "kind": "", "name": "Team", "label": "Acme team", "space": "acme", "read": "mentions"}
+	if len(rows) != 1 || len(rows[0]) != len(want)+1 {
 		t.Fatalf("rows = %v", rows)
 	}
 	for k, v := range want {
 		if rows[0][k] != v {
-			t.Errorf("%s = %q, want %q", k, rows[0][k], v)
+			t.Errorf("%s = %v, want %v", k, rows[0][k], v)
 		}
+	}
+	spaces, _ := json.Marshal(rows[0]["spaces"])
+	if string(spaces) != `[{"label":"Acme team","read":"mentions","space":"acme"},{"label":"Acme team","read":"all","space":"atlas"}]` {
+		t.Errorf("spaces = %s", spaces)
+	}
+	r = i2a(t, "", "conversations")
+	if !strings.Contains(r.out, "Acme, Atlas") || !strings.Contains(r.out, "mentions, all") {
+		t.Errorf("the table does not show both spaces:\n%s", r.out)
 	}
 }
