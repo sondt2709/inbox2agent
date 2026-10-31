@@ -29,5 +29,5 @@
 
 - [x] 5.1 E2E: one channel in two spaces with `all` and `mentions`
 - [x] 5.2 Break each change one time and see the new test fail
-- [ ] 5.3 `task test`, `task lint`, e2e lint, `task e2e`, `task leakcheck`, `openspec validate --strict`
+- [x] 5.3 `task test`, `task lint`, e2e lint, `task e2e`, `task leakcheck`, `openspec validate --strict`
 - [ ] 5.4 Demo of the real app as evidence; archive the change and open the PR

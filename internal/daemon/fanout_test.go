@@ -133,3 +133,58 @@ func TestAFailedSpaceDoesNotResendToTheOther(t *testing.T) {
 		t.Errorf("pending = %+v, want none", p)
 	}
 }
+
+// cancelDriver cancels the round while it sends, as a stop of the daemon does.
+type cancelDriver struct {
+	recorder
+	cancel context.CancelFunc
+}
+
+func (c *cancelDriver) Deliver(ctx context.Context, _ *render.Rendered) (agent.Result, error) {
+	c.cancel()
+	return agent.Result{}, ctx.Err()
+}
+
+// A stop after the first space sent and before the second space sent keeps
+// the message for the second space.
+func TestAStopBetweenTwoSpacesKeepsTheMessage(t *testing.T) {
+	h := newHarness(t, twoSpaces())
+	ctx, cancel := context.WithCancel(context.Background())
+	review := &recorder{result: agent.Result{Status: agent.StatusSent}}
+	h.e.d.NewDriver = func(_ config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+		if space == "team" {
+			return &cancelDriver{cancel: cancel}, nil
+		}
+		return review, nil
+	}
+	h.sources["work"].addFor("mention", true)
+	h.e.Poll(context.Background(), true)
+	_, _ = h.e.Dispatch(ctx, nil) // the round stops in the batch of Team
+	p, _ := h.st.Pending(context.Background())
+	if len(p) != 1 || p[0].Delivered["review"] != inbox.StateSent {
+		t.Fatalf("pending after the stop = %+v, want the message with a delivery to Review only", p)
+	}
+}
+
+// A message that Review has and Team does not stays pending. When the user
+// removes the link of Team, the next round makes the message sent.
+func TestRemovedLinkEndsTheWait(t *testing.T) {
+	c := twoSpaces()
+	h := newHarness(t, c)
+	h.bySpace(map[string]error{"team": errors.New("orca: not reachable")})
+	ctx := context.Background()
+	h.sources["work"].addFor("mention", true)
+	h.e.Poll(ctx, true)
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	c2 := twoSpaces()
+	c2.Spaces[1].Conversations = nil
+	h.e.SetConfig(c2)
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := h.st.Pending(ctx); len(p) != 0 {
+		t.Errorf("pending = %+v, want none: each space that wants it has it", p)
+	}
+}

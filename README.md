@@ -50,7 +50,7 @@ The built-in space **Unsorted** holds each conversation that no space lists, for
 
 One account can feed many spaces. For example, one WhatsApp account can send the group of a client to the space Company A, a project group to Project B, and the family chat to Personal.
 
-One conversation can also be in many spaces. For example, the channel `release` is in the space Review with the read level `all`, so the agent `reviewer` checks each release note, and in the space Team with `mentions`, so the agent `triage` sees only the release posts for you. Each space gets its own copy of each message that its read level allows, in its own batch, for its own agent. `i2a` reads the conversation one time, at the widest level. In the Conversations tab, `L` adds a conversation to one more space; `m` moves it to one space.
+One conversation can also be in many spaces. For example, the channel `release` is in the space Review with the read level `all`, so the agent `reviewer` checks each release note, and in the space Team with `mentions`, so the agent `triage` sees only the release posts for you. Each space gets its own copy of each message that its read level allows, in its own batch, for its own agent. `i2a` reads the conversation one time, at the widest level. In the Conversations tab, `L` adds a conversation to one more space and asks for its read level there; `m` moves it to one space; `l` sets the level of each of its spaces.
 
 A card goes to the space of the agent that wrote it (the space of its terminal), so `t` asks that agent.
 

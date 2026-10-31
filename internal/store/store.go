@@ -593,6 +593,15 @@ func (s *Store) SetDigestPath(ctx context.Context, id int64, path string) error 
 // transaction. When the conversation of a message is in more spaces, the
 // engine sets its state for all spaces with SetStates.
 func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, space, msgState string, messageIDs []int64) error {
+	return s.FinishDispatchStates(ctx, id, status, detail, space, msgState, messageIDs, nil)
+}
+
+// FinishDispatchStates is FinishDispatch with the state of each message for
+// all its spaces (states), which the engine computes for a conversation in
+// many spaces. The delivery and the state change are in one transaction, so
+// a stop between them cannot make a message sent before each space has it. A
+// message that states does not name gets msgState.
+func (s *Store) FinishDispatchStates(ctx context.Context, id int64, status, detail, space, msgState string, messageIDs []int64, states map[int64]string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -616,6 +625,11 @@ func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, sp
 			  ON CONFLICT(message_id, space) DO UPDATE SET state = excluded.state, dispatch_id = excluded.dispatch_id`,
 				mid, space, msgState, id); err != nil {
 				return err
+			}
+			if st, ok := states[mid]; ok && st != msgState {
+				if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = ? WHERE id = ? AND state != 'expired'`, st, mid); err != nil {
+					return err
+				}
 			}
 		}
 	}

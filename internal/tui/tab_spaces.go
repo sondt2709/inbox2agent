@@ -92,8 +92,14 @@ func (m *model) deleteSpace(id string) {
 				if !ok {
 					return config.MissingError{Kind: config.KindSpace, ID: id}
 				}
-				c.Unsorted.Conversations = append(c.Unsorted.Conversations, cur.Conversations...)
+				gone := cur.Conversations
 				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
+				for _, cv := range gone {
+					// A conversation that another space lists stays in that space only.
+					if _, _, listed := c.Conversation(cv.Account, cv.ID); !listed {
+						c.Unsorted.Conversations = append(c.Unsorted.Conversations, cv)
+					}
+				}
 				return nil
 			}, nil); err != nil {
 				m.setStatus("Cannot delete: "+err.Error(), true)
