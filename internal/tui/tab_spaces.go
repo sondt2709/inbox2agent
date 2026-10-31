@@ -109,7 +109,7 @@ func (m *model) deleteSpace(id string) {
 func (m *model) spaceWaiting(id string) int {
 	n := 0
 	for c, k := range m.pending {
-		if m.u.cfg.Route(c.Account, c.ID) == id {
+		if slices.Contains(m.u.cfg.Routes(c.Account, c.ID), id) {
 			n += k
 		}
 	}
@@ -121,7 +121,7 @@ func (m *model) spaceWaiting(id string) int {
 func (m *model) spaceRows(id string) []convRow {
 	var out []convRow
 	for _, r := range m.convRows() {
-		if r.Space == id {
+		if slices.Contains(r.Spaces, id) {
 			out = append(out, r)
 		}
 	}

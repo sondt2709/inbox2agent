@@ -73,7 +73,11 @@ func printConfig(w io.Writer, c *config.Config, dataDir string, pending map[stor
 
 	waiting := map[string]int{}
 	for conv, n := range pending {
-		waiting[c.Route(conv.Account, conv.ID)] += n
+		for _, l := range c.Links(conv.Account, conv.ID) { // each space of the conversation waits for its messages
+			if l.Read != config.ReadOff {
+				waiting[l.Space] += n
+			}
+		}
 	}
 	fmt.Fprintln(w, "\nSpaces:")
 	tw = tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)

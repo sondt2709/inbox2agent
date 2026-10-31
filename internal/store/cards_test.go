@@ -224,3 +224,35 @@ func TestMessagesByIDKeepsOrderAndSkipsDeleted(t *testing.T) {
 		t.Errorf("MessagesByID = %+v", got)
 	}
 }
+
+func TestCardGetsTheSpaceOfTheSessionOfItsTerminal(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "inbox.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	if err := s.SetSession(ctx, "team", "term_team", "h", now); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.SaveCards(ctx, []inbox.Card{
+		{Category: inbox.CategoryInfo, Urgency: inbox.UrgencyLow, Title: "from team", Key: "k1", Handle: "term_team"},
+		{Category: inbox.CategoryInfo, Urgency: inbox.UrgencyLow, Title: "from elsewhere", Handle: "term_other"},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved[0].Space != "team" || saved[1].Space != "" {
+		t.Fatalf("spaces = %q, %q; want team and none", saved[0].Space, saved[1].Space)
+	}
+	// An update by key from an unknown terminal keeps the space.
+	if _, err := s.SaveCards(ctx, []inbox.Card{{Category: inbox.CategoryInfo, Urgency: inbox.UrgencyHigh, Title: "from team",
+		Key: "k1", Handle: "term_other"}}, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Card(ctx, 0, "k1")
+	if err != nil || c.Space != "team" {
+		t.Errorf("card after the update = %+v, %v; want the space team", c, err)
+	}
+}

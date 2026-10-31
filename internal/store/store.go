@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -38,9 +38,17 @@ CREATE TABLE IF NOT EXISTS messages (
   space         TEXT NOT NULL DEFAULT '',
   dispatch_id   INTEGER,
   state         TEXT NOT NULL DEFAULT 'pending',
+  for_me        INTEGER NOT NULL DEFAULT 1,
   UNIQUE(source_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS messages_state ON messages(state, created_at);
+CREATE TABLE IF NOT EXISTS deliveries (
+  message_id  INTEGER NOT NULL,
+  space       TEXT NOT NULL,
+  state       TEXT NOT NULL,
+  dispatch_id INTEGER,
+  PRIMARY KEY(message_id, space)
+);
 CREATE TABLE IF NOT EXISTS cursors (
   source_id TEXT NOT NULL,
   key       TEXT NOT NULL,
@@ -78,7 +86,8 @@ CREATE TABLE IF NOT EXISTS cards (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   done_at    INTEGER,
-  handle     TEXT NOT NULL DEFAULT ''
+  handle     TEXT NOT NULL DEFAULT '',
+  space      TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS cards_key ON cards(key) WHERE key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS cards_state ON cards(state, updated_at);
@@ -164,7 +173,8 @@ func (s *Store) migrate() error {
 	// The tables of an earlier version keep their columns, because CREATE
 	// TABLE IF NOT EXISTS does not change them. migrateV3 adds
 	// sessions.primer_hash, migrateV4 adds messages.thread_id, migrateV5
-	// adds cards.handle and migrateV6 renames the profile columns to space.
+	// adds cards.handle, migrateV6 renames the profile columns to space and
+	// migrateV7 adds messages.for_me, the deliveries and cards.space.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -204,7 +214,12 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.migrateV6()
+	if v < 6 {
+		if err := s.migrateV6(); err != nil {
+			return err
+		}
+	}
+	return s.migrateV7()
 }
 
 // backup writes a consistent copy of the store to <file>.v<version>.bak
@@ -333,6 +348,40 @@ func (s *Store) migrateV6() error {
 	return tx.Commit()
 }
 
+// migrateV7 adds the mark for the user (1 for the old messages, so they pass
+// each filter), a delivery for each message that a dispatch sent or
+// previewed, and the space of a card. One conversation can now be in many
+// spaces, and each space gets its own delivery.
+func (s *Store) migrateV7() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	for _, c := range []struct{ table, col, def string }{
+		{"messages", "for_me", "INTEGER NOT NULL DEFAULT 1"},
+		{"cards", "space", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.col).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.col + ` ` + c.def); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO deliveries(message_id, space, state, dispatch_id)
+	  SELECT id, space, state, dispatch_id FROM messages WHERE space != '' AND state IN ('sent', 'previewed')`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 7`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // migrateV2 adds the previewed state. Version 1 marked the messages of
 // dry-run batches sent, so a real driver never got them.
 func (s *Store) migrateV2() error {
@@ -386,8 +435,8 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	defer tx.Rollback() //nolint:errcheck // no effect after Commit
 
 	ins, err := tx.PrepareContext(ctx, `INSERT INTO messages
-	  (source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, collected_at, state)
-	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+	  (source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, collected_at, state, for_me)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
 	  ON CONFLICT(source_id, external_id) DO NOTHING`)
 	if err != nil {
 		return 0, err
@@ -399,7 +448,7 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 			return 0, fmt.Errorf("message %s has source %q, want %q", m.ExternalID, m.SourceID, sourceID)
 		}
 		res, err := ins.ExecContext(ctx, m.SourceID, m.SourceType, m.ExternalID, m.ChannelID, m.ChannelName,
-			m.ChannelKind, m.ThreadID, m.Author, m.Text, m.URL, m.CreatedAt.UnixMilli(), now.UnixMilli())
+			m.ChannelKind, m.ThreadID, m.Author, m.Text, m.URL, m.CreatedAt.UnixMilli(), now.UnixMilli(), m.ForMe)
 		if err != nil {
 			return 0, fmt.Errorf("save message %s: %w", m.ExternalID, err)
 		}
@@ -416,7 +465,7 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	return added, tx.Commit()
 }
 
-const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, space`
+const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, space, for_me`
 
 func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	defer rows.Close()
@@ -425,7 +474,7 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 		var m inbox.Message
 		var created int64
 		if err := rows.Scan(&m.ID, &m.SourceID, &m.SourceType, &m.ExternalID, &m.ChannelID, &m.ChannelName,
-			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Space); err != nil {
+			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Space, &m.ForMe); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = time.UnixMilli(created).UTC()
@@ -434,14 +483,61 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	return out, rows.Err()
 }
 
-// Pending returns the pending and the previewed messages, oldest first.
-// A real driver sends both; a dry-run agent takes only the pending ones.
+// Pending returns the pending and the previewed messages, oldest first, with
+// the deliveries of each to the spaces that got it. A real driver sends both
+// states; a dry-run agent takes only the messages that its space did not get.
 func (s *Store) Pending(ctx context.Context) ([]inbox.Message, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+messageCols+` FROM messages WHERE state IN ('pending', 'previewed') ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
 	}
-	return scanMessages(rows)
+	msgs, err := scanMessages(rows)
+	if err != nil || len(msgs) == 0 {
+		return msgs, err
+	}
+	drows, err := s.db.QueryContext(ctx, `SELECT d.message_id, d.space, d.state FROM deliveries d
+	  JOIN messages m ON m.id = d.message_id WHERE m.state IN ('pending', 'previewed')`)
+	if err != nil {
+		return nil, err
+	}
+	defer drows.Close()
+	at := map[int64]int{}
+	for i, m := range msgs {
+		at[m.ID] = i
+	}
+	for drows.Next() {
+		var id int64
+		var space, state string
+		if err := drows.Scan(&id, &space, &state); err != nil {
+			return nil, err
+		}
+		if i, ok := at[id]; ok {
+			if msgs[i].Delivered == nil {
+				msgs[i].Delivered = map[string]string{}
+			}
+			msgs[i].Delivered[space] = state
+		}
+	}
+	return msgs, drows.Err()
+}
+
+// SetStates sets the state of each message: the state for all its spaces,
+// which the engine computes from the deliveries and the links.
+func (s *Store) SetStates(ctx context.Context, states map[int64]string) error {
+	if len(states) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	for id, st := range states {
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = ? WHERE id = ? AND state != 'expired'`, st, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // Messages returns the messages of a dispatch, oldest first.
@@ -492,7 +588,10 @@ func (s *Store) SetDigestPath(ctx context.Context, id int64, path string) error 
 }
 
 // FinishDispatch sets the final status of a dispatch. When the status is sent,
-// it sets the messages to msgState (sent, or previewed for a dry run) in the same transaction.
+// it records a delivery of each message to the space with msgState (sent, or
+// previewed for a dry run), and sets the messages to msgState, in the same
+// transaction. When the conversation of a message is in more spaces, the
+// engine sets its state for all spaces with SetStates.
 func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, space, msgState string, messageIDs []int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -511,6 +610,13 @@ func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, sp
 		}
 		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 			return err
+		}
+		for _, mid := range messageIDs {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO deliveries(message_id, space, state, dispatch_id) VALUES (?, ?, ?, ?)
+			  ON CONFLICT(message_id, space) DO UPDATE SET state = excluded.state, dispatch_id = excluded.dispatch_id`,
+				mid, space, msgState, id); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
@@ -616,6 +722,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, []string, e
 		return 0, nil, err
 	}
 	n, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM deliveries WHERE message_id NOT IN (SELECT id FROM messages)`); err != nil {
+		return 0, nil, err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cards WHERE state = 'done' AND done_at < ?`, before.UnixMilli()); err != nil {
 		return 0, nil, err
 	}

@@ -16,7 +16,7 @@ import (
 // ErrNoCard is returned when no card matches an ID or a key.
 var ErrNoCard = errors.New("no card")
 
-const cardCols = `id, key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle`
+const cardCols = `id, key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle, space`
 
 func scanCard(sc interface{ Scan(...any) error }) (inbox.Card, error) {
 	var c inbox.Card
@@ -24,7 +24,7 @@ func scanCard(sc interface{ Scan(...any) error }) (inbox.Card, error) {
 	var refs string
 	var created, updated int64
 	if err := sc.Scan(&c.ID, &key, &c.Category, &c.Urgency, &c.Group, &c.Title, &c.Body, &c.Reply,
-		&refs, &c.State, &created, &updated, &c.Handle); err != nil {
+		&refs, &c.State, &created, &updated, &c.Handle, &c.Space); err != nil {
 		return c, err
 	}
 	c.Key = key.String
@@ -62,6 +62,14 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 	defer tx.Rollback() //nolint:errcheck // no effect after Commit
 	out := make([]inbox.SavedCard, 0, len(cards))
 	for _, c := range cards {
+		// The space of the card is the space of the session of its terminal.
+		c.Space = ""
+		if c.Handle != "" {
+			err := tx.QueryRowContext(ctx, `SELECT space FROM sessions WHERE handle = ?`, c.Handle).Scan(&c.Space)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, err
+			}
+		}
 		sv := inbox.SavedCard{Card: c}
 		var old inbox.Card
 		found := false
@@ -80,9 +88,9 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 			if c.Key != "" {
 				key = c.Key
 			}
-			res, err := tx.ExecContext(ctx, `INSERT INTO cards(key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle)
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`, key, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply,
-				refsJSON(c.Refs), now.UnixMilli(), now.UnixMilli(), c.Handle)
+			res, err := tx.ExecContext(ctx, `INSERT INTO cards(key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle, space)
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`, key, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply,
+				refsJSON(c.Refs), now.UnixMilli(), now.UnixMilli(), c.Handle, c.Space)
 			if err != nil {
 				return nil, err
 			}
@@ -95,17 +103,27 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 				}
 				old.Handle = c.Handle
 			}
+			if c.Space != "" && c.Space != old.Space {
+				if _, err := tx.ExecContext(ctx, `UPDATE cards SET space = ? WHERE id = ?`, c.Space, old.ID); err != nil {
+					return nil, err
+				}
+				old.Space = c.Space
+			}
 			sv.Card = old
 			sv.Result, sv.PrevUrgency, sv.PrevState = inbox.SaveUnchanged, old.Urgency, old.State
 		default:
 			if _, err := tx.ExecContext(ctx, `UPDATE cards SET category = ?, urgency = ?, grp = ?, title = ?, body = ?, reply = ?,
-			  refs = ?, state = 'new', updated_at = ?, done_at = NULL, handle = CASE WHEN ? = '' THEN handle ELSE ? END
+			  refs = ?, state = 'new', updated_at = ?, done_at = NULL, handle = CASE WHEN ? = '' THEN handle ELSE ? END,
+			  space = CASE WHEN ? = '' THEN space ELSE ? END
 			  WHERE id = ?`, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply, refsJSON(c.Refs), now.UnixMilli(),
-				c.Handle, c.Handle, old.ID); err != nil {
+				c.Handle, c.Handle, c.Space, c.Space, old.ID); err != nil {
 				return nil, err
 			}
 			if c.Handle == "" {
 				sv.Handle = old.Handle
+			}
+			if c.Space == "" {
+				sv.Space = old.Space
 			}
 			sv.ID, sv.State, sv.CreatedAt, sv.UpdatedAt = old.ID, inbox.CardNew, old.CreatedAt, now.UTC()
 			sv.Result, sv.PrevUrgency, sv.PrevState = inbox.SaveUpdated, old.Urgency, old.State

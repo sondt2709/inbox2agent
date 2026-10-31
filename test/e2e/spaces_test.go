@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/test/e2e/harness"
 )
 
 // S37: a version 1 file (sources, profiles, timing) is converted when i2a
@@ -89,11 +91,15 @@ func TestS38TwoSpacesFromOneAccount(t *testing.T) {
 	if !strings.Contains(squash(s), squash("is valid: 1 account, 2 agents, 1 schedule, 1 space and Unsorted, 1 conversation")) {
 		t.Fatalf("config check:\n%s", s)
 	}
-	s, code := p.run("conversations --account work --json")
-	if code != 0 || !regexp.MustCompile(`"id": "`+regexp.QuoteMeta(w.Selected)+`",\s+"kind": "channel",\s+"name": "[^"]+",\s+"label": "Releases",\s+"space": "review",\s+"read": "all"`).MatchString(s) {
-		t.Fatalf("conversations --json: exit %d:\n%s", code, s)
+	// The JSON is longer than the terminal: the shell writes it to a file.
+	out := filepath.Join(p.home, "conversations.json")
+	tm := harness.Start(t, filepath.Join(outRoot, p.id), bin+" conversations --account work --json > "+out, p.env)
+	tm.WaitFor(`\[exit 0\]`, 30*time.Second)
+	b, _ := os.ReadFile(out)
+	if !regexp.MustCompile(`"id": "` + regexp.QuoteMeta(w.Selected) + `",\s+"kind": "channel",\s+"name": "[^"]+",\s+"label": "Releases",\s+"space": "review",\s+"read": "all"`).Match(b) {
+		t.Fatalf("conversations --json:\n%s", b)
 	}
-	s, code = p.run("conversations --account work")
+	s, code := p.run("conversations --account work")
 	if code != 0 || !regexp.MustCompile(regexp.QuoteMeta(w.Selected)+`\s+channel\s+Releases\s+Review\s+all`).MatchString(s) {
 		t.Fatalf("conversations: exit %d:\n%s", code, s)
 	}
@@ -183,5 +189,52 @@ func TestS40EditFromAnotherProcess(t *testing.T) {
 	if _, ok := c.Space("side-project"); !ok {
 		raw, _ := os.ReadFile(p.configFile())
 		t.Fatalf("the save removed the space of the other process:\n%s", raw)
+	}
+}
+
+// S42: one channel is in two spaces. Review reads all of it for the agent
+// reviewer; Team reads only the posts for alice, for the agent triage. Each
+// space gets its own batch, and a second run sends nothing.
+func TestS42OneChannelInTwoSpaces(t *testing.T) {
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S42")
+	p.addAccount(w)
+	p.editConfig(func(c *config.Config) {
+		c.Agents = append(c.Agents, config.NewAgent("reviewer"))
+		c.Spaces = append(c.Spaces,
+			config.Space{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always",
+				Conversations: []config.Conversation{{Account: "work", ID: w.Selected, Read: config.ReadAll}}},
+			config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"})
+	})
+	// An agent adds the same channel to Team by hand: Team is the last [[spaces]].
+	p.writeConfigText(func(text string) string {
+		return text + "\n[[spaces.conversations]]\naccount = 'work'\nid = '" + w.Selected + "'\nread = 'mentions'\n"
+	})
+	s, code := p.run("conversations --account work")
+	if code != 0 || !regexp.MustCompile(regexp.QuoteMeta(w.Selected)+`\s+channel\s+.+?\s+Review, Team\s+all, mentions`).MatchString(s) {
+		t.Fatalf("conversations: exit %d:\n%s", code, s)
+	}
+	w.Post(t, w.Bob, w.Selected, "S42 notes are ready")
+	w.Post(t, w.Bob, w.Selected, "@"+w.Alice.Name+" S42 please check")
+	s, code = p.run("run --once")
+	if code != 0 || !strings.Contains(s, "batch of Review to reviewer (dry-run, 2 messages)") ||
+		!strings.Contains(s, "batch of Team to triage (dry-run, 1 messages)") {
+		t.Fatalf("run --once: exit %d:\n%s", code, s)
+	}
+	by := map[string][]string{}
+	for _, d := range p.digests() {
+		space := "team"
+		if strings.Contains(filepath.Base(d), "-review-") {
+			space = "review"
+		}
+		by[space] = append(by[space], texts(readDigest(t, d))...)
+	}
+	slices.Sort(by["review"])
+	if !slices.Equal(by["review"], []string{"@" + w.Alice.Name + " S42 please check", "S42 notes are ready"}) ||
+		!slices.Equal(by["team"], []string{"@" + w.Alice.Name + " S42 please check"}) {
+		t.Fatalf("digests = %q", by)
+	}
+	if s, _ := p.run("run --once"); !strings.Contains(s, "no batch to send") {
+		t.Errorf("the second run sent again:\n%s", s)
 	}
 }

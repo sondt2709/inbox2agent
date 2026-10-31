@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -143,7 +144,7 @@ type Conversation struct {
 	ID      string `toml:"id" doc:"The platform ID of the conversation. i2a conversations --json lists them." schema:"required"`
 	Name    string `toml:"name,omitempty" doc:"The platform name. The dashboard writes it."`
 	Label   string `toml:"label,omitempty" doc:"The name that you give. It replaces the platform name on the screens."`
-	Read    string `toml:"read" doc:"all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted." enum:"all,mentions,off" schema:"default"`
+	Read    string `toml:"read" doc:"all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted. The source reads at the widest level of the links of a conversation; each space gets the messages of its own level." enum:"all,mentions,off" schema:"default"`
 }
 
 // Space is a group of conversations that the user names. Its conversations go
@@ -153,7 +154,7 @@ type Space struct {
 	Name          string         `toml:"name" doc:"The name that i2a shows. Empty: the ID. Two spaces cannot have the same name."`
 	Agent         string         `toml:"agent" doc:"The ID of the agent of the space." schema:"required"`
 	Schedule      string         `toml:"schedule" doc:"The ID of the schedule of the space." schema:"required"`
-	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations of the space. A conversation is in one space only."`
+	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations of the space. A conversation can be in many spaces, each with its own read level; it is not two times in one space."`
 }
 
 // Unsorted is the built-in space. Read is the level of each conversation that
@@ -543,13 +544,53 @@ func (c *Config) conversations(space string) *[]Conversation {
 	return nil
 }
 
-// Conversation returns the entry of a conversation and the ID of its space.
-// A conversation that has no entry is in Unsorted with the level
-// Unsorted.Read, and ok is false.
+// Link is one space that lists a conversation, with the read level and the
+// label of its entry.
+type Link struct {
+	Space string
+	Read  string
+	Label string
+}
+
+// Links returns the links of a conversation in the order of the file:
+// Unsorted first, then the spaces. A conversation that no space lists has
+// one link to Unsorted, with the level of its Unsorted entry or Unsorted.Read.
+func (c *Config) Links(account, id string) []Link {
+	var out []Link
+	for _, s := range c.AllSpaces() {
+		for _, cv := range s.Conversations {
+			if cv.Account == account && cv.ID == id {
+				out = append(out, Link{Space: s.ID, Read: cv.Read, Label: cv.Label})
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = []Link{{Space: UnsortedID, Read: c.Unsorted.Read}}
+	}
+	return out
+}
+
+// Wants reports whether a link with the read level gets a message: all gets
+// each message, mentions only a message for the user.
+func Wants(read string, forMe bool) bool {
+	return read == ReadAll || (read == ReadMentions && forMe)
+}
+
+// Conversation returns the first entry of a conversation and the ID of its
+// space. A conversation that has no entry is in Unsorted with the level
+// Unsorted.Read, and ok is false. Links returns all spaces.
 func (c *Config) Conversation(account, id string) (conv Conversation, space string, ok bool) {
 	for _, s := range c.AllSpaces() {
 		for _, cv := range s.Conversations {
 			if cv.Account == account && cv.ID == id {
+				if cv.Label == "" { // the first label shows
+					for _, l := range c.Links(account, id) {
+						if l.Label != "" {
+							cv.Label = l.Label
+							break
+						}
+					}
+				}
 				return cv, s.ID, true
 			}
 		}
@@ -557,54 +598,97 @@ func (c *Config) Conversation(account, id string) (conv Conversation, space stri
 	return Conversation{Account: account, ID: id, Read: c.Unsorted.Read}, UnsortedID, false
 }
 
-// Route returns the ID of the space of a conversation: the space that lists
-// it, or Unsorted.
+// Route returns the ID of the first space of a conversation: the first space
+// that lists it, or Unsorted. Routes returns all of them.
 func (c *Config) Route(account, conversation string) string {
 	_, space, _ := c.Conversation(account, conversation)
 	return space
 }
 
-// Level returns the read level of a conversation.
-func (c *Config) Level(account, conversation string) string {
-	cv, _, _ := c.Conversation(account, conversation)
-	return cv.Read
+// Routes returns the IDs of the spaces of a conversation, in the order of the file.
+func (c *Config) Routes(account, conversation string) []string {
+	var out []string
+	for _, l := range c.Links(account, conversation) {
+		out = append(out, l.Space)
+	}
+	return out
 }
 
-// Levels returns the read level of each conversation of an account that has
-// an entry. A conversation that is not in the map has the level Unsorted.Read.
+// widest returns the wider of two read levels: all, then mentions, then off.
+func widest(a, b string) string {
+	rank := map[string]int{ReadOff: 0, ReadMentions: 1, ReadAll: 2}
+	if rank[b] > rank[a] {
+		return b
+	}
+	return a
+}
+
+// Level returns the read level that the source uses for a conversation: the
+// widest level of its links.
+func (c *Config) Level(account, conversation string) string {
+	level := ReadOff
+	for _, l := range c.Links(account, conversation) {
+		level = widest(level, l.Read)
+	}
+	return level
+}
+
+// Levels returns the read level that the source uses for each conversation of
+// an account that has an entry: the widest level of its links. A conversation
+// that is not in the map has the level Unsorted.Read.
 func (c *Config) Levels(account string) map[string]string {
 	out := map[string]string{}
 	for _, s := range c.AllSpaces() {
 		for _, cv := range s.Conversations {
 			if cv.Account == account {
-				out[cv.ID] = cv.Read
+				if old, ok := out[cv.ID]; ok {
+					out[cv.ID] = widest(old, cv.Read)
+				} else {
+					out[cv.ID] = cv.Read
+				}
 			}
 		}
 	}
 	return out
 }
 
-// SetConversation puts the conversation in the space with the read level and
-// the label, and removes it from its old space. An empty read keeps the old
-// level, or uses "all" for a conversation that had no entry or was off and
-// goes to a space that is not Unsorted. name refreshes the platform name when
-// it is not empty.
+// removeEntries removes each entry of a conversation from each space and
+// Unsorted, and returns the first entry.
+func (c *Config) removeEntries(account, id string) (Conversation, bool) {
+	var first Conversation
+	had := false
+	for _, s := range c.AllSpaces() {
+		list := c.conversations(s.ID)
+		for i := 0; i < len(*list); i++ {
+			if x := (*list)[i]; x.Account == account && x.ID == id {
+				if !had {
+					first, had = x, true
+				}
+				if first.Label == "" {
+					first.Label = x.Label
+				}
+				*list = append((*list)[:i], (*list)[i+1:]...)
+				i--
+			}
+		}
+	}
+	return first, had
+}
+
+// SetConversation moves the conversation to one space with the read level,
+// and removes its other links. An empty read keeps the old level, or uses
+// "all" for a conversation that had no entry or was off and goes to a space
+// that is not Unsorted. name refreshes the platform name when it is not empty.
 func (c *Config) SetConversation(account, id, space, read, name string) error {
 	if _, ok := c.Account(account); !ok {
 		return fmt.Errorf("the account %q does not exist", account)
 	}
-	dst := c.conversations(space)
-	if dst == nil {
+	if c.conversations(space) == nil {
 		return fmt.Errorf("the space %q does not exist", space)
 	}
-	cv, from, had := c.Conversation(account, id)
-	if src := c.conversations(from); had && src != nil {
-		for i, x := range *src {
-			if x.Account == account && x.ID == id {
-				*src = append((*src)[:i], (*src)[i+1:]...)
-				break
-			}
-		}
+	cv, had := c.removeEntries(account, id)
+	if !had {
+		cv = Conversation{Account: account, ID: id, Read: c.Unsorted.Read}
 	}
 	if name != "" {
 		cv.Name = name
@@ -615,23 +699,75 @@ func (c *Config) SetConversation(account, id, space, read, name string) error {
 	case space != UnsortedID && (!had || cv.Read == ReadOff):
 		cv.Read = ReadAll
 	}
+	dst := c.conversations(space)
+	*dst = append(*dst, cv)
+	return nil
+}
+
+// AddLink adds a link of the conversation to one more space, with the read
+// level. The conversation leaves Unsorted. Its other links stay.
+func (c *Config) AddLink(account, id, space, read string) error {
+	if _, ok := c.Account(account); !ok {
+		return fmt.Errorf("the account %q does not exist", account)
+	}
+	if space == UnsortedID {
+		return errors.New("a link to Unsorted is not possible: move the conversation with m")
+	}
+	dst := c.conversations(space)
+	if dst == nil {
+		return fmt.Errorf("the space %q does not exist", space)
+	}
+	cv, _, _ := c.Conversation(account, id)
+	for _, x := range *dst {
+		if x.Account == account && x.ID == id {
+			return fmt.Errorf("the space %q already lists the conversation", space)
+		}
+	}
+	u := &c.Unsorted.Conversations
+	for i, x := range *u {
+		if x.Account == account && x.ID == id {
+			*u = append((*u)[:i], (*u)[i+1:]...)
+			break
+		}
+	}
+	cv.Read = read
 	dst = c.conversations(space)
 	*dst = append(*dst, cv)
 	return nil
 }
 
-// SetLabel sets the label of a conversation. An empty label shows the
-// platform name again. A conversation that has no entry gets an entry in
-// Unsorted with the level Unsorted.Read.
-func (c *Config) SetLabel(account, id, label string) error {
-	cv, space, _ := c.Conversation(account, id)
-	if err := c.SetConversation(account, id, space, cv.Read, ""); err != nil {
-		return err
+// SetLevel sets the read level of each link of the conversation. A
+// conversation that has no entry gets an entry in Unsorted.
+func (c *Config) SetLevel(account, id, read string) error {
+	if _, _, ok := c.Conversation(account, id); !ok {
+		return c.SetConversation(account, id, UnsortedID, read, "")
 	}
-	list := c.conversations(space)
-	for i := range *list {
-		if (*list)[i].Account == account && (*list)[i].ID == id {
-			(*list)[i].Label = strings.TrimSpace(label)
+	for _, s := range c.AllSpaces() {
+		list := c.conversations(s.ID)
+		for i := range *list {
+			if (*list)[i].Account == account && (*list)[i].ID == id {
+				(*list)[i].Read = read
+			}
+		}
+	}
+	return nil
+}
+
+// SetLabel sets the label of each link of a conversation. An empty label
+// shows the platform name again. A conversation that has no entry gets an
+// entry in Unsorted with the level Unsorted.Read.
+func (c *Config) SetLabel(account, id, label string) error {
+	if _, _, ok := c.Conversation(account, id); !ok {
+		if err := c.SetConversation(account, id, UnsortedID, c.Unsorted.Read, ""); err != nil {
+			return err
+		}
+	}
+	for _, s := range c.AllSpaces() {
+		list := c.conversations(s.ID)
+		for i := range *list {
+			if (*list)[i].Account == account && (*list)[i].ID == id {
+				(*list)[i].Label = strings.TrimSpace(label)
+			}
 		}
 	}
 	return nil
@@ -832,7 +968,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	seen := map[[2]string]string{}
+	seen := map[[2]string][]string{} // the places that list each conversation
 	level := func(at, read string) {
 		if !contains(ReadLevels, read) {
 			add("%s.read: %q is not all, mentions or off", at, read)
@@ -849,10 +985,14 @@ func (c *Config) Validate() error {
 			}
 			level(cat, cv.Read)
 			k := [2]string{cv.Account, cv.ID}
-			if other, ok := seen[k]; ok {
-				add("conversation %s/%s is in two spaces: %s and %s", cv.Account, cv.ID, other, at)
+			switch other := seen[k]; {
+			case slices.Contains(other, at):
+				add("conversation %s/%s is two times in %s", cv.Account, cv.ID, at)
+			case len(other) > 0 && (at == "unsorted" || other[0] == "unsorted"):
+				add("conversation %s/%s is in Unsorted and in %s: a conversation in a space is not in Unsorted", cv.Account, cv.ID,
+					map[bool]string{true: other[0], false: at}[at == "unsorted"])
 			}
-			seen[k] = at
+			seen[k] = append(seen[k], at)
 		}
 	}
 

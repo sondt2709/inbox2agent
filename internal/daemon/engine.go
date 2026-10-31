@@ -252,11 +252,17 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 	if err != nil {
 		return res, err
 	}
+	// Fan-out: each space that links the conversation and whose read level
+	// wants the message gets its own copy, one time.
 	groups := map[string][]inbox.Message{}
 	for _, m := range pending {
-		sp := e.cfg.Route(m.SourceID, m.ChannelID)
-		groups[sp] = append(groups[sp], m)
+		for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
+			if config.Wants(l.Read, m.ForMe) && m.Delivered[l.Space] != inbox.StateSent {
+				groups[l.Space] = append(groups[l.Space], m)
+			}
+		}
 	}
+	got := map[int64]map[string]string{} // the deliveries of this round
 	for _, s := range e.cfg.AllSpaces() {
 		if s.Agent == "" || (spaces != nil && !slices.Contains(spaces, s.ID)) {
 			continue
@@ -267,8 +273,8 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 		}
 		msgs := groups[s.ID]
 		if a.Driver == config.DriverDryRun {
-			// A dry run previews each message one time.
-			msgs = slices.DeleteFunc(msgs, func(m inbox.Message) bool { return m.State == inbox.StatePreviewed })
+			// A dry run previews each message one time for each space.
+			msgs = slices.DeleteFunc(msgs, func(m inbox.Message) bool { return m.Delivered[s.ID] == inbox.StatePreviewed })
 		}
 		if len(msgs) == 0 {
 			continue
@@ -276,9 +282,62 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 		br := e.deliver(ctx, s, *a, msgs, now)
 		e.notify(*a, br)
 		res.Batches = append(res.Batches, br)
+		if br.Err == nil && br.Status == agent.StatusSent {
+			state := inbox.StateSent
+			if a.Driver == config.DriverDryRun {
+				state = inbox.StatePreviewed
+			}
+			for _, m := range msgs {
+				if got[m.ID] == nil {
+					got[m.ID] = map[string]string{}
+				}
+				got[m.ID][s.ID] = state
+			}
+		}
+	}
+	if err := e.setStates(ctx, pending, got); err != nil {
+		return res, err
 	}
 	e.publishDispatch(res)
 	return res, nil
+}
+
+// setStates sets the state of each message of a round for all its spaces:
+// sent when each space that wants it has it, previewed when each has it and
+// one has only a preview, else pending. FinishDispatch set the state of the
+// space of the batch; this corrects a message that another space still wants.
+func (e *Engine) setStates(ctx context.Context, pending []inbox.Message, got map[int64]map[string]string) error {
+	states := map[int64]string{}
+	for _, m := range pending {
+		round, ok := got[m.ID]
+		if !ok {
+			continue // no batch of this round has it: its state stays
+		}
+		have := map[string]string{}
+		for sp, st := range m.Delivered {
+			have[sp] = st
+		}
+		for sp, st := range round {
+			have[sp] = st
+		}
+		want := inbox.StateSent
+		for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
+			if !config.Wants(l.Read, m.ForMe) {
+				continue
+			}
+			switch have[l.Space] {
+			case inbox.StateSent:
+			case inbox.StatePreviewed:
+				if want == inbox.StateSent {
+					want = inbox.StatePreviewed
+				}
+			default:
+				want = inbox.StatePending
+			}
+		}
+		states[m.ID] = want
+	}
+	return e.d.Store.SetStates(ctx, states)
 }
 
 // RunNow reads all accounts and sends the given spaces (nil: all spaces), as

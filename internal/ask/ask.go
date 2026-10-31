@@ -103,6 +103,11 @@ func Resolve(ctx context.Context, d Deps, c inbox.Card) (Target, error) {
 
 // TargetOf is Resolve with the ref messages of the card that the caller read.
 func TargetOf(cfg *config.Config, c inbox.Card, msgs []inbox.Message) (Target, error) {
+	if c.Space != "" { // the space of the session of the terminal that added the card
+		if _, ok := cfg.Space(c.Space); ok {
+			return target(cfg, c, msgs, c.Space)
+		}
+	}
 	space := ""
 	var newest time.Time
 	for _, m := range msgs {

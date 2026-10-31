@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -97,14 +98,15 @@ func TestCollectFields(t *testing.T) {
 	want := map[string]inbox.Message{
 		"0D": {SourceID: "phone", SourceType: "whatsapp", ExternalID: "3EB0000000000000000D", ChannelID: direct7, ChannelName: "Carol",
 			ChannelKind: inbox.KindDirect, Author: "Sender 1000", Text: "[image] caption 20", URL: "https://wa.me/15550000001",
-			CreatedAt: now.Add(-time.Hour + 9*time.Minute)},
+			CreatedAt: now.Add(-time.Hour + 9*time.Minute), ForMe: true},
 		"05": {SourceID: "phone", SourceType: "whatsapp", ExternalID: "3EB00000000000000005", ChannelID: group2, ChannelName: "Group two",
-			ChannelKind: inbox.KindGroup, Author: "Sender 1000", Text: "text 6 @100000000000004", CreatedAt: now.Add(-time.Hour + 3*time.Minute)},
+			ChannelKind: inbox.KindGroup, Author: "Sender 1000", Text: "text 6 @100000000000004", CreatedAt: now.Add(-time.Hour + 3*time.Minute),
+			ForMe: true}, // the fixture has mention = true
 	}
 	for id, w := range want {
 		got := byID[id]
 		got.CreatedAt, w.CreatedAt = got.CreatedAt.UTC(), w.CreatedAt.UTC()
-		if got != w {
+		if !reflect.DeepEqual(got, w) {
 			t.Errorf("message %s =\n %+v\nwant\n %+v", id, got, w)
 		}
 	}

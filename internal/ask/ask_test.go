@@ -195,6 +195,14 @@ func TestResolveSpace(t *testing.T) {
 		t.Errorf("undispatched message: %+v, %v; want the space of its conversation", tg.Space.ID, err)
 	}
 
+	// The space of the card (from the session of its terminal) comes first:
+	// the message is in Triage, the card is from the terminal of Unsorted.
+	fromUnsorted := e.card
+	fromUnsorted.Space = config.UnsortedID
+	if tg, err := Resolve(ctx, e.d, fromUnsorted); err != nil || tg.Space.ID != config.UnsortedID {
+		t.Errorf("card of the space Unsorted: %+v, %v; want Unsorted", tg.Space.ID, err)
+	}
+
 	e.d.Config.Spaces = nil
 	if _, err := Resolve(ctx, e.d, e.card); err == nil || err.Error() != `the space "triage" of the card is not in the configuration` {
 		t.Errorf("removed space: %v", err)

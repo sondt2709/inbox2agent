@@ -148,6 +148,7 @@ func message(sourceID string, r Row) inbox.Message {
 		Author:      r.SenderName,
 		Text:        r.Text,
 		CreatedAt:   r.Time,
+		ForMe:       r.Kind == inbox.KindDirect || r.Mention,
 	}
 	if m.ChannelName == "" {
 		m.ChannelName = r.SenderName
