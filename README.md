@@ -94,7 +94,7 @@ Run `i2a status` to see the sources, the profiles, the message counts, the last 
 
 | Tab | Shows |
 |---|---|
-| 1 Feed | the cards of the agent at the left; the selected card at the right: summary, suggested reply and source messages |
+| 1 Feed | the cards of the agent at the left; the selected card at the right: summary (Markdown), suggested reply and source messages |
 | 2 Overview | the service state, the message counts, the sources, the profiles, the schedule, the files, the last dispatches (`i` installs or restarts the service, `u` uninstalls it) |
 | 3 Sources | your sources at the left; the form of the selected source at the right |
 | 4 Profiles | your profiles at the left; the form of the selected profile at the right |
@@ -114,6 +114,8 @@ In the Feed:
 | `s` | Sort by urgency (high first) or by newest |
 | `f` | Filter: all, action, question, info |
 | `a` | Show or hide the done cards |
+
+The Feed shows the card body as Markdown: headings, bold, lists, code and tables. A link in the body shows as text and cannot be opened. The suggested reply shows as plain text, because `c` copies it and `r` sends it as it is.
 
 To add or edit, select the item (or "+ Add") and press `enter`: the form at the right gets the keyboard.
 
@@ -348,7 +350,7 @@ Other people write the messages, and an agent can run commands. A message can co
 5. The default templates tell the agent that the data is untrusted.
 6. New profiles use the `dry-run` driver.
 
-7. It removes hidden characters from card text, shows at most 3 urgent notifications for each call, and opens only the stored URL of a source message (`o`), never a link from the card text.
+7. It removes hidden characters from card text, shows at most 3 urgent notifications for each call, and opens only the stored URL of a source message (`o`), never a link from the card text. The Markdown view of a card body removes all terminal hyperlinks.
 8. A reply goes only to a message that `i2a` collected. Each reply that the agent sends shows a notification.
 9. An ask puts the card text in a fenced data block, never in the instruction. Only your text is the instruction.
 10. The keys of a WhatsApp linked device are in `whatsapp-<id>.db` with the mode 0600. Removing the source logs out the device and deletes the file.

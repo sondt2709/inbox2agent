@@ -466,7 +466,7 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 	}
 	b.WriteString("\n\n")
 	if c.Body != "" {
-		b.WriteString(textStyle.Render(wrap.Render(c.Body)) + "\n\n")
+		b.WriteString(m.md.body(c.ID, c.UpdatedAt, c.Body, w) + "\n\n")
 	}
 	if c.Reply != "" {
 		b.WriteString(panelTitle.Render("Suggested reply") + faint.Render("  c copies it · r replies") + "\n")
