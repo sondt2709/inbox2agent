@@ -89,13 +89,15 @@ func (m *model) saveSettings() tea.Cmd {
 	if !fm.validate() {
 		return nil
 	}
-	next := clone(m.u.cfg)
-	next.Settings.Lookback, _ = config.ParseDuration(fm.field("lookback").value())
-	next.Settings.Retention, _ = config.ParseDuration(fm.field("retention").value())
-	next.Notify.Enabled = fm.field("notify").value() == "on"
-	next.Notify.MinUrgency = fm.field("urgency").value()
-	if err := m.u.commit(next, nil); err != nil {
-		fm.err = "Cannot save: " + err.Error()
+	lookback, _ := config.ParseDuration(fm.field("lookback").value())
+	retention, _ := config.ParseDuration(fm.field("retention").value())
+	enabled, urgency := fm.field("notify").value() == "on", fm.field("urgency").value()
+	if err := m.commitForm(fm, func(c *config.Config) error {
+		c.Settings.Lookback, c.Settings.Retention = lookback, retention
+		c.Notify.Enabled, c.Notify.MinUrgency = enabled, urgency
+		return nil
+	}, nil); err != nil {
+		saveError(fm, err)
 		return nil
 	}
 	m.saved("Saved the settings.")

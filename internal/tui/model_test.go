@@ -433,9 +433,7 @@ func TestSpaceRenameAndDelete(t *testing.T) {
 
 func TestUnsortedOnHold(t *testing.T) {
 	m := newTestModel(t)
-	next := clone(m.u.cfg)
-	next.Unsorted.Agent = ""
-	if err := m.u.commit(next, nil); err != nil {
+	if err := m.u.commit(func(c *config.Config) error { c.Unsorted.Agent = ""; return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	m.buildForm(true)

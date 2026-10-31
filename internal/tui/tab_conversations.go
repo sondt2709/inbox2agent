@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -261,19 +262,21 @@ func (m *model) searchKey(msg tea.KeyPressMsg) tea.Cmd {
 // setConversations moves conversations to a space, sets their read level, or
 // both, and saves. space "" keeps the space; read "" keeps the level.
 func (m *model) setConversations(rows []convRow, space, read, done string) tea.Cmd {
-	next := clone(m.u.cfg)
-	for _, r := range rows {
-		sp := orStr(space, r.Space)
-		lv := read
-		if lv == "" && sp == r.Space {
-			lv = r.Read
+	if err := m.u.commit(func(c *config.Config) error {
+		for _, r := range rows {
+			// The space and the level of the file, which another process can have changed.
+			cur, curSpace, _ := c.Conversation(r.Account.ID, r.ID)
+			sp := orStr(space, curSpace)
+			lv := read
+			if lv == "" && sp == curSpace {
+				lv = cur.Read
+			}
+			if err := c.SetConversation(r.Account.ID, r.ID, sp, lv, r.Name); err != nil {
+				return err
+			}
 		}
-		if err := next.SetConversation(r.Account.ID, r.ID, sp, lv, r.Name); err != nil {
-			m.setStatus("Cannot save: "+err.Error(), true)
-			return nil
-		}
-	}
-	if err := m.u.commit(next, nil); err != nil {
+		return nil
+	}, nil); err != nil {
 		m.setStatus("Cannot save: "+err.Error(), true)
 		return nil
 	}
@@ -329,21 +332,28 @@ func (m *model) moveDialog(rows []convRow) {
 	m.openDialog(&pickDialog{name: "Move to a space", text: "Move " + what + " to:", options: opts})
 }
 
+// errNameUsed means that a space with the same name exists.
+var errNameUsed = errors.New("the name is used")
+
 // newSpace adds a space with the first agent and the first schedule, and
 // saves. It returns its ID, or an error text.
 func (m *model) newSpace(name string) (string, string) {
 	if name == "" {
 		return "", "Type a name."
 	}
-	next := clone(m.u.cfg)
-	for _, s := range next.AllSpaces() {
-		if strings.EqualFold(s.Title(), name) {
-			return "", "The name " + name + " is used."
+	var id string
+	if err := m.u.commit(func(c *config.Config) error {
+		for _, s := range c.AllSpaces() {
+			if strings.EqualFold(s.Title(), name) {
+				return errNameUsed
+			}
 		}
-	}
-	id := config.NewID(name, func(id string) bool { _, ok := next.Space(id); return ok })
-	next.Spaces = append(next.Spaces, config.Space{ID: id, Name: name, Agent: next.Agents[0].ID, Schedule: next.Schedules[0].ID})
-	if err := m.u.commit(next, nil); err != nil {
+		id = config.NewID(name, func(id string) bool { _, ok := c.Space(id); return ok })
+		c.Spaces = append(c.Spaces, config.Space{ID: id, Name: name, Agent: c.Agents[0].ID, Schedule: c.Schedules[0].ID})
+		return nil
+	}, nil); errors.Is(err, errNameUsed) {
+		return "", "The name " + name + " is used."
+	} else if err != nil {
 		return "", "Cannot save: " + err.Error()
 	}
 	m.savedAny = true
@@ -354,11 +364,7 @@ func (m *model) newSpace(name string) (string, string) {
 func (m *model) renameDialog(r convRow) {
 	m.openDialog(newInputDialog("Rename "+r.Title(), "The name that i2a shows for this conversation. Empty: the name on "+
 		platformName(r.Account.Platform)+" ("+orStr(r.Name, r.ID)+").", r.Label, orStr(r.Name, r.ID), func(label string) (string, tea.Cmd) {
-		next := clone(m.u.cfg)
-		if err := next.SetLabel(r.Account.ID, r.ID, label); err != nil {
-			return err.Error(), nil
-		}
-		if err := m.u.commit(next, nil); err != nil {
+		if err := m.u.commit(func(c *config.Config) error { return c.SetLabel(r.Account.ID, r.ID, label) }, nil); err != nil {
 			return "Cannot save: " + err.Error(), nil
 		}
 		m.saved("Renamed. Saved.")

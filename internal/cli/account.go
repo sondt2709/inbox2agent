@@ -84,12 +84,12 @@ Example:
 			if err != nil {
 				return err
 			}
-			next.Accounts[len(next.Accounts)-1].User = user
+			a.User = user
 			fmt.Fprintf(cmd.OutOrStdout(), "Connected as %s\n", user)
 			if err := e.secrets.Set(secrets.TokenKey(id), token); err != nil {
 				return fmt.Errorf("save the token in %s: %w", e.secrets.Backend(), err)
 			}
-			if err := config.Save(e.paths.ConfigFile, &next); err != nil {
+			if err := addAccount(e.paths.ConfigFile, a); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Added account %s to %s. Its conversations are in Unsorted.\n", id, e.paths.ConfigFile)
@@ -199,15 +199,17 @@ func newAccountRemoveCmd() *cobra.Command {
 			}
 			platform := removed.Platform
 			id := args[0]
-			cfg.Accounts = slices.DeleteFunc(cfg.Accounts, func(a config.Account) bool { return a.ID == id })
-			drop := func(list []config.Conversation) []config.Conversation {
-				return slices.DeleteFunc(list, func(c config.Conversation) bool { return c.Account == id })
-			}
-			cfg.Unsorted.Conversations = drop(cfg.Unsorted.Conversations)
-			for i := range cfg.Spaces {
-				cfg.Spaces[i].Conversations = drop(cfg.Spaces[i].Conversations)
-			}
-			if err := config.Save(e.paths.ConfigFile, cfg); err != nil {
+			if _, _, err := config.Update(e.paths.ConfigFile, func(c *config.Config) error {
+				c.Accounts = slices.DeleteFunc(c.Accounts, func(a config.Account) bool { return a.ID == id })
+				drop := func(list []config.Conversation) []config.Conversation {
+					return slices.DeleteFunc(list, func(cv config.Conversation) bool { return cv.Account == id })
+				}
+				c.Unsorted.Conversations = drop(c.Unsorted.Conversations)
+				for i := range c.Spaces {
+					c.Spaces[i].Conversations = drop(c.Spaces[i].Conversations)
+				}
+				return nil
+			}); err != nil {
 				return err
 			}
 			if platform == config.PlatformWhatsApp {
@@ -344,24 +346,25 @@ Example:
 			if err != nil {
 				return err
 			}
-			cfg, err := e.loadConfig()
-			if err != nil {
+			if _, err := e.loadConfig(); err != nil { // the file is valid before the change
 				return err
 			}
 			acc, id := args[0], args[1]
-			cur, curSpace, _ := cfg.Conversation(acc, id)
 			if read != "" && !slices.Contains(config.ReadLevels, read) {
 				return fmt.Errorf("--read %q is not all, mentions or off", read)
 			}
-			if err := cfg.SetConversation(acc, id, or(space, curSpace), or(read, map[bool]string{true: cur.Read}[space == ""]), ""); err != nil {
-				return err
-			}
-			if cmd.Flags().Changed("label") {
-				if err := cfg.SetLabel(acc, id, label); err != nil {
+			setLabel := cmd.Flags().Changed("label")
+			cfg, _, err := config.Update(e.paths.ConfigFile, func(c *config.Config) error {
+				cur, curSpace, _ := c.Conversation(acc, id)
+				if err := c.SetConversation(acc, id, or(space, curSpace), or(read, map[bool]string{true: cur.Read}[space == ""]), ""); err != nil {
 					return err
 				}
-			}
-			if err := config.Save(e.paths.ConfigFile, cfg); err != nil {
+				if setLabel {
+					return c.SetLabel(acc, id, label)
+				}
+				return nil
+			})
+			if err != nil {
 				return err
 			}
 			cv, sp, _ := cfg.Conversation(acc, id)
@@ -375,4 +378,16 @@ Example:
 	set.Flags().StringVar(&label, "label", "", "the name that i2a shows; empty shows the platform name")
 	cmd.AddCommand(set)
 	return cmd
+}
+
+// addAccount adds an account to the configuration file that is on disk now.
+func addAccount(path string, a config.Account) error {
+	_, _, err := config.Update(path, func(c *config.Config) error {
+		if _, ok := c.Account(a.ID); ok {
+			return fmt.Errorf("an account with the ID %q exists. Remove it first with `i2a account remove %s`", a.ID, a.ID)
+		}
+		c.Accounts = append(c.Accounts, a)
+		return nil
+	})
+	return err
 }

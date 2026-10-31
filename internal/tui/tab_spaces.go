@@ -81,14 +81,19 @@ func (m *model) deleteSpace(id string) {
 	m.openDialog(&confirmDialog{name: "Delete space " + name,
 		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted. Its cards stay in the Feed.", name, plural(n, "conversation", "conversations")),
 		choices: []choice{{"y", "Delete", func() tea.Cmd {
-			next := clone(m.u.cfg)
-			next.Unsorted.Conversations = append(next.Unsorted.Conversations, s.Conversations...)
-			next.Spaces = slices.DeleteFunc(next.Spaces, func(x config.Space) bool { return x.ID == id })
-			if err := m.u.commit(next, nil); err != nil {
+			if err := m.u.commit(func(c *config.Config) error {
+				cur, ok := c.Space(id)
+				if !ok {
+					return config.MissingError{Kind: config.KindSpace, ID: id}
+				}
+				c.Unsorted.Conversations = append(c.Unsorted.Conversations, cur.Conversations...)
+				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
+				return nil
+			}, nil); err != nil {
 				m.setStatus("Cannot delete: "+err.Error(), true)
 				return nil
 			}
-			m.spc = min(m.spc, len(next.Spaces))
+			m.spc = min(m.spc, len(m.u.cfg.Spaces))
 			m.saved("Deleted the space " + name + ". Its conversations are in Unsorted.")
 			return nil
 		}}}})
@@ -274,19 +279,23 @@ func (m *model) saveSpace(id string) tea.Cmd {
 		return nil
 	}
 	name := strings.TrimSpace(fm.field("name").value())
-	next := clone(m.u.cfg)
-	if id == "" {
-		nid := config.NewID(name, func(x string) bool { _, ok := next.Space(x); return ok })
-		next.Spaces = append(next.Spaces, config.Space{ID: nid, Name: name})
-		id = nid
-	}
-	s, _ := next.Space(id)
-	s.Name, s.Agent, s.Schedule = name, fm.field("agent").value(), fm.field("schedule").value()
-	if err := m.u.commit(next, nil); err != nil {
-		fm.err = "Cannot save: " + err.Error()
+	agent, sched := fm.field("agent").value(), fm.field("schedule").value()
+	if err := m.commitForm(fm, func(c *config.Config) error {
+		if id == "" {
+			id = config.NewID(name, func(x string) bool { _, ok := c.Space(x); return ok })
+			c.Spaces = append(c.Spaces, config.Space{ID: id, Name: name})
+		}
+		s, ok := c.Space(id)
+		if !ok {
+			return config.MissingError{Kind: config.KindSpace, ID: id}
+		}
+		s.Name, s.Agent, s.Schedule = name, agent, sched
+		return nil
+	}, nil); err != nil {
+		saveError(fm, err)
 		return nil
 	}
-	for i, x := range next.Spaces {
+	for i, x := range m.u.cfg.Spaces {
 		if x.ID == id {
 			m.spc = i + 1
 		}
@@ -322,13 +331,15 @@ func (m *model) unsortedForm() *form {
 
 func (m *model) saveUnsorted() tea.Cmd {
 	fm := m.form
-	next := clone(m.u.cfg)
-	next.Unsorted.Read, next.Unsorted.Agent = fm.field("read").value(), fm.field("agent").value()
-	if next.Unsorted.Agent != "" {
-		next.Unsorted.Schedule = fm.field("schedule").value()
-	}
-	if err := m.u.commit(next, nil); err != nil {
-		fm.err = "Cannot save: " + err.Error()
+	read, agent, sched := fm.field("read").value(), fm.field("agent").value(), fm.field("schedule").value()
+	if err := m.commitForm(fm, func(c *config.Config) error {
+		c.Unsorted.Read, c.Unsorted.Agent = read, agent
+		if agent != "" {
+			c.Unsorted.Schedule = sched
+		}
+		return nil
+	}, nil); err != nil {
+		saveError(fm, err)
 		return nil
 	}
 	m.saved("Saved Unsorted.")

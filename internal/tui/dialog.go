@@ -66,6 +66,7 @@ type choice struct {
 type confirmDialog struct {
 	name, text string
 	choices    []choice
+	enter      string // the key of the choice that enter runs; "" for none
 }
 
 func (d *confirmDialog) title() string { return d.name }
@@ -81,8 +82,12 @@ func (d *confirmDialog) update(m *model, msg tea.Msg) tea.Cmd {
 		m.closeDialog()
 		return nil
 	}
+	key := k.String()
+	if key == "enter" && d.enter != "" {
+		key = d.enter
+	}
 	for _, c := range d.choices {
-		if k.String() == c.key {
+		if key == c.key {
 			m.closeDialog()
 			return c.run()
 		}
@@ -93,7 +98,11 @@ func (d *confirmDialog) update(m *model, msg tea.Msg) tea.Cmd {
 func (d *confirmDialog) view(w, _ int) string {
 	var keys []string
 	for _, c := range d.choices {
-		keys = append(keys, tabKey.Render("["+c.key+"]")+" "+textStyle.Render(c.label))
+		label := c.label
+		if c.key == d.enter {
+			label += " (enter)"
+		}
+		keys = append(keys, tabKey.Render("["+c.key+"]")+" "+textStyle.Render(label))
 	}
 	keys = append(keys, tabKey.Render("[esc]")+" "+textStyle.Render("Cancel"))
 	return "\n" + textStyle.Width(w).Render(d.text) + "\n\n" + strings.Join(keys, "   ")

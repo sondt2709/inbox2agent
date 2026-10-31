@@ -150,6 +150,12 @@ type form struct {
 	busy    string // an action runs: the text replaces the buttons
 	scroll  int
 	zones   []formZone
+
+	// kind and id name the configuration item of the form ("" for a new item).
+	// base is the item when the form was made; a save compares it with the file.
+	kind, id  string
+	base      any
+	overwrite bool // the user chose Overwrite after a conflict
 }
 
 // item is one focusable part of a form: a field or a button.

@@ -304,6 +304,17 @@ read = "all"
 
 A conversation is in one space only. Find the IDs with `i2a conversations`, and move a conversation with `i2a conversation set <account> <id> --space <space> [--read all|mentions|off] [--label <name>]`.
 
+### Edit the file while i2a runs
+
+You can edit `config.toml` in a text editor, or let a script or an agent edit it, while the dashboard and the daemon run.
+
+- The dashboard reads the file again within 2 seconds and shows the change in all tabs. A form with unsaved edits stays as it is.
+- A save in the dashboard changes only the item of the form. A change of another process to a different item stays in the file.
+- If another process changed the same item after you opened its form, the save asks you: Reload (your edits go) or Overwrite (your edits stay).
+- If the file has an error, the dashboard keeps the last valid configuration and shows the error until you correct the file. The daemon does the same.
+- Each writer of i2a holds the lock `config.toml.lock` while it writes. Each write replaces the file in one step, so a reader never sees half a file.
+- i2a writes the file again on each save. It removes comments that you add.
+
 ### From version 1
 
 A file of an earlier `i2a` (with `[[sources]]`, `[[profiles]]` and `[timing]`) is converted when `i2a` loads it. The old file stays in `config.toml.v1.bak`, and the command shows a report:
