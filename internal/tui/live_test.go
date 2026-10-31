@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -222,5 +223,27 @@ func TestTheErrorOfAnInvalidFileStays(t *testing.T) {
 	refresh(m)
 	if !strings.Contains(screen(m), "config.toml has an error") {
 		t.Fatalf("the error went away while the file is still invalid:\n%s", screen(m))
+	}
+}
+
+func TestSaveWhileAnotherProcessHoldsTheLock(t *testing.T) {
+	m := newTestModel(t)
+	before := fileText(t, m)
+	locked, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		_, _, _ = config.Update(m.u.d.Paths.ConfigFile, func(*config.Config) error {
+			close(locked)
+			<-release // the other process holds the lock until the save gave up
+			return errors.New("no change")
+		})
+	}()
+	<-locked
+	send(m, "8", "enter", "ctrl+u", "2", "d", "ctrl+s")
+	close(release)
+	if !strings.Contains(m.form.err, "config.toml is locked by another process") {
+		t.Fatalf("form error %q, want the lock error", m.form.err)
+	}
+	if fileText(t, m) != before {
+		t.Error("the save wrote the file without the lock")
 	}
 }
