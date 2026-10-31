@@ -32,7 +32,9 @@ func (fakeStore) PendingCounts(context.Context) (map[store.Conv]int, error) {
 
 func (fakeStore) Dispatches(context.Context, int) ([]store.Dispatch, error) {
 	return []store.Dispatch{{ID: 1, Space: "acme", Agent: "claude-work", Driver: "orca", Status: store.DispatchSent, MessageCount: 3,
-		Detail: "new session term_1, turn started", CreatedAt: time.Now()}}, nil
+		Detail: "new session term_1, turn started", CreatedAt: time.Now()},
+		{ID: 2, Space: config.UnsortedID, Agent: "triage", Driver: "dry-run", Status: store.DispatchSent, MessageCount: 1,
+			Detail: "unsorted preview", CreatedAt: time.Now().Add(-time.Minute)}}, nil
 }
 
 func (fakeStore) Cards(context.Context, bool) ([]inbox.Card, error) { return nil, nil }
