@@ -110,11 +110,13 @@ func (p *person) addAccount(w *harness.World, channels ...string) {
 		merge(p.env, map[string]string{"TOKEN": w.AlicePAT}))
 	tm.WaitFor(`Connected as `+regexp.QuoteMeta(w.Alice.Name), 30*time.Second)
 	tm.WaitFor(`\[exit 0\]`, 10*time.Second)
-	for _, ch := range channels {
-		if s, code := p.run("conversation set work " + ch + " --read all"); code != 0 {
-			p.t.Fatalf("conversation set: exit %d\n%s", code, s)
+	p.editConfig(func(c *config.Config) {
+		for _, ch := range channels {
+			if err := c.SetConversation("work", ch, config.UnsortedID, config.ReadAll, ""); err != nil {
+				p.t.Fatal(err)
+			}
 		}
-	}
+	})
 }
 
 func merge(a, b map[string]string) map[string]string {
@@ -146,6 +148,28 @@ func (p *person) editConfig(edit func(c *config.Config)) {
 	if err := config.Save(p.configFile(), c); err != nil {
 		p.t.Fatal(err)
 	}
+}
+
+// writeConfigText changes config.toml as an agent does: it edits the text,
+// writes a temporary file, checks it with "i2a config check" and renames it.
+func (p *person) writeConfigText(edit func(text string) string) string {
+	p.t.Helper()
+	b, err := os.ReadFile(p.configFile())
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	tmp := p.configFile() + ".agent"
+	if err := os.WriteFile(tmp, []byte(edit(string(b))), 0o600); err != nil {
+		p.t.Fatal(err)
+	}
+	s, code := p.run("config check " + tmp)
+	if code != 0 {
+		p.t.Fatalf("config check: exit %d:\n%s", code, s)
+	}
+	if err := os.Rename(tmp, p.configFile()); err != nil {
+		p.t.Fatal(err)
+	}
+	return s
 }
 
 func (p *person) digests() []string {
