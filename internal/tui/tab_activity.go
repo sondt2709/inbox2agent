@@ -16,12 +16,23 @@ func (m *model) keyActivity(k string) tea.Cmd {
 	case "up", "k":
 		m.act = max(0, m.act-1)
 	case "down", "j":
-		m.act = min(max(0, len(m.dispatches)-1), m.act+1)
+		m.act = min(max(0, len(m.visibleDispatches())-1), m.act+1)
+	case "F":
+		m.pickSpaceFilter("send", func(space string) int {
+			n := 0
+			for _, d := range m.dispatches {
+				if space == "" || d.Space == space {
+					n++
+				}
+			}
+			return n
+		})
 	case "enter":
-		if m.act >= len(m.dispatches) {
+		ds := m.visibleDispatches()
+		if m.act >= len(ds) {
 			return nil
 		}
-		d := m.dispatches[m.act]
+		d := ds[m.act]
 		b, err := os.ReadFile(d.DigestPath)
 		if err != nil {
 			m.openDialog(&msgDialog{name: "Digest", text: "Cannot read " + d.DigestPath + ". Retention can delete old digest files.\n\n" + err.Error(), isErr: true})
@@ -42,11 +53,34 @@ func (m *model) viewActivity(w, h int) string {
 			faint.Render(fmt.Sprintf("%d expired (older than the lookback)", c[inbox.StateExpired]))
 	}
 	rows := h - 6
-	m.act = min(m.act, max(0, len(m.dispatches)-1))
+	ds := m.visibleDispatches()
+	m.act = min(m.act, max(0, len(ds)-1))
 	m.actOffset = scrollTo(m.act, m.actOffset, rows)
-	title := fmt.Sprintf("Activity · last %d sends · refreshes every %s", len(m.dispatches), refreshEvery)
-	body := counts + "\n\n" + dispatchTable(m.dispatches, m.spaceNames(), m.act, m.actOffset, w-4, rows+1)
+	title := fmt.Sprintf("Activity · last %d sends · refreshes every %s", len(ds), refreshEvery)
+	if sp := m.activeSpace(); sp != "" {
+		title = fmt.Sprintf("Activity · space %s · %d of the last %d sends · F changes the space", m.spaceNames()[sp], len(ds), len(m.dispatches))
+	}
+	table := dispatchTable(ds, m.spaceNames(), m.act, m.actOffset, w-4, rows+1)
+	if len(ds) == 0 && len(m.dispatches) > 0 {
+		table = faint.Render("This space has no send in the last sends. F changes the space.")
+	}
+	body := counts + "\n\n" + table
 	return panel(title, body, w, h)
+}
+
+// visibleDispatches returns the sends of the space filter.
+func (m *model) visibleDispatches() []store.Dispatch {
+	sp := m.activeSpace()
+	if sp == "" {
+		return m.dispatches
+	}
+	var out []store.Dispatch
+	for _, d := range m.dispatches {
+		if d.Space == sp {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // spaceNames returns the name of each space by ID, Unsorted too.

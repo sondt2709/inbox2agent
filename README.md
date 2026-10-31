@@ -135,7 +135,7 @@ Run `i2a status` to see the accounts, the spaces with their next send, the agent
 | Tab | Shows |
 |---|---|
 | 1 Feed | the cards of the agents at the left; the selected card at the right: space, summary (Markdown), suggested reply and source messages |
-| 2 Activity | the message counts and the last 50 sends, with the space and the agent (`enter` shows the digest file) |
+| 2 Activity | the message counts and the last 50 sends, with the space and the agent (`enter` shows the digest file, `F` shows the sends of one space) |
 | 3 Accounts | your accounts at the left; at the right the server and username (Mattermost) or the phone number and name (WhatsApp), where its conversations are, the name, and the read interval |
 | 4 Conversations | one table of the conversations of all accounts: kind, account, space, read level, waiting messages |
 | 5 Spaces | Unsorted and your spaces at the left; at the right the sentence of the space, its name, agent, schedule and conversations |
@@ -155,8 +155,10 @@ In the Feed:
 | `d` / `u` | Mark the card done / unread |
 | `s` | Sort by urgency (high first) or by newest |
 | `f` | Filter by category: all, action, question, info |
-| `F` | Filter by space |
+| `F` | Show one space: a list of all spaces with the number of cards of each. Activity uses the same filter. |
 | `a` | Show or hide the done cards |
+
+The list shows the urgency of each card as bars: `▰▰▰` high (red), `▰▰▱` normal, `▰▱▱` low (grey).
 
 The Feed shows the card body as Markdown: headings, bold, lists, code and tables. A link in the body shows as text and cannot be opened. The suggested reply shows as plain text, because `c` copies it and `r` sends it as it is.
 
