@@ -13,7 +13,7 @@ const (
 type Ask struct {
 	ID        int64
 	CardID    int64
-	Profile   string
+	Space     string
 	Handle    string // the terminal that got the ask; "" before the send
 	Text      string
 	State     string

@@ -66,7 +66,7 @@ func flag(args []string, name string) string {
 	return ""
 }
 
-// memSessions keeps the handle of a profile under its name and the primer
+// memSessions keeps the handle of a space under its ID and the primer
 // hash under "<name>#hash".
 type memSessions map[string]string
 
@@ -81,16 +81,16 @@ func (m memSessions) DeleteSession(_ context.Context, p string) error { delete(m
 
 func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *fakeOrca, memSessions, *render.Rendered) {
 	t.Helper()
-	p := config.NewProfile("triage")
+	p := config.NewAgent("triage")
 	p.Driver = config.DriverOrca
 	p.Session = session
 	p.Workspace = "/home/user/notes"
 	sess := memSessions{}
-	o := NewOrca(p, sess)
+	o := NewOrca(p, "triage", sess)
 	f := &fakeOrca{t: t, answers: answers}
 	o.Run = f.run
 	msg := inbox.Message{SourceID: "work", SourceType: "mattermost", ExternalID: "p1", Author: "bob", Text: "hi", CreatedAt: time.Now()}
-	r, err := render.Render(p, "20260102-030405-triage-1", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
+	r, err := render.Render(p, "Triage", "20260102-030405-triage-1", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,22 +348,20 @@ func TestOrcaNotReachable(t *testing.T) {
 	}
 }
 
-func TestRoute(t *testing.T) {
-	c := config.Default()
-	c.Profiles = append(c.Profiles, config.NewProfile("reviewer"), config.NewProfile("chat"))
-	s := config.NewMattermostSource("work", "https://x")
-	s.Profile = "chat"
-	s.ChannelProfiles = map[string]string{"C1": "reviewer"}
-	c.Sources = []config.Source{s}
-	cases := map[string]inbox.Message{
-		"reviewer": {SourceID: "work", ChannelID: "C1"},
-		"chat":     {SourceID: "work", ChannelID: "C2"},
-		"triage":   {SourceID: "unknown", ChannelID: "C1"},
+func TestReuseKeepsOneSessionForEachSpace(t *testing.T) {
+	o, _, sess, r := setup(t, config.SessionReuse, started(nil))
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
 	}
-	for want, m := range cases {
-		if got := Route(c, m); got != want {
-			t.Errorf("Route(%+v) = %q, want %q", m, got, want)
-		}
+	other := NewOrca(o.p, "borealis", sess)
+	f := &fakeOrca{t: t, answers: started(nil)}
+	other.Run = f.run
+	res, err := other.Deliver(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.called("agent launch")) != 1 || sess["borealis"] != launchedHandle || !strings.Contains(res.Detail, "with the primer") {
+		t.Errorf("the second space did not start its own session: calls %v, sessions %v", f.calls, sess)
 	}
 }
 
@@ -371,7 +369,7 @@ func TestRoute(t *testing.T) {
 func askFor(t *testing.T, o *Orca) *render.Rendered {
 	t.Helper()
 	c := inbox.Card{ID: 4, Key: "mm:lena-pf-login", Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh, Title: "Lena"}
-	a, err := render.Ask(o.p, "20260102-030405-triage-ask7", render.AskInput{ID: 7, Card: c, Text: "Research more."}, "/usr/local/bin/i2a")
+	a, err := render.Ask(o.p, "Triage", "20260102-030405-triage-ask7", render.AskInput{ID: 7, Card: c, Text: "Research more."}, "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}

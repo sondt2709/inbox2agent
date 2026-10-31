@@ -52,22 +52,21 @@ Env PS1 "$ "
 Hide
 Type "rm -rf /tmp/i2a-demo && clear" Enter
 Show
-Type "i2a config" Sleep 400ms Enter Sleep 2s
-Type "2" Sleep 1.5s
-Enter Sleep 1s
+Type "i2a config" Sleep 400ms Enter Sleep 2.5s
+Type "3" Sleep 1.5s
+Enter Sleep 800ms
+Tab Sleep 300ms Tab Sleep 300ms Type "Acme" Sleep 300ms
 Tab Sleep 300ms Type "$URL" Sleep 300ms Tab Sleep 300ms
 Hide
 Type "$TOKEN"
 Show
-Sleep 500ms Enter Sleep 2.5s
-Type "rel" Sleep 800ms Space Sleep 800ms Escape Sleep 1s
-Tab Sleep 700ms Tab Sleep 700ms Tab Sleep 700ms
-Ctrl+S Sleep 2s
-Type "3" Sleep 1s
-Enter Sleep 800ms Tab Sleep 500ms Right Sleep 2s
-Escape Sleep 1s Type "d" Sleep 1s
-Type "4" Sleep 1.5s
-Type "1" Sleep 1.5s
+Sleep 500ms Enter Sleep 3s
+Type "4" Sleep 2s
+Type "/" Sleep 300ms Type "rel" Sleep 600ms Enter Sleep 1s
+Type "m" Sleep 1s Down Sleep 600ms Enter Sleep 800ms
+Type "Releases" Sleep 500ms Enter Sleep 2s
+Type "5" Sleep 1s Down Sleep 3s
+Type "7" Sleep 2.5s
 Type "q" Sleep 1s
 Type "i2a run --once" Sleep 400ms Enter Sleep 2.5s
 Type "head -12 /tmp/i2a-demo/digests/*.md" Sleep 400ms Enter Sleep 4s

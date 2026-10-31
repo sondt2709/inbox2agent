@@ -241,3 +241,23 @@ func TestFeedMouseClickSelectsCard(t *testing.T) {
 		t.Errorf("state after the click = %s, want read", st)
 	}
 }
+
+// The cards of the harness refer to messages that no dispatch sent: their
+// space is the space of their conversation, Unsorted. F filters by space.
+func TestFeedShowsAndFiltersTheSpace(t *testing.T) {
+	h := newFeedModel(t)
+	if s := screen(h.m); !strings.Contains(s, "space Unsorted") || !strings.Contains(s, "Unsorted · Harbor Portal") {
+		t.Fatalf("the Feed does not show the space:\n%s", s)
+	}
+	send(h.m, "F") // Unsorted
+	if got := titles(h.m); got != "Correct your reply to Lena | Review PR #57" {
+		t.Errorf("cards of Unsorted = %q; the info card has no message", got)
+	}
+	if !strings.Contains(screen(h.m), "space: Unsorted") {
+		t.Error("the filter bar does not show the space filter")
+	}
+	send(h.m, "F") // all again: Default has no other space
+	if got := titles(h.m); !strings.Contains(got, "Staging deployed 2.14.0") {
+		t.Errorf("after the last space, F did not show all cards: %q", got)
+	}
+}

@@ -25,14 +25,14 @@ The system SHALL save the messages from one poll and the new cursor of that sour
 - **THEN** the cursor of that source does not change, and the next poll collects the same messages again
 
 ### Requirement: Message states
-Each message SHALL have one of these states: `pending`, `previewed`, `sent` or `expired`. A new message SHALL be `pending`. A message SHALL become `sent` only after a driver other than `dry-run` reports `sent` for its batch. A message of a `dry-run` batch SHALL become `previewed`. A `dry-run` profile SHALL take only `pending` messages. A profile with another driver SHALL take `pending` and `previewed` messages. A `pending` or `previewed` message older than `lookback` SHALL become `expired`.
+Each message SHALL have one of these states: `pending`, `previewed`, `sent` or `expired`. A new message SHALL be `pending`. A message SHALL become `sent` only after a driver other than `dry-run` reports `sent` for its batch. A message of a `dry-run` batch SHALL become `previewed`. A space with a `dry-run` agent SHALL take only `pending` messages. A space with an agent of another driver SHALL take `pending` and `previewed` messages. A `pending` or `previewed` message older than `lookback` SHALL become `expired`.
 
 #### Scenario: Driver failure keeps messages pending
 - **WHEN** the driver returns an error for a batch
 - **THEN** the messages of that batch stay `pending`, and the dispatch record has the status `failed` and the error text
 
 #### Scenario: Previewed messages go to a real driver
-- **WHEN** a message is `previewed` and its profile now uses the `orca` driver
+- **WHEN** a message is `previewed` and the agent of its space now uses the `orca` driver
 - **THEN** the next dispatch sends the message, and it becomes `sent`
 
 #### Scenario: Store from an earlier version
@@ -80,17 +80,21 @@ Each reply SHALL have one of these states: `sending`, `sent` or `failed`. A repl
 - **WHEN** the user sends a reply from the Feed and the platform accepts it
 - **THEN** the store has one reply with the state `sent`, `by` = `user` and the platform ID of the post
 
-### Requirement: Schema version 5 with a backup
-When the system opens a store with schema version 2 or 3, it SHALL first upgrade it to version 4 as before. When the system opens a store with schema version 4, it SHALL first write a consistent copy to `<data>/inbox.db.v4.bak`, then add the asks table and the terminal of the cards, and set the version to 5 in one transaction. A new store SHALL get version 5 and no backup.
-
-#### Scenario: Upgrade of an existing store
-- **WHEN** `i2a` opens a store with schema version 4 that has 120 messages, 5 cards and 3 replies
-- **THEN** `inbox.db.v4.bak` exists with schema version 4, and the store has schema version 5, the same 120 messages, 5 cards and 3 replies
-
 ### Requirement: Ask states
-Each ask SHALL have one of these states: `queued`, `sent` or `failed`. An ask SHALL record the card, the profile, the text, the detail of the last try, the creation time, and, when it is `sent`, the terminal that got it and the send time.
+Each ask SHALL have one of these states: `queued`, `sent` or `failed`. An ask SHALL record the card, the space, the text, the detail of the last try, the creation time, and, when it is `sent`, the terminal that got it and the send time.
 
 #### Scenario: Ask recorded
 - **WHEN** the user sends an ask from the Feed and the agent is idle
 - **THEN** the store has one ask with the state `sent`, the terminal of the agent and the send time
+
+### Requirement: Schema version 6 with a backup
+When the system opens a store with schema version 2, 3 or 4, it SHALL first upgrade it to version 5 as before, with the backup `inbox.db.v4.bak`. When the system opens a store with schema version 5, it SHALL first write a consistent copy to `<data>/inbox.db.v5.bak`, then, in one transaction, rename the column `profile` to `space` in the tables `messages`, `dispatches`, `sessions` and `asks`, add the column `dispatches.agent` with the old profile name as its value, and set the version to 6. A new store SHALL get version 6 and no backup.
+
+#### Scenario: Upgrade of an existing store
+- **WHEN** `i2a` opens a store with schema version 5 that has 120 messages sent by the profile `triage`, 4 dispatches, 1 session and 2 asks
+- **THEN** `inbox.db.v5.bak` exists with schema version 5, and the store has schema version 6, the same 120 messages with `space = "triage"`, 4 dispatches with `space` and `agent` both `triage`, 1 session for the space `triage`, and 2 asks
+
+#### Scenario: Failure during the upgrade
+- **WHEN** the upgrade transaction fails
+- **THEN** the store stays at schema version 5, and the command reports the error and the backup path
 

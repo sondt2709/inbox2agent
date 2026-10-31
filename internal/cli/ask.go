@@ -70,11 +70,15 @@ Example:
 			if err != nil {
 				return err
 			}
+			space := a.Space
+			if sp, ok := cfg.Space(a.Space); ok {
+				space = sp.Title()
+			}
 			if a.State == inbox.AskSent {
-				fmt.Fprintf(cmd.OutOrStdout(), "sent to the agent of %s (%s). Ask %d.\n", a.Profile, a.Handle, a.ID)
+				fmt.Fprintf(cmd.OutOrStdout(), "sent to the agent of the space %s (%s). Ask %d.\n", space, a.Handle, a.ID)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "the agent of %s is busy; the ask is queued for the next dispatch. Ask %d.\n", a.Profile, a.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "the agent of the space %s is busy; the daemon sends the ask within a minute. Ask %d.\n", space, a.ID)
 			return nil
 		},
 	}

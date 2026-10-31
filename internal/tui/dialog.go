@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // dialog is a box over the dashboard. The top dialog gets all messages.
@@ -170,3 +172,115 @@ func (d *viewerDialog) view(w, h int) string {
 func (d *viewerDialog) hints() []hint {
 	return []hint{{"↑↓", "scroll"}, {"pgup/pgdn", "page"}, {"esc", "close"}}
 }
+
+// pickOption is one row of a pick dialog.
+type pickOption struct {
+	label, note string
+	run         func() tea.Cmd
+}
+
+// pickDialog asks the user to choose one row. ↑↓ move, enter chooses, esc cancels.
+type pickDialog struct {
+	name, text string
+	options    []pickOption
+	cursor     int
+}
+
+func (d *pickDialog) title() string { return d.name }
+
+func (d *pickDialog) size(W, H int) (int, int) {
+	return min(W-4, 72), min(H-4, len(d.options)+7)
+}
+
+func (d *pickDialog) update(m *model, msg tea.Msg) tea.Cmd {
+	k, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return nil
+	}
+	switch k.String() {
+	case "esc":
+		m.closeDialog()
+	case "up", "k":
+		d.cursor = max(0, d.cursor-1)
+	case "down", "j":
+		d.cursor = min(len(d.options)-1, d.cursor+1)
+	case "enter":
+		m.closeDialog()
+		return d.options[d.cursor].run()
+	}
+	return nil
+}
+
+func (d *pickDialog) view(w, h int) string {
+	rows := make([]string, 0, len(d.options))
+	for i, o := range d.options {
+		line := truncate(o.label, w/2) + "  " + o.note
+		if i == d.cursor {
+			rows = append(rows, selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(line), w)))
+			continue
+		}
+		rows = append(rows, "  "+textStyle.Render(truncate(o.label, w/2))+"  "+faint.Render(o.note))
+	}
+	off := scrollTo(d.cursor, 0, max(1, h-3))
+	end := min(len(rows), off+max(1, h-3))
+	return textStyle.Width(w).Render(d.text) + "\n\n" + strings.Join(rows[off:end], "\n")
+}
+
+func (d *pickDialog) hints() []hint {
+	return []hint{{"↑↓", "move"}, {"enter", "choose"}, {"esc", "cancel"}}
+}
+
+// inputDialog asks for one line of text. Enter submits; esc cancels. submit
+// returns an error text to show, or "" to close the dialog.
+type inputDialog struct {
+	name, text string
+	input      textinput.Model
+	err        string
+	submit     func(value string) (string, tea.Cmd)
+}
+
+func newInputDialog(name, text, value, placeholder string, submit func(string) (string, tea.Cmd)) *inputDialog {
+	in := textinput.New()
+	in.Prompt = "› "
+	in.Placeholder = placeholder
+	in.SetValue(value)
+	in.CharLimit = 80
+	in.Focus()
+	return &inputDialog{name: name, text: text, input: in, submit: submit}
+}
+
+func (d *inputDialog) title() string { return d.name }
+
+func (d *inputDialog) size(W, H int) (int, int) { return min(W-4, 64), min(H-4, 10) }
+
+func (d *inputDialog) update(m *model, msg tea.Msg) tea.Cmd {
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		switch k.String() {
+		case "esc":
+			m.closeDialog()
+			return nil
+		case "enter":
+			e, cmd := d.submit(strings.TrimSpace(d.input.Value()))
+			if e != "" {
+				d.err = e
+				return nil
+			}
+			m.closeDialog()
+			return cmd
+		}
+	}
+	var cmd tea.Cmd
+	d.input, cmd = d.input.Update(msg)
+	return cmd
+}
+
+func (d *inputDialog) view(w, _ int) string {
+	d.input.SetWidth(max(10, w-4))
+	out := textStyle.Width(w).Render(d.text) + "\n\n" + d.input.View()
+	if d.err != "" {
+		out += "\n" + errStyle.Render(d.err)
+	}
+	return out
+}
+
+func (d *inputDialog) hints() []hint { return []hint{{"enter", "save"}, {"esc", "cancel"}} }

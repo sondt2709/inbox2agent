@@ -7,11 +7,11 @@ package whatsapp
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
 
@@ -26,13 +26,12 @@ const batch = 1000
 
 // Settings are the values that the source needs from the configuration.
 type Settings struct {
-	ID        string
-	DataDir   string
-	Channels  []string // chat JIDs
-	AllDirect bool
-	Mentions  bool
-	Lookback  time.Duration
-	Log       *slog.Logger
+	ID       string
+	DataDir  string
+	Levels   map[string]string // the read level of each chat (JID) that has an entry
+	Default  string            // the read level of the other chats (unsorted.read)
+	Lookback time.Duration
+	Log      *slog.Logger
 }
 
 // Source collects the messages of one WhatsApp account.
@@ -120,14 +119,21 @@ func collect(ctx context.Context, db *DB, s Settings, cur inbox.Cursor, now time
 	return msgs, inbox.Cursor{"rowid": strconv.FormatInt(after, 10)}, nil
 }
 
+// wanted applies the read level of the chat. With the level mentions, each
+// message of a direct chat is for the user; in a group only a mention or a
+// quote of the user is.
 func wanted(s Settings, r Row) bool {
-	switch {
-	case slices.Contains(s.Channels, r.Chat):
+	level, ok := s.Levels[r.Chat]
+	if !ok {
+		level = s.Default
+	}
+	switch level {
+	case config.ReadAll:
 		return true
-	case r.Kind == inbox.KindDirect:
-		return s.AllDirect
+	case config.ReadMentions:
+		return r.Kind == inbox.KindDirect || r.Mention
 	default:
-		return s.Mentions && r.Mention
+		return false
 	}
 }
 

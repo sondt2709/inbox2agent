@@ -39,7 +39,8 @@ func ExecRunner(ctx context.Context, bin string, args ...string) ([]byte, error)
 
 // Orca delivers batches through the orca CLI.
 type Orca struct {
-	p            config.Profile
+	p            config.Agent
+	space        string // the ID of the space: the key of the reuse session
 	sessions     Sessions
 	Run          Runner
 	Now          func() time.Time
@@ -48,9 +49,9 @@ type Orca struct {
 	SubmitWait   time.Duration
 }
 
-// NewOrca returns the orca driver of a profile.
-func NewOrca(p config.Profile, sessions Sessions) *Orca {
-	return &Orca{p: p, sessions: sessions, Run: ExecRunner, Now: time.Now,
+// NewOrca returns the orca driver of an agent for one space.
+func NewOrca(p config.Agent, space string, sessions Sessions) *Orca {
+	return &Orca{p: p, space: space, sessions: sessions, Run: ExecRunner, Now: time.Now,
 		IdleTimeout: 5 * time.Second, StartTimeout: 90 * time.Second, SubmitWait: 30 * time.Second}
 }
 
@@ -158,12 +159,12 @@ func (o *Orca) workspace() (string, error) {
 		ws = filepath.Join(home, ws[2:])
 	}
 	if !filepath.IsAbs(ws) {
-		return "", fmt.Errorf("profile %q: workspace %q is not an absolute path", o.p.Name, o.p.Workspace)
+		return "", fmt.Errorf("agent %q: workspace %q is not an absolute path", o.p.ID, o.p.Workspace)
 	}
 	return filepath.Clean(ws), nil
 }
 
-// Deliver sends the batch in the session mode of the profile.
+// Deliver sends the batch in the session mode of the agent.
 func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) {
 	switch o.p.Session {
 	case config.SessionNew:
@@ -191,7 +192,7 @@ func joinPrompts(b *render.Rendered) string {
 // prompt while the agent starts, and the prompt can stay in the input box
 // without Enter. The driver submits the prompt itself (see submit).
 func (o *Orca) launchArgs(ws string) []string {
-	args := []string{"agent", "launch", "--agent", o.p.Agent, "--surface", "terminal", "--worktree", "path:" + ws}
+	args := []string{"agent", "launch", "--agent", o.p.CLI, "--surface", "terminal", "--worktree", "path:" + ws}
 	if o.p.Model != "" {
 		args = append(args, "--model", o.p.Model)
 	}
@@ -275,7 +276,7 @@ func (o *Orca) live(ctx context.Context, handle string) (bool, error) {
 }
 
 func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
-	handle, hash, err := o.sessions.Session(ctx, o.p.Name)
+	handle, hash, err := o.sessions.Session(ctx, o.space)
 	if err != nil {
 		return Result{}, err
 	}
@@ -305,7 +306,7 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		}
 		// Store the handle only after the primer arrived, so a later batch never
 		// goes to a session without the primer.
-		if err := o.sessions.SetSession(ctx, o.p.Name, h, b.PrimerHash, o.Now()); err != nil {
+		if err := o.sessions.SetSession(ctx, o.space, h, b.PrimerHash, o.Now()); err != nil {
 			return Result{}, err
 		}
 		return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail, Handle: h}, nil
@@ -332,7 +333,7 @@ func (o *Orca) sendIdle(ctx context.Context, handle string, wait time.Duration, 
 }
 
 // Ask sends an ask to the live terminal handle without the primer. When the
-// terminal does not run, the ask goes to the agent of the profile as a batch
+// terminal does not run, the ask goes to the agent of the space as a batch
 // does: the reuse session, or a new session or worktree with the primer.
 func (o *Orca) Ask(ctx context.Context, handle string, wait time.Duration, a *render.Rendered) (Result, error) {
 	if handle != "" {
@@ -355,7 +356,7 @@ func (o *Orca) worktree(ctx context.Context, b *render.Rendered) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	args := []string{"worktree", "create", "--repo", "path:" + ws, "--name", "i2a-" + b.BatchID, "--no-parent", "--agent", o.p.Agent}
+	args := []string{"worktree", "create", "--repo", "path:" + ws, "--name", "i2a-" + b.BatchID, "--no-parent", "--agent", o.p.CLI}
 	if o.p.Model != "" {
 		args = append(args, "--model", o.p.Model)
 	}
@@ -390,5 +391,5 @@ func ResolveBin(configured string) (string, error) {
 	if _, err := os.Stat(appBin); err == nil {
 		return appBin, nil
 	}
-	return "", errors.New("cannot find the orca executable. Install Orca, or set orca_bin in the profile")
+	return "", errors.New("cannot find the orca executable. Install Orca, or set orca_bin in the agent")
 }

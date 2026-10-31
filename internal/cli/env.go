@@ -4,6 +4,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
@@ -32,14 +33,14 @@ func newEnv() (*env, error) {
 
 // loadConfig loads and fully checks the configuration file.
 func (e *env) loadConfig() (*config.Config, error) {
-	c, err := config.Load(e.paths.ConfigFile)
+	c, err := loadReported(e.paths.ConfigFile)
 	if errors.Is(err, config.ErrNotFound) {
 		return nil, fmt.Errorf("no configuration at %s. Run `i2a config` to create one", e.paths.ConfigFile)
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := render.CheckProfiles(c); err != nil {
+	if err := render.CheckAgents(c); err != nil {
 		return nil, fmt.Errorf("%s: %w", e.paths.ConfigFile, err)
 	}
 	return c, nil
@@ -47,9 +48,19 @@ func (e *env) loadConfig() (*config.Config, error) {
 
 // loadOrDefault loads the configuration, or returns the default when the file does not exist.
 func (e *env) loadOrDefault() (*config.Config, error) {
-	c, err := config.Load(e.paths.ConfigFile)
+	c, err := loadReported(e.paths.ConfigFile)
 	if errors.Is(err, config.ErrNotFound) {
 		return config.Default(), nil
+	}
+	return c, err
+}
+
+// loadReported loads the configuration and prints the report of a version 1
+// conversion to stderr.
+func loadReported(path string) (*config.Config, error) {
+	c, err := config.Load(path)
+	if err == nil && c.Migration != nil {
+		fmt.Fprint(os.Stderr, c.Migration.Text())
 	}
 	return c, err
 }

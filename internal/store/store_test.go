@@ -90,7 +90,7 @@ func TestFailedDispatchKeepsMessagesPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, _ := s.Pending(ctx)
-	id, err := s.CreateDispatch(ctx, Dispatch{Profile: "triage", Driver: "orca", CreatedAt: now, MessageCount: 2})
+	id, err := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestMigrateV1DryRunMessagesBecomePreviewed(t *testing.T) {
 	}
 	pending, _ := s.Pending(ctx)
 	for i, driver := range []string{"dry-run", "orca"} {
-		id, err := s.CreateDispatch(ctx, Dispatch{Profile: "triage", Driver: driver, CreatedAt: time.Now()})
+		id, err := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: driver, CreatedAt: time.Now()})
 		if err != nil {
 			t.Fatal(err)
 		}

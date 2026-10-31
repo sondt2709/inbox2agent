@@ -84,7 +84,7 @@ func askSetup(t *testing.T, id, key string) *person {
 	t.Helper()
 	w := mm.NewWorld(t)
 	p := newPerson(t, id)
-	p.addSource(w, w.Selected)
+	p.addAccount(w, w.Selected)
 	post := w.Post(t, w.Bob, w.Selected, id+" can PF get their own login for the demo?")
 	if s, code := p.run("run --once"); code != 0 || !strings.Contains(s, "collected 1 new messages") {
 		t.Fatalf("run --once: exit %d\n%s", code, s)
@@ -96,18 +96,18 @@ func askSetup(t *testing.T, id, key string) *person {
 	return p
 }
 
-// S30: the profile is a dry run. The Feed and "i2a ask" refuse the ask.
+// S30: the agent of Unsorted is a dry run. The Feed and "i2a ask" refuse the ask.
 func TestS30AskDryRun(t *testing.T) {
 	p := askSetup(t, "S30", "mm:s30")
 	tm := p.term("")
 	tm.WaitFor(`Lena needs an answer`, 30*time.Second)
-	s := tm.Press("t", `Cannot ask: The profile triage uses dry-run; no agent reads asks\.`, 5*time.Second)
+	s := tm.Press("t", `Cannot ask: The space Unsorted has no agent that reads asks\.`, 5*time.Second)
 	if strings.Contains(s, "Ask the agent · card") {
 		t.Errorf("the ask form opened for a dry run:\n%s", s)
 	}
 	tm.Press("q", `\[exit 0\]`, 5*time.Second)
 	s, code := p.run("ask --card mm:s30 < " + p.stdinFile("S30 research more."))
-	if code != 1 || !strings.Contains(s, "The profile triage uses dry-run; no agent reads asks.") {
+	if code != 1 || !strings.Contains(s, "The space Unsorted has no agent that reads asks.") {
 		t.Errorf("i2a ask: exit %d\n%s", code, s)
 	}
 	if _, asks := p.asksOf("mm:s30"); len(asks) != 0 {
@@ -122,14 +122,14 @@ func TestS31AskTheAgent(t *testing.T) {
 	p := askSetup(t, "S31", "mm:s31")
 	orcaBin, calls := fakeOrca(t)
 	p.editConfig(func(c *config.Config) {
-		pr := &c.Profiles[0]
+		pr := &c.Agents[0]
 		pr.Driver, pr.Workspace, pr.Session, pr.OrcaBin = config.DriverOrca, t.TempDir(), config.SessionReuse, orcaBin
 	})
 
 	tm := p.term("")
 	tm.WaitFor(`Lena needs an answer`, 30*time.Second)
 	s := tm.Press("t", `Ask the agent · card`, 5*time.Second)
-	for _, want := range []string{"Agent      triage · orca", "Session    terminal term_b9f22da8… (wrote the card)",
+	for _, want := range []string{"Agent      triage · orca · space Unsorted", "Session    terminal term_b9f22da8… (wrote the card)",
 		"The agent answers in this card.", "ctrl+s send"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the ask form does not show %q:\n%s", want, s)
@@ -137,7 +137,7 @@ func TestS31AskTheAgent(t *testing.T) {
 	}
 	tm.Type("S31 check the auth code and give me the effort in hours.")
 	tm.WaitFor(`effort in hours\.`, 5*time.Second)
-	tm.Press("C-s", `Sent to the agent \(triage\)\. It answers in this card\.`, 30*time.Second)
+	tm.Press("C-s", `Sent to the agent of Unsorted\. It answers in this card\.`, 30*time.Second)
 	s = tm.WaitFor(`↪ asked`, 5*time.Second)
 	if !regexp.MustCompile(`↪ Asked \d\d:\d\d: S31 check the auth code .* · sent`).MatchString(s) { // the panel cuts the text
 		t.Errorf("the detail panel does not show the ask:\n%s", s)
@@ -168,7 +168,7 @@ func TestS31AskTheAgent(t *testing.T) {
 	}
 
 	s, code := p.run("ask --card mm:s31 < " + p.stdinFile("S31 and list the risks."))
-	if code != 0 || !strings.Contains(s, "sent to the agent of triage ("+fixtureHandle+"). Ask 2.") {
+	if code != 0 || !strings.Contains(s, "sent to the agent of the space Unsorted ("+fixtureHandle+"). Ask 2.") {
 		t.Errorf("i2a ask: exit %d\n%s", code, s)
 	}
 	c, asks := p.asksOf("mm:s31")

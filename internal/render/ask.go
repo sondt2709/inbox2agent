@@ -38,16 +38,16 @@ type askCard struct {
 	} `json:"card"`
 }
 
-// AskID returns a readable unique ID for an ask: <UTC time>-<profile>-ask<ask ID>.
+// AskID returns a readable unique ID for an ask: <UTC time>-<space ID>-ask<ask ID>.
 // In worktree mode, it names the worktree.
-func AskID(now time.Time, profile string, askID int64) string {
-	return fmt.Sprintf("%s-%s-ask%d", now.UTC().Format("20060102-150405"), profile, askID)
+func AskID(now time.Time, space string, askID int64) string {
+	return fmt.Sprintf("%s-%s-ask%d", now.UTC().Format("20060102-150405"), space, askID)
 }
 
-// Ask renders the prompt of an ask and the primer of the profile, for a new
+// Ask renders the prompt of an ask and the primer of the agent, for a new
 // session. The text of the user is the instruction. The card and its messages
 // are in a fenced data block.
-func Ask(p config.Profile, id string, in AskInput, cardCommand string) (*Rendered, error) {
+func Ask(p config.Agent, space, id string, in AskInput, cardCommand string) (*Rendered, error) {
 	cmd := cardCommand
 	if cmd == "" {
 		cmd = "i2a"
@@ -63,7 +63,7 @@ func Ask(p config.Profile, id string, in AskInput, cardCommand string) (*Rendere
 	}
 	items := Items(in.Messages, p.MessageMaxChars)
 	nonce := NewNonce()
-	b := Batch{BatchID: id, Profile: p.Name, Count: len(items), Sources: sources(in.Messages), Nonce: nonce}
+	b := Batch{BatchID: id, Space: space, Agent: p.ID, Count: len(items), Accounts: accounts(in.Messages), Nonce: nonce}
 	if len(in.Messages) > 0 {
 		b.WindowStart = in.Messages[0].CreatedAt.UTC().Format(time.RFC3339)
 		b.WindowEnd = in.Messages[len(in.Messages)-1].CreatedAt.UTC().Format(time.RFC3339)

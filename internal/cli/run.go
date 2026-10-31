@@ -45,7 +45,7 @@ This command ignores the interval and the active hours.`,
 			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Notify: notify.Desktop()}, cfg)
 			defer eng.Close()
 			polls := eng.Poll(cmd.Context(), true)
-			d, err := eng.Dispatch(cmd.Context())
+			d, err := eng.Dispatch(cmd.Context(), nil)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,10 @@ it in the background at login.`,
 				if err != nil {
 					return nil, err
 				}
-				return c, render.CheckProfiles(c)
+				if c.Migration != nil {
+					log.Warn("configuration converted to version 2", "report", c.Migration.Text())
+				}
+				return c, render.CheckAgents(c)
 			}
 			return daemon.Run(ctx, eng, e.paths.ConfigFile, load)
 		},

@@ -10,7 +10,7 @@ import (
 )
 
 // The form engine draws a whole form at one time, as a web form does: a label
-// column, input boxes, segmented controls, text areas, the channel picker and
+// column, input boxes, segmented controls, text areas and
 // a row of buttons. The keyboard moves between the fields; the mouse clicks them.
 
 type fieldKind int
@@ -20,7 +20,6 @@ const (
 	kindSecret
 	kindChoice // a segmented control; an on/off switch is a choice of "on" and "off"
 	kindArea
-	kindChannels
 	kindNote // text only; it does not take the focus
 )
 
@@ -48,8 +47,6 @@ type formField struct {
 	area             textarea.Model
 	opts, labels     []string
 	sel              int
-	picker           *picker
-	pickerMsg        string // shown while the channels load, or the load error
 	note             string
 	noteStyle        lipgloss.Style
 	hidden           func() bool
@@ -121,11 +118,6 @@ func (f *formField) value() string {
 		return f.area.Value()
 	case kindChoice:
 		return f.opts[f.sel]
-	case kindChannels:
-		if f.picker == nil {
-			return f.initial
-		}
-		return strings.Join(f.picker.selectedIDs(), ",")
 	}
 	return ""
 }
@@ -214,9 +206,6 @@ func (fm *form) setFocus(i int) tea.Cmd {
 		if it.field != nil {
 			it.field.input.Blur()
 			it.field.area.Blur()
-			if it.field.picker != nil {
-				it.field.picker.Blur()
-			}
 		}
 	}
 	fm.focus = min(max(0, i), len(its)-1)
@@ -233,10 +222,6 @@ func (fm *form) setFocus(i int) tea.Cmd {
 		return f.input.Focus()
 	case kindArea:
 		return f.area.Focus()
-	case kindChannels:
-		if f.picker != nil {
-			return f.picker.Focus()
-		}
 	}
 	return nil
 }
@@ -315,10 +300,6 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+tab":
 		return fm.prev()
 	case "esc":
-		if f != nil && f.kind == kindChannels && f.picker != nil && f.picker.GetFiltering() {
-			_, cmd := f.picker.Update(msg)
-			return cmd
-		}
 		return func() tea.Msg { return formEsc{} }
 	}
 	if f == nil { // a button
@@ -375,22 +356,6 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 	case kindArea:
 		var cmd tea.Cmd
 		f.area, cmd = f.area.Update(msg)
-		return cmd
-	case kindChannels:
-		switch k {
-		case "enter":
-			return fm.next()
-		}
-		if f.picker == nil {
-			switch k {
-			case "down":
-				return fm.next()
-			case "up":
-				return fm.prev()
-			}
-			return nil
-		}
-		_, cmd := f.picker.Update(msg)
 		return cmd
 	}
 	return nil
@@ -497,23 +462,6 @@ func (fm *form) render(w, h int) string {
 					bar = focusMark.Render("  │ ")
 				}
 				lines = append(lines, bar+l)
-			}
-			for y := top; y < len(lines); y++ {
-				fm.zones = append(fm.zones, formZone{y: y, x0: 0, x1: w, item: idx, opt: -1})
-			}
-		case kindChannels:
-			count := len(strings.Split(f.value(), ","))
-			if f.value() == "" {
-				count = 0
-			}
-			lines = append(lines, label+textStyle.Render(plural(count, "selected", "selected")))
-			if f.picker == nil {
-				lines = append(lines, faint.Render("    "+f.pickerMsg))
-			} else {
-				f.picker.WithWidth(w - 4)
-				for _, l := range strings.Split(f.picker.View(), "\n") {
-					lines = append(lines, "  "+l)
-				}
 			}
 			for y := top; y < len(lines); y++ {
 				fm.zones = append(fm.zones, formZone{y: y, x0: 0, x1: w, item: idx, opt: -1})

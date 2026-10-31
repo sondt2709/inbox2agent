@@ -18,9 +18,9 @@ func TestDataLineStartsWithMessageID(t *testing.T) {
 }
 
 func TestCustomPrimerKeepsCardSection(t *testing.T) {
-	p := config.NewProfile("triage")
+	p := config.NewAgent("triage")
 	p.Primer = "Tóm tắt tin nhắn bằng tiếng Việt."
-	r, err := Render(p, "b1", []inbox.Message{m("hi")}, t.TempDir(), "/usr/local/bin/i2a")
+	r, err := Render(p, "Acme", "b1", []inbox.Message{m("hi")}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCustomPrimerKeepsCardSection(t *testing.T) {
 		t.Error("the batch prompt has the card section; only the primer must have it")
 	}
 
-	none, err := Render(p, "b1", []inbox.Message{m("hi")}, t.TempDir(), "")
+	none, err := Render(p, "Acme", "b1", []inbox.Message{m("hi")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +46,12 @@ func TestCustomPrimerKeepsCardSection(t *testing.T) {
 }
 
 func TestPrimerHash(t *testing.T) {
-	p := config.NewProfile("triage")
+	p := config.NewAgent("triage")
 	p.Primer = "Batch {{.BatchID}}: summarise."
 	render := func(id, primer, cmd string) string {
 		t.Helper()
 		p.Primer = primer
-		r, err := Render(p, id, []inbox.Message{m("hi")}, t.TempDir(), cmd)
+		r, err := Render(p, "Acme", id, []inbox.Message{m("hi")}, t.TempDir(), cmd)
 		if err != nil {
 			t.Fatal(err)
 		}

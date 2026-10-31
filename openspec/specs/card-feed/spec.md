@@ -86,18 +86,18 @@ The system SHALL append a fixed card section to the primer of each batch for a d
 - **THEN** the card section contains "You can use Markdown"
 
 ### Requirement: Feed tab
-The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `new` and `read` cards in a list at the left and the selected card at the right: the category, the urgency, the group, the title, the body, the suggested reply, and the references with author, time and text of each message, or "message deleted". A `new` card SHALL have an unread mark. The Feed SHALL read the store again every 2 seconds. When no store exists, it SHALL show "No cards yet".
+The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `new` and `read` cards in a list at the left and the selected card at the right: the space (with its color), the category, the urgency, the group, the title, the body, the suggested reply, and the references with account, conversation, author, time and text of each message, or "message deleted". The space of a card SHALL be the space of its newest ref message that has one. A `new` card SHALL have an unread mark. The Feed SHALL read the store again every 2 seconds. When no store exists, it SHALL show "No cards yet".
 
 #### Scenario: New card arrives while the Feed is open
 - **WHEN** the Feed is open and an agent adds a card
-- **THEN** the card shows in the list within 3 seconds, with the unread mark
+- **THEN** the card shows in the list within 3 seconds, with the unread mark and its space
 
 #### Scenario: Card with deleted messages
 - **WHEN** retention deleted the messages that a card refers to
-- **THEN** the detail panel shows "message deleted" for each reference
+- **THEN** the detail panel shows "message deleted" for each reference, and the space shows as "unknown"
 
 ### Requirement: Feed sort and filter
-The key `s` SHALL switch the sort between `urgency` (high first, then the newest update) and `newest` (the newest update first). The key `f` SHALL change the filter in the order all, action, question, info. The header SHALL show the number of `new` cards, of actions and of questions. The key `a` SHALL show or hide the `done` cards.
+The key `s` SHALL switch the sort between `urgency` (high first, then the newest update) and `newest` (the newest update first). The key `f` SHALL change the category filter in the order all, action, question, info. The key `F` SHALL change the space filter in the order all, then each space in the order of the configuration. The header SHALL show the number of `new` cards, of actions and of questions. The key `a` SHALL show or hide the `done` cards.
 
 #### Scenario: Sort by urgency
 - **WHEN** the Feed has a `low` info card from 17:57 and a `high` action card from 17:55, and the sort is `urgency`
@@ -106,6 +106,10 @@ The key `s` SHALL switch the sort between `urgency` (high first, then the newest
 #### Scenario: Filter questions
 - **WHEN** the user presses `f` two times
 - **THEN** the list shows only `question` cards and the filter bar marks "Question"
+
+#### Scenario: Filter a space
+- **WHEN** the spaces are Acme and Personal, and the user presses `F` two times
+- **THEN** the list shows only cards of Personal and the filter bar marks "Personal"
 
 ### Requirement: Act on a card
 A card SHALL become `read` when the user moves the selection to it or presses `enter`, `c`, `o`, `r` or `t` on it. The key `c` SHALL copy the suggested reply to the clipboard (`pbcopy` on macOS, OSC 52 on other systems). The key `o` SHALL open the URL of the first reference message that still exists, and only when the URL starts with `http://` or `https://`. The system SHALL NOT open a URL from the card text. The key `r` SHALL open the reply form of the `reply-send` capability. The key `t` SHALL open the ask form of the `agent-ask` capability. The key `d` SHALL set the state `done` and remove the card from the list. The key `u` SHALL set the state `new`.

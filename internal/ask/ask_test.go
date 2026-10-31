@@ -43,8 +43,8 @@ type env struct {
 	now   time.Time
 }
 
-// newEnv makes a store with one message that a dispatch of the profile
-// "triage" sent, and one card from the terminal term_card that refers to it.
+// newEnv makes a store with one message that a dispatch of the space
+// "triage" (agent claude-work) sent, and one card from the terminal term_card that refers to it.
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
@@ -60,7 +60,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	pending, _ := st.Pending(ctx)
-	id, _ := st.CreateDispatch(ctx, store.Dispatch{Profile: "triage", Driver: config.DriverOrca, CreatedAt: now})
+	id, _ := st.CreateDispatch(ctx, store.Dispatch{Space: "triage", Agent: "claude-work", Driver: config.DriverOrca, CreatedAt: now})
 	if err := st.FinishDispatch(ctx, id, store.DispatchSent, "", "triage", inbox.StateSent, []int64{pending[0].ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -70,16 +70,18 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	cfg.Profiles = []config.Profile{config.NewProfile("first"), config.NewProfile("triage")}
-	for i := range cfg.Profiles {
-		cfg.Profiles[i].Driver = config.DriverOrca
+	cfg.Agents = []config.Agent{config.NewAgent("first"), config.NewAgent("claude-work")}
+	for i := range cfg.Agents {
+		cfg.Agents[i].Driver = config.DriverOrca
 	}
+	cfg.Unsorted.Agent = "first"
+	cfg.Spaces = []config.Space{{ID: "triage", Name: "Triage", Agent: "claude-work", Schedule: "always"}}
 	drv := &fakeDriver{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_card, turn started", Handle: "term_card"}}
 	e := &env{st: st, drv: drv, card: saved[0].Card, msgID: pending[0].ID, now: now}
 	e.d = Deps{Store: st, Config: cfg, CardCommand: "/usr/local/bin/i2a", LockDir: dir, Now: func() time.Time { return e.now },
-		NewDriver: func(p config.Profile, _ agent.Sessions) (agent.Driver, error) {
-			if p.Name != "triage" {
-				t.Errorf("driver of profile %q, want triage", p.Name)
+		NewDriver: func(a config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+			if a.ID != "claude-work" || space != "triage" {
+				t.Errorf("driver of agent %q for space %q, want claude-work for triage", a.ID, space)
 			}
 			return drv, nil
 		}}
@@ -101,7 +103,7 @@ func TestSendToTheTerminalOfTheCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.State != inbox.AskSent || a.Handle != "term_card" || a.Profile != "triage" || a.Text != "Check the auth code." {
+	if a.State != inbox.AskSent || a.Handle != "term_card" || a.Space != "triage" || a.Text != "Check the auth code." {
 		t.Errorf("ask = %+v", a)
 	}
 	if e.drv.handle != "term_card" || e.drv.wait != Wait {
@@ -150,10 +152,10 @@ func TestSendRefusesBadTextAndDryRun(t *testing.T) {
 	if _, err := Send(context.Background(), e.d, e.card, strings.Repeat("x", 4001), Wait); err == nil || !strings.Contains(err.Error(), "the maximum is 4000") {
 		t.Errorf("long text: %v", err)
 	}
-	e.d.Config.Profiles[1].Driver = config.DriverDryRun
+	e.d.Config.Agents[1].Driver = config.DriverDryRun
 	_, err := Send(context.Background(), e.d, e.card, "more", Wait)
-	var dr *DryRunError
-	if !errors.As(err, &dr) || err.Error() != "The profile triage uses dry-run; no agent reads asks." {
+	var dr *NoAgentError
+	if !errors.As(err, &dr) || err.Error() != "The space Triage has no agent that reads asks." {
 		t.Errorf("dry run: %v", err)
 	}
 	if got := e.asks(t); len(got) != 0 || len(e.drv.asks) != 0 {
@@ -161,14 +163,14 @@ func TestSendRefusesBadTextAndDryRun(t *testing.T) {
 	}
 }
 
-func TestResolveProfile(t *testing.T) {
+func TestResolveSpace(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	tg, err := Resolve(ctx, e.d, e.card)
-	if err != nil || tg.Profile.Name != "triage" || len(tg.Messages) != 1 {
-		t.Fatalf("target = %+v, %v; want the profile of the message", tg, err)
+	if err != nil || tg.Space.ID != "triage" || tg.Agent.ID != "claude-work" || len(tg.Messages) != 1 {
+		t.Fatalf("target = %+v, %v; want the space of the message", tg, err)
 	}
-	if a, s := tg.Agent(), tg.Session(); a != "triage · orca" || s != "terminal term_card (wrote the card)" {
+	if a, s := tg.AgentText(), tg.Session(); a != "claude-work · orca · space Triage" || s != "terminal term_card (wrote the card)" {
 		t.Errorf("agent = %q, session = %q", a, s)
 	}
 	long := tg
@@ -179,17 +181,32 @@ func TestResolveProfile(t *testing.T) {
 
 	noRefs := e.card
 	noRefs.Refs, noRefs.Handle = nil, ""
-	if tg, err := Resolve(ctx, e.d, noRefs); err != nil || tg.Profile.Name != "first" || tg.Session() != "the session of the profile" {
-		t.Errorf("card without refs: %+v, %v; want the first profile", tg.Profile.Name, err)
+	if tg, err := Resolve(ctx, e.d, noRefs); err != nil || tg.Space.ID != config.UnsortedID || tg.Agent.ID != "first" || tg.Session() != "the session of the space" {
+		t.Errorf("card without refs: %+v, %v; want Unsorted and its agent", tg.Space.ID, err)
 	}
 
-	e.d.Config.Profiles = e.d.Config.Profiles[:1]
-	if _, err := Resolve(ctx, e.d, e.card); err == nil || err.Error() != `the profile "triage" of the card is not in the configuration` {
-		t.Errorf("removed profile: %v", err)
+	// A ref message that no dispatch sent goes to the space of its conversation.
+	undispatched := inbox.Message{SourceID: "work", ChannelID: "C7", CreatedAt: e.now}
+	e.d.Config.Accounts = []config.Account{config.NewMattermostAccount("work", "https://chat.example.com")}
+	if err := e.d.Config.SetConversation("work", "C7", "triage", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if tg, err := TargetOf(e.d.Config, noRefs, []inbox.Message{undispatched}); err != nil || tg.Space.ID != "triage" {
+		t.Errorf("undispatched message: %+v, %v; want the space of its conversation", tg.Space.ID, err)
+	}
+
+	e.d.Config.Spaces = nil
+	if _, err := Resolve(ctx, e.d, e.card); err == nil || err.Error() != `the space "triage" of the card is not in the configuration` {
+		t.Errorf("removed space: %v", err)
+	}
+
+	e.d.Config.Unsorted.Agent = ""
+	if _, err := Resolve(ctx, e.d, noRefs); err == nil || err.Error() != "The space Unsorted has no agent that reads asks." {
+		t.Errorf("Unsorted on hold: %v", err)
 	}
 }
 
-func TestSendWaitsForTheProfileLock(t *testing.T) {
+func TestSendWaitsForTheSpaceLock(t *testing.T) {
 	e := newEnv(t)
 	old := LockWait
 	LockWait = 200 * time.Millisecond

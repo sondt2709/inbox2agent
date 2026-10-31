@@ -118,14 +118,14 @@ func newHarness(t *testing.T, cfg *config.Config) *harness {
 	t.Cleanup(func() { st.Close() })
 	h := &harness{st: st, sources: map[string]*fakeSource{}, drv: &recorder{result: agent.Result{Status: agent.StatusSent}},
 		log: &bytes.Buffer{}, paths: paths}
-	for _, sc := range cfg.Sources {
+	for _, sc := range cfg.Accounts {
 		h.sources[sc.ID] = &fakeSource{id: sc.ID}
 	}
 	h.e = New(Deps{
 		Paths: paths, Store: st,
 		Log:       slog.New(slog.NewTextHandler(syncWriter{&h.logMu, h.log}, nil)),
-		NewDriver: func(config.Profile, agent.Sessions) (agent.Driver, error) { return h.drv, nil },
-		BuildSource: func(sc config.Source, _ source.Env) (source.Source, error) {
+		NewDriver: func(config.Agent, string, agent.Sessions) (agent.Driver, error) { return h.drv, nil },
+		BuildSource: func(sc config.Account, _ source.Env) (source.Source, error) {
 			return h.sources[sc.ID], nil
 		},
 	}, cfg)
@@ -158,8 +158,7 @@ func (r *recorder) count() int {
 func cfgWith(sources ...string) *config.Config {
 	c := config.Default()
 	for _, id := range sources {
-		s := config.NewMattermostSource(id, "https://x")
-		c.Sources = append(c.Sources, s)
+		c.Accounts = append(c.Accounts, config.NewMattermostAccount(id, "https://x"))
 	}
 	return c
 }
@@ -172,7 +171,7 @@ func TestPollThenDispatchThenNothingNew(t *testing.T) {
 	if len(polls) != 1 || polls[0].New != 3 {
 		t.Fatalf("polls = %+v", polls)
 	}
-	d, err := h.e.Dispatch(ctx)
+	d, err := h.e.Dispatch(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +185,7 @@ func TestPollThenDispatchThenNothingNew(t *testing.T) {
 		t.Errorf("digest: %v", err)
 	}
 	counts, _ := h.st.Counts(ctx)
-	if counts[inbox.StatePreviewed] != 3 { // the default profile is a dry run
+	if counts[inbox.StatePreviewed] != 3 { // the default agent is a dry run
 		t.Errorf("counts = %v", counts)
 	}
 	// The source returns the same messages again: nothing is new.
@@ -194,7 +193,7 @@ func TestPollThenDispatchThenNothingNew(t *testing.T) {
 	if polls[0].New != 0 {
 		t.Errorf("second poll new = %d, want 0", polls[0].New)
 	}
-	d, _ = h.e.Dispatch(ctx)
+	d, _ = h.e.Dispatch(ctx, nil)
 	if len(d.Batches) != 0 {
 		t.Errorf("second dispatch batches = %+v, want none", d.Batches)
 	}
@@ -209,7 +208,7 @@ func TestDriverErrorThenRetry(t *testing.T) {
 	h.sources["work"].add("a1", "a2")
 	h.e.Poll(ctx, true)
 	h.drv.err = errors.New("orca agent launch: runtime not reachable")
-	d, _ := h.e.Dispatch(ctx)
+	d, _ := h.e.Dispatch(ctx, nil)
 	if d.Batches[0].Status != store.DispatchFailed || d.Batches[0].Err == nil {
 		t.Fatalf("batch = %+v", d.Batches[0])
 	}
@@ -222,7 +221,7 @@ func TestDriverErrorThenRetry(t *testing.T) {
 		t.Errorf("dispatch record = %+v", ds[0])
 	}
 	h.drv.err = nil
-	d, _ = h.e.Dispatch(ctx)
+	d, _ = h.e.Dispatch(ctx, nil)
 	if len(d.Batches) != 1 || d.Batches[0].Count != 2 || d.Batches[0].Status != store.DispatchSent {
 		t.Fatalf("retry batches = %+v", d.Batches)
 	}
@@ -234,7 +233,7 @@ func TestHeldKeepsMessagesPending(t *testing.T) {
 	h.sources["work"].add("a1")
 	h.e.Poll(ctx, true)
 	h.drv.result = agent.Result{Status: agent.StatusHeld, Detail: "agent busy"}
-	d, _ := h.e.Dispatch(ctx)
+	d, _ := h.e.Dispatch(ctx, nil)
 	if d.Batches[0].Status != store.DispatchHeld {
 		t.Fatalf("status = %s", d.Batches[0].Status)
 	}
@@ -244,21 +243,62 @@ func TestHeldKeepsMessagesPending(t *testing.T) {
 	}
 }
 
-func TestRoutesMakeOneBatchForEachProfile(t *testing.T) {
-	c := cfgWith("work")
-	c.Profiles = append(c.Profiles, config.NewProfile("reviewer"))
-	c.Sources[0].ChannelProfiles = map[string]string{"Cr": "reviewer"}
-	h := newHarness(t, c)
+// spaceCfg adds the agent reviewer and the space Review with the
+// conversation work/Cr to a configuration with the account work.
+func spaceCfg(c *config.Config) *config.Config {
+	c.Agents = append(c.Agents, config.NewAgent("reviewer"))
+	c.Spaces = []config.Space{{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always",
+		Conversations: []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}}}
+	return c
+}
+
+func TestRoutesMakeOneBatchForEachSpace(t *testing.T) {
+	h := newHarness(t, spaceCfg(cfgWith("work")))
 	ctx := context.Background()
 	h.sources["work"].add("a1", "r1", "r2")
 	h.e.Poll(ctx, true)
-	d, _ := h.e.Dispatch(ctx)
+	d, _ := h.e.Dispatch(ctx, nil)
 	got := map[string]int{}
 	for _, b := range d.Batches {
-		got[b.Profile] = b.Count
+		got[b.Space+"/"+b.Agent] = b.Count
 	}
-	if got["triage"] != 1 || got["reviewer"] != 2 {
+	if got["unsorted/triage"] != 1 || got["review/reviewer"] != 2 || len(got) != 2 {
 		t.Errorf("batches = %v", got)
+	}
+	ds, _ := h.st.Dispatches(ctx, 10)
+	if len(ds) != 2 || ds[0].Space == ds[1].Space || ds[0].Agent == "" {
+		t.Errorf("dispatch rows = %+v", ds)
+	}
+}
+
+func TestDispatchOnlyGivenSpacesAndMovedConversation(t *testing.T) {
+	c := spaceCfg(cfgWith("work"))
+	c.Unsorted.Agent = "" // hold
+	h := newHarness(t, c)
+	ctx := context.Background()
+	h.sources["work"].add("a1", "a2", "r1")
+	h.e.Poll(ctx, true)
+	d, _ := h.e.Dispatch(ctx, nil)
+	if len(d.Batches) != 1 || d.Batches[0].Space != "review" || d.Batches[0].Count != 1 {
+		t.Fatalf("batches = %+v, want only Review: Unsorted holds", d.Batches)
+	}
+	if counts, _ := h.st.Counts(ctx); counts[inbox.StatePending] != 2 {
+		t.Fatalf("counts = %v, want the 2 held messages pending", counts)
+	}
+
+	// The user moves the conversation Ca to Review: its waiting messages go there.
+	next := spaceCfg(cfgWith("work"))
+	next.Unsorted.Agent = ""
+	if err := next.SetConversation("work", "Ca", "review", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	h.e.SetConfig(next)
+	if d, _ := h.e.Dispatch(ctx, []string{config.UnsortedID}); len(d.Batches) != 0 {
+		t.Errorf("a dispatch of Unsorted sent %+v", d.Batches)
+	}
+	d, _ = h.e.Dispatch(ctx, []string{"review"})
+	if len(d.Batches) != 1 || d.Batches[0].Count != 2 {
+		t.Errorf("batches = %+v, want the 2 moved messages in Review", d.Batches)
 	}
 }
 
@@ -270,22 +310,21 @@ func TestSourceErrorDoesNotStopOthers(t *testing.T) {
 	if polls[0].Err == nil || polls[1].New != 1 {
 		t.Fatalf("polls = %+v", polls)
 	}
-	if !strings.Contains(h.logText(), `source=bad`) {
+	if !strings.Contains(h.logText(), `account=bad`) {
 		t.Errorf("log = %s", h.logText())
 	}
 }
 
-func TestLoopOutsideActiveHoursAndReload(t *testing.T) {
+func TestLoopOutsideTheHoursAndReload(t *testing.T) {
 	old := tick
 	tick = 20 * time.Millisecond
 	t.Cleanup(func() { tick = old })
 
 	c := cfgWith("work")
-	c.Timing.Interval = config.Duration(50 * time.Millisecond)
-	c.Sources[0].PollEvery = config.Duration(10 * time.Millisecond)
-	now := time.Now()
-	start := now.Add(2 * time.Hour)
-	c.Timing.ActiveHours = fmt.Sprintf("%s-%s", start.Format("15:04"), start.Add(time.Hour).Format("15:04"))
+	c.Schedules[0].Every = config.Duration(50 * time.Millisecond)
+	c.Accounts[0].ReadEvery = config.Duration(10 * time.Millisecond)
+	start := time.Now().Add(2 * time.Hour)
+	c.Schedules[0].Hours = fmt.Sprintf("%s-%s", start.Format("15:04"), start.Add(time.Hour).Format("15:04"))
 	h := newHarness(t, c)
 	h.sources["work"].add("a1")
 
@@ -297,8 +336,8 @@ func TestLoopOutsideActiveHoursAndReload(t *testing.T) {
 	load := func() (*config.Config, error) {
 		nc, err := config.Load(cfgFile)
 		if err == nil {
-			nc.Timing.Interval = config.Duration(50 * time.Millisecond)
-			nc.Sources[0].PollEvery = config.Duration(10 * time.Millisecond)
+			nc.Schedules[0].Every = config.Duration(50 * time.Millisecond)
+			nc.Accounts[0].ReadEvery = config.Duration(10 * time.Millisecond)
 			reloaded <- struct{}{}
 		}
 		return nc, err
@@ -307,14 +346,17 @@ func TestLoopOutsideActiveHoursAndReload(t *testing.T) {
 	done := make(chan error)
 	go func() { done <- Run(ctx, h.e, cfgFile, load) }()
 
-	waitFor(t, func() bool { return strings.Contains(h.logText(), "outside active hours") })
+	waitFor(t, func() bool {
+		return strings.Contains(h.logText(), "next send") && strings.Contains(h.logText(), "poll")
+	})
+	time.Sleep(200 * time.Millisecond)
 	if n := h.drv.count(); n != 0 {
-		t.Fatalf("dispatched %d batches outside active hours", n)
+		t.Fatalf("dispatched %d batches outside the hours of the schedule", n)
 	}
 
-	// Change the file: remove the active hours. The daemon reloads and dispatches.
+	// Change the file: remove the hours. The daemon reloads and dispatches.
 	fc := fileCopy(c)
-	fc.Timing.ActiveHours = ""
+	fc.Schedules[0].Hours = ""
 	time.Sleep(20 * time.Millisecond) // a new modification time
 	if err := config.Save(cfgFile, fc); err != nil {
 		t.Fatal(err)
@@ -328,13 +370,60 @@ func TestLoopOutsideActiveHoursAndReload(t *testing.T) {
 	}
 }
 
+func TestLoopSendsEachSpaceOnItsSchedule(t *testing.T) {
+	old := tick
+	tick = 10 * time.Millisecond
+	t.Cleanup(func() { tick = old })
+
+	c := spaceCfg(cfgWith("work"))
+	c.Agents[0].Driver, c.Agents[0].Workspace = config.DriverOrca, "/w"
+	c.Agents[1].Driver, c.Agents[1].Workspace = config.DriverOrca, "/w"
+	c.Accounts[0].ReadEvery = config.Duration(5 * time.Millisecond)
+	c.Schedules = []config.Schedule{{ID: "fast", Every: config.Duration(40 * time.Millisecond)}, {ID: "slow", Every: config.Duration(160 * time.Millisecond)}}
+	c.Unsorted.Schedule, c.Spaces[0].Schedule = "fast", "slow"
+	h := newHarness(t, c)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := make(chan struct{})
+	go func() { // new messages in both spaces all the time
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+				h.sources["work"].add(fmt.Sprintf("a%d", i), fmt.Sprintf("r%d", i))
+			}
+		}
+	}()
+	done := make(chan error)
+	go func() {
+		done <- Run(ctx, h.e, filepath.Join(t.TempDir(), "none.toml"), func() (*config.Config, error) { return c, nil })
+	}()
+	time.Sleep(900 * time.Millisecond)
+	cancel()
+	close(stop)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	h.drv.mu.Lock()
+	defer h.drv.mu.Unlock()
+	by := map[string]int{}
+	for _, b := range h.drv.batches {
+		by[b.Space]++
+	}
+	if by["Unsorted"] < 2*by["Review"] || by["Review"] < 2 {
+		t.Errorf("batches by space = %v, want Unsorted (every 40ms) at least 2 times Review (every 160ms)", by)
+	}
+}
+
 // fileCopy returns a copy of c with intervals that pass validation.
 // The engine keeps the short intervals of c.
 func fileCopy(c *config.Config) *config.Config {
 	fc := *c
-	fc.Sources = append([]config.Source(nil), c.Sources...)
-	fc.Timing.Interval = config.Duration(5 * time.Second)
-	fc.Sources[0].PollEvery = config.Duration(5 * time.Second)
+	fc.Accounts = append([]config.Account(nil), c.Accounts...)
+	fc.Schedules = append([]config.Schedule(nil), c.Schedules...)
+	fc.Schedules[0].Every = config.Duration(time.Minute)
+	fc.Accounts[0].ReadEvery = config.Duration(5 * time.Second)
 	return &fc
 }
 
@@ -373,21 +462,21 @@ func TestDryRunPreviewThenRealDriverSendsAll(t *testing.T) {
 	ctx := context.Background()
 	h.sources["work"].add("a1", "a2", "a3")
 	h.e.Poll(ctx, true)
-	if d, _ := h.e.Dispatch(ctx); len(d.Batches) != 1 || d.Batches[0].Count != 3 {
+	if d, _ := h.e.Dispatch(ctx, nil); len(d.Batches) != 1 || d.Batches[0].Count != 3 {
 		t.Fatalf("dry-run batches = %+v", d.Batches)
 	}
 	// A second dry-run round does not preview the same messages again.
-	if d, _ := h.e.Dispatch(ctx); len(d.Batches) != 0 {
+	if d, _ := h.e.Dispatch(ctx, nil); len(d.Batches) != 0 {
 		t.Fatalf("second dry-run batches = %+v, want none", d.Batches)
 	}
 
-	// The user changes the profile to orca, and one new message arrives.
+	// The user changes the agent to orca, and one new message arrives.
 	next := cfgWith("work")
-	next.Profiles[0].Driver = config.DriverOrca
+	next.Agents[0].Driver = config.DriverOrca
 	h.e.SetConfig(next)
 	h.sources["work"].add("a4")
 	h.e.Poll(ctx, true)
-	d, err := h.e.Dispatch(ctx)
+	d, err := h.e.Dispatch(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +500,7 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 
 	h.sources["work"].add("a1", "a2")
 	h.e.Poll(ctx, true)
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	} // dry run: no notification
 	if len(got) != 0 {
@@ -419,10 +508,10 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	}
 
 	next := cfgWith("work")
-	next.Profiles[0].Driver = config.DriverOrca
+	next.Agents[0].Driver = config.DriverOrca
 	h.e.SetConfig(next)
 	h.drv.result = agent.Result{Status: agent.StatusSent, Detail: "new session term_1, turn started"}
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
@@ -432,10 +521,10 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	h.sources["work"].add("b1")
 	h.e.Poll(ctx, true)
 	h.drv.err = errors.New("orca agent launch: runtime not reachable")
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || !strings.HasPrefix(got[0], "i2a: dispatch failed | Profile triage, 1 messages stay pending: orca agent launch") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "i2a: dispatch failed | Space Unsorted (agent triage), 1 messages stay pending: orca agent launch") {
 		t.Fatalf("notifications = %q", got)
 	}
 	if strings.Contains(got[0], "text b1") {
@@ -443,7 +532,7 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	}
 
 	next.Notify.Enabled = false
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
@@ -461,13 +550,13 @@ func TestPrimerHasCardSectionForRealDriverOnly(t *testing.T) {
 
 	h.sources["work"].add("a1")
 	h.e.Poll(ctx, true)
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	next := cfgWith("work")
-	next.Profiles[0].Driver = config.DriverOrca
+	next.Agents[0].Driver = config.DriverOrca
 	h.e.SetConfig(next)
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.drv.batches) != 2 {
@@ -486,10 +575,10 @@ func TestPrimerHasCardSectionForRealDriverOnly(t *testing.T) {
 	}
 }
 
-// orcaCfg returns a configuration with one source and one orca profile.
+// orcaCfg returns a configuration with one account and one orca agent.
 func orcaCfg() *config.Config {
 	c := cfgWith("work")
-	c.Profiles[0].Driver = config.DriverOrca
+	c.Agents[0].Driver = config.DriverOrca
 	return c
 }
 
@@ -502,7 +591,7 @@ func queueAsk(t *testing.T, h *harness, created time.Time) inbox.Ask {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := inbox.Ask{CardID: saved[0].ID, Profile: "triage", Text: "Research more.", CreatedAt: created}
+	a := inbox.Ask{CardID: saved[0].ID, Space: config.UnsortedID, Text: "Research more.", CreatedAt: created}
 	if a.ID, err = h.st.StartAsk(ctx, a); err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +604,7 @@ func TestDispatchSendsQueuedAsksBeforeBatches(t *testing.T) {
 	a := queueAsk(t, h, time.Now())
 	h.sources["work"].add("a1")
 	h.e.Poll(ctx, true)
-	d, err := h.e.Dispatch(ctx)
+	d, err := h.e.Dispatch(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +620,7 @@ func TestDispatchSendsQueuedAsksBeforeBatches(t *testing.T) {
 	if q, _ := h.st.QueuedAsks(ctx); len(q) != 0 {
 		t.Errorf("queued = %+v, want none", q)
 	}
-	if s := Summary(nil, d); !strings.Contains(s, fmt.Sprintf("ask %d about card %d for triage: sent", a.ID, a.CardID)) {
+	if s := Summary(nil, d); !strings.Contains(s, fmt.Sprintf("ask %d about card %d for the space unsorted: sent", a.ID, a.CardID)) {
 		t.Errorf("summary = %q", s)
 	}
 }
@@ -541,7 +630,7 @@ func TestDispatchBusyAgentKeepsAskQueued(t *testing.T) {
 	ctx := context.Background()
 	queueAsk(t, h, time.Now())
 	h.drv.result = agent.Result{Status: agent.StatusHeld, Detail: "agent busy in term_card"}
-	if _, err := h.e.Dispatch(ctx); err != nil {
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if q, _ := h.st.QueuedAsks(ctx); len(q) != 1 || q[0].Detail != "agent busy in term_card" {
@@ -553,7 +642,7 @@ func TestDispatchFailsOldAsk(t *testing.T) {
 	h := newHarness(t, orcaCfg())
 	ctx := context.Background()
 	a := queueAsk(t, h, time.Now().Add(-25*time.Hour))
-	d, err := h.e.Dispatch(ctx)
+	d, err := h.e.Dispatch(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,24 +655,24 @@ func TestDispatchFailsOldAsk(t *testing.T) {
 	}
 }
 
-func TestBatchWaitsForTheProfileLock(t *testing.T) {
+func TestBatchWaitsForTheSpaceLock(t *testing.T) {
 	h := newHarness(t, orcaCfg())
 	ctx := context.Background()
 	old := lockWait
 	lockWait = 200 * time.Millisecond
 	t.Cleanup(func() { lockWait = old })
-	unlock, err := agent.Lock(ctx, h.paths.DataDir, "triage")
+	unlock, err := agent.Lock(ctx, h.paths.DataDir, config.UnsortedID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.sources["work"].add("a1")
 	h.e.Poll(ctx, true)
-	d, _ := h.e.Dispatch(ctx)
+	d, _ := h.e.Dispatch(ctx, nil)
 	if len(d.Batches) != 1 || d.Batches[0].Status != store.DispatchHeld || h.drv.count() != 0 {
 		t.Fatalf("batches = %+v, driver calls = %d; want held and no call", d.Batches, h.drv.count())
 	}
 	unlock()
-	d, _ = h.e.Dispatch(ctx)
+	d, _ = h.e.Dispatch(ctx, nil)
 	if d.Batches[0].Status != store.DispatchSent || h.drv.count() != 1 {
 		t.Errorf("after the unlock: batches = %+v, driver calls = %d", d.Batches, h.drv.count())
 	}
@@ -621,7 +710,7 @@ func TestNotifyNotPairedOnceUntilAGoodPoll(t *testing.T) {
 	for range 3 {
 		h.e.Poll(ctx, true)
 	}
-	want := "i2a: WhatsApp not paired | Source phone: pair again in i2a config (Sources)."
+	want := "i2a: WhatsApp not paired | Account phone: pair again in i2a config (Accounts)."
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("notifications = %q, want one %q", got, want)
 	}
@@ -634,5 +723,35 @@ func TestNotifyNotPairedOnceUntilAGoodPoll(t *testing.T) {
 	h.e.Poll(ctx, true)
 	if len(got) != 2 {
 		t.Errorf("after a good poll, notifications = %q, want 2", got)
+	}
+}
+
+// A space can send every few hours, or not today: the loop still sends a
+// queued ask within askEvery, with no dispatch.
+func TestLoopSendsQueuedAsksWithoutADispatch(t *testing.T) {
+	oldTick, oldAsk := tick, askEvery
+	tick, askEvery = 10*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { tick, askEvery = oldTick, oldAsk })
+
+	c := orcaCfg()
+	start := time.Now().Add(2 * time.Hour)
+	c.Schedules[0].Hours = fmt.Sprintf("%s-%s", start.Format("15:04"), start.Add(time.Hour).Format("15:04"))
+	h := newHarness(t, c)
+	a := queueAsk(t, h, time.Now())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() {
+		done <- Run(ctx, h.e, filepath.Join(t.TempDir(), "none.toml"), func() (*config.Config, error) { return c, nil })
+	}()
+	waitFor(t, func() bool {
+		q, _ := h.st.QueuedAsks(context.Background())
+		return len(q) == 0
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if h.drv.count() != 0 || len(h.drv.asks) != 1 {
+		t.Errorf("batches %d, asks %d; want only the ask %d", h.drv.count(), len(h.drv.asks), a.ID)
 	}
 }

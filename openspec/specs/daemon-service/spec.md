@@ -4,26 +4,26 @@
 This capability runs i2a: one time (`i2a run --once`), as a loop (`i2a daemon`), or as a macOS LaunchAgent. It also covers the active hours, the configuration reload and the desktop notifications.
 ## Requirements
 ### Requirement: Run once
-`i2a run --once` SHALL poll all sources one time, dispatch all pending messages, print a summary and exit. It SHALL ignore `interval` and `active_hours`.
+`i2a run --once` SHALL read all accounts one time, send the pending messages of each space that has an agent, print a summary and exit. It SHALL ignore the schedules. It SHALL NOT send the messages of Unsorted when Unsorted has no agent.
 
 #### Scenario: Summary output
-- **WHEN** the user runs `i2a run --once` and one source returns 3 new messages for the profile `triage`
-- **THEN** the output shows 3 collected messages and one batch sent to `triage` with the digest path
+- **WHEN** the user runs `i2a run --once` and one account returns 3 new messages for the space `acme`
+- **THEN** the output shows 3 collected messages and one batch of `acme` sent to its agent, with the digest path
 
 #### Scenario: Nothing new
 - **WHEN** the user runs `i2a run --once` two times and no new message arrives between the runs
 - **THEN** the second run shows 0 collected messages and sends no batch
 
 ### Requirement: Daemon loop
-`i2a daemon` SHALL poll each source on its `poll_every` value and dispatch pending messages on `timing.interval`. The daemon SHALL log one line for each poll and each dispatch. A source error SHALL NOT stop the other sources.
+`i2a daemon` SHALL read each account on its `read_every` value. It SHALL send the pending messages of a space at each send time of the schedule of the space. A space with no agent SHALL never send. The daemon SHALL log one line for each read and each dispatch, with the space ID. An account error SHALL NOT stop the other accounts.
 
-#### Scenario: Two ticks
-- **WHEN** the daemon runs with `interval = "10s"` for 25 seconds
-- **THEN** the log shows at least two dispatch ticks
+#### Scenario: Two spaces on two schedules
+- **WHEN** the space `acme` uses a schedule with `every = "1m"` and the space `personal` uses a schedule with `every = "2m"`, and the daemon runs for 4 minutes with new messages in both
+- **THEN** the log shows about 4 dispatches of `acme` and about 2 dispatches of `personal`
 
-#### Scenario: Source error
-- **WHEN** one source returns an error
-- **THEN** the log shows the error with the source ID, and the other sources continue to poll
+#### Scenario: Account error
+- **WHEN** one account returns an error
+- **THEN** the log shows the error with the account ID, and the other accounts continue to read
 
 ### Requirement: Single daemon
 The daemon SHALL hold an exclusive lock on `<data>/daemon.lock`. A second daemon SHALL exit with an error that says that a daemon already runs.
@@ -32,23 +32,12 @@ The daemon SHALL hold an exclusive lock on `<data>/daemon.lock`. A second daemon
 - **WHEN** a daemon runs and the user starts `i2a daemon` again
 - **THEN** the second process exits with a non-zero code and the message "another i2a daemon is running"
 
-### Requirement: Active hours
-When `active_hours` is set and the local time is outside the range, the daemon SHALL collect messages but SHALL NOT dispatch them. A range where the end is before the start SHALL cross midnight.
-
-#### Scenario: Outside active hours
-- **WHEN** `active_hours = "09:00-17:00"` and the local time is 20:00
-- **THEN** the daemon collects new messages and logs "outside active hours" instead of a dispatch
-
-#### Scenario: Range across midnight
-- **WHEN** `active_hours = "22:00-02:00"` and the local time is 01:00
-- **THEN** the daemon dispatches pending messages
-
 ### Requirement: Configuration reload
-The daemon SHALL load the configuration again when the configuration file changes. When the new configuration is not valid, the daemon SHALL log the error and keep the previous configuration.
+The daemon SHALL load the configuration again when the configuration file changes, and SHALL compute the next send time of each space again. When the new configuration is not valid, the daemon SHALL log the error and keep the previous configuration.
 
-#### Scenario: Interval changed
-- **WHEN** the user saves a new interval in the TUI while the daemon runs
-- **THEN** the daemon logs "configuration reloaded" and uses the new interval
+#### Scenario: Schedule changed
+- **WHEN** the user changes the schedule of a space in the TUI while the daemon runs
+- **THEN** the daemon logs "configuration reloaded" and uses the new send times
 
 ### Requirement: macOS LaunchAgent
 On macOS, `i2a service install` SHALL write a LaunchAgent file for the label `io.github.sondt2709.i2a` that runs the absolute path of `i2a` with the argument `daemon`, and SHALL load it with `launchctl bootstrap`. `i2a service uninstall` SHALL unload it and delete the file. `i2a service status` SHALL show whether the agent is loaded and its process ID. On other platforms, these commands SHALL exit with the message "not supported on this platform".
@@ -60,11 +49,11 @@ On macOS, `i2a service install` SHALL write a LaunchAgent file for the label `io
 - **THEN** `launchctl print` reports that the service is not found and the file is deleted
 
 #### Scenario: Orca path in the service environment
-- **WHEN** the user installs the service and a profile uses the `orca` driver
+- **WHEN** the user installs the service and an agent uses the `orca` driver
 - **THEN** the LaunchAgent file has a `PATH` value that contains the directory of the `orca` executable
 
 ### Requirement: Desktop notification
-On macOS, the daemon and `i2a run --once` SHALL show a desktop notification after each failed dispatch with a driver other than `dry-run`, with the profile, the message count and the error text. They SHALL NOT show a notification for a sent batch; the cards of the agent give the notifications (see the capability `card-feed`). The daemon SHALL show one notification when a WhatsApp source becomes not paired, and again only after a successful poll of that source. The system SHALL pass the title and the text to `osascript` as arguments, not as script code. `[notify] enabled = false` SHALL turn all notifications off. The default SHALL be `true`. `[notify] min_urgency` SHALL be `high`, `normal` or `low`; the default SHALL be `normal`. The configuration validation SHALL reject other values.
+On macOS, the daemon and `i2a run --once` SHALL show a desktop notification after each failed dispatch with a driver other than `dry-run`, with the space, the agent, the message count and the error text. They SHALL NOT show a notification for a sent batch; the cards of the agent give the notifications (see the capability `card-feed`). The daemon SHALL show one notification when a WhatsApp account becomes not paired, and again only after a successful read of that account. The system SHALL pass the title and the text to `osascript` as arguments, not as script code. `[notify] enabled = false` SHALL turn all notifications off. The default SHALL be `true`. `[notify] min_urgency` SHALL be `high`, `normal` or `low`; the default SHALL be `normal`. The configuration validation SHALL reject other values.
 
 #### Scenario: Batch sent
 - **WHEN** an `orca` batch of 12 messages becomes `sent`
@@ -92,4 +81,11 @@ The daemon SHALL close the connection of each source when it loads a new configu
 #### Scenario: Daemon stops
 - **WHEN** the daemon holds the connection of a WhatsApp source and stops
 - **THEN** `<data>/whatsapp-<id>.lock` is not locked any more
+
+### Requirement: Status command
+`i2a status` SHALL print the configuration and data paths, the accounts with their state, each space with its agent, schedule, next send time and number of waiting messages, the number of unsorted conversations and the agent or "hold" of Unsorted, the agents, the schedules, the message counts, the last dispatches and the service state.
+
+#### Scenario: Space line
+- **WHEN** the space `acme` uses `claude-work` and `work-hours`, has 6 waiting messages, and the next send time is 14:45
+- **THEN** `i2a status` prints a line with `acme`, `claude-work`, `work-hours`, `next 14:45` and `6 waiting`
 

@@ -81,7 +81,7 @@ func (p *person) stdinFile(text string) string {
 func TestS26ReplyFromTheFeed(t *testing.T) {
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S26")
-	p.addSource(w, w.Selected)
+	p.addAccount(w, w.Selected)
 	root := w.Post(t, w.Bob, w.Selected, "S26 PR 57 adds the two-stage image check.")
 	child := w.PostReply(t, w.Bob, w.Selected, root, "S26 can you review it today?")
 	if s, code := p.run("run --once"); code != 0 || !strings.Contains(s, "collected 2 new messages") {
@@ -132,7 +132,7 @@ func TestS26ReplyFromTheFeed(t *testing.T) {
 func TestS27ReplyCommand(t *testing.T) {
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S27")
-	p.addSource(w, w.Direct)
+	p.addAccount(w, w.Direct)
 	dm := w.Post(t, w.Bob, w.Direct, "S27 what is the staging URL for the demo?")
 	if s, code := p.run("run --once"); code != 0 || !strings.Contains(s, "collected 1 new messages") {
 		t.Fatalf("run --once: exit %d\n%s", code, s)
@@ -219,7 +219,7 @@ func TestS28RetryAfterALostAnswer(t *testing.T) {
 	p := newPerson(t, "S28")
 	pw := *w
 	pw.MM = &harness.Mattermost{URL: dropProxy(t, w.MM.URL)}
-	p.addSource(&pw, w.Selected)
+	p.addAccount(&pw, w.Selected)
 	post := w.Post(t, w.Bob, w.Selected, "S28 is the release at 18:30?")
 	if s, code := p.run("run --once"); code != 0 || !strings.Contains(s, "collected 1 new messages") {
 		t.Fatalf("run --once: exit %d\n%s", code, s)
@@ -257,12 +257,12 @@ func TestS29AgentSendsAReply(t *testing.T) {
 	orcaBin := needOrca(t)
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S29")
-	p.addSource(w, w.Selected)
+	p.addAccount(w, w.Selected)
 	ws := orcaWorkspace(t)
 	allowCommands(t, ws, p.home, "card", "reply")
-	p.editConfig(orcaProfile(orcaBin, ws, config.SessionReuse, config.PayloadInline))
+	p.editConfig(orcaAgent(orcaBin, ws, config.SessionReuse, config.PayloadInline))
 	p.editConfig(func(c *config.Config) {
-		c.Profiles[0].Primer = "You are my inbox assistant. Read the messages and report each topic as a card.\n" +
+		c.Agents[0].Primer = "You are my inbox assistant. Read the messages and report each topic as a card.\n" +
 			"When a message only reports news and needs no decision from me, thank the sender with one short sentence:\n" +
 			"  I2A_HOME=" + p.home + " I2A_SECRET_BACKEND=file " + bin + " reply --to <id> <<'EOF'\n  <text>\n  EOF\n" +
 			"The id is the \"id\" of the message. Do not send any other reply."

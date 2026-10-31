@@ -40,22 +40,26 @@ The system SHALL put the JSON lines in a fenced block that opens with a line of 
 - **THEN** the two blocks have different labels
 
 ### Requirement: Digest file
-The system SHALL write a Markdown digest file `<data>/digests/<batch-id>.md` for each batch, in all payload modes. The file SHALL contain a header with the profile, the message count, the sources and the time window, then a statement that the data is untrusted, then the fenced block. The file SHALL have the mode 0600.
+The system SHALL write a Markdown digest file `<data>/digests/<batch-id>.md` for each batch, in all payload modes. The file SHALL contain a header with the space, the agent, the message count, the accounts and the time window, then a statement that the data is untrusted, then the fenced block. The file SHALL have the mode 0600.
 
 #### Scenario: Digest written in dry-run
-- **WHEN** a batch with 3 messages is dispatched to a `dry-run` profile
+- **WHEN** a batch with 3 messages of a space is dispatched to a `dry-run` agent
 - **THEN** a digest file exists with a header that shows 3 messages and a block with 3 JSON lines
 
 ### Requirement: Prompt templates
-Each profile SHALL have a `primer` template and a `batch` template in Go `text/template` syntax. The templates SHALL be able to use `.BatchID`, `.Profile`, `.Count`, `.Sources`, `.DigestPath`, `.Messages`, `.Nonce`, `.WindowStart` and `.WindowEnd`. When a profile has no template, the system SHALL use the default template for its payload mode. The configuration validation SHALL reject a template that does not parse.
+Each agent SHALL have a `primer` template and a `batch` template in Go `text/template` syntax. The templates SHALL be able to use `.BatchID`, `.Space` (the name of the space), `.Agent` (the ID of the agent), `.Count`, `.Accounts`, `.DigestPath`, `.Messages`, `.Nonce`, `.WindowStart` and `.WindowEnd`. When an agent has no template, the system SHALL use the default template for its payload mode. The default primer SHALL name the space. The configuration validation SHALL reject a template that does not parse, and a template that uses `.Sources` or `.Profile`, with the name of the new field.
 
 #### Scenario: Custom batch template
-- **WHEN** the batch template is `Process {{.Count}} items in {{.DigestPath}}`
-- **THEN** the prompt for a batch of 2 messages is `Process 2 items in <path of the digest file>`
+- **WHEN** the batch template is `Process {{.Count}} items of {{.Space}} in {{.DigestPath}}`
+- **THEN** the prompt for a batch of 2 messages of the space Acme is `Process 2 items of Acme in <path of the digest file>`
 
 #### Scenario: Template with a syntax error
 - **WHEN** the batch template is `{{.Count`
-- **THEN** the configuration validation reports the template error and the profile name
+- **THEN** the configuration validation reports the template error and the agent ID
+
+#### Scenario: Old field
+- **WHEN** the batch template of a version 2 file uses `{{.Sources}}`
+- **THEN** the configuration validation says to use `{{.Accounts}}`
 
 ### Requirement: Payload modes
 In `pointer` mode, the batch prompt SHALL name the digest file and SHALL NOT include message text. In `inline` mode, the batch prompt SHALL include the fenced block. When the rendered inline prompt is larger than `inline_max_bytes`, the system SHALL use the pointer template for that batch and record this in the dispatch detail.

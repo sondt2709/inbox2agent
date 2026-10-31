@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
 
@@ -136,11 +137,11 @@ func texts(msgs []inbox.Message) []string {
 	return out
 }
 
-func TestCollectSelectedDirectAndMentions(t *testing.T) {
+func TestCollectReadLevels(t *testing.T) {
 	for _, perPage := range []int{200, 2} {
 		rp, srv := newReplay(t)
 		src := newSource(t, srv, Settings{
-			Channels: []string{channelID(t, "selected")}, AllDirect: true, Mentions: true, PerPage: perPage,
+			Levels: map[string]string{channelID(t, "selected"): config.ReadAll}, Default: config.ReadMentions, PerPage: perPage,
 		})
 		msgs, cur, err := src.Collect(context.Background(), inbox.Cursor{}, fixtureNow(t))
 		if err != nil {
@@ -180,7 +181,7 @@ func TestCollectSelectedDirectAndMentions(t *testing.T) {
 
 func TestSecondPollSkipsQuietChannels(t *testing.T) {
 	rp, srv := newReplay(t)
-	src := newSource(t, srv, Settings{Channels: []string{channelID(t, "selected")}, AllDirect: true, Mentions: true})
+	src := newSource(t, srv, Settings{Levels: map[string]string{channelID(t, "selected"): config.ReadAll}, Default: config.ReadMentions})
 	now := fixtureNow(t)
 	_, cur, err := src.Collect(context.Background(), inbox.Cursor{}, now)
 	if err != nil {
@@ -199,9 +200,9 @@ func TestSecondPollSkipsQuietChannels(t *testing.T) {
 	}
 }
 
-func TestCollectWithoutDirectAndMentions(t *testing.T) {
+func TestCollectOnlyChannelsWithAll(t *testing.T) {
 	_, srv := newReplay(t)
-	src := newSource(t, srv, Settings{Channels: []string{channelID(t, "selected")}})
+	src := newSource(t, srv, Settings{Levels: map[string]string{channelID(t, "selected"): config.ReadAll}, Default: config.ReadOff})
 	msgs, _, err := src.Collect(context.Background(), inbox.Cursor{}, fixtureNow(t))
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +214,7 @@ func TestCollectWithoutDirectAndMentions(t *testing.T) {
 
 func TestLookbackLimitsFirstPoll(t *testing.T) {
 	_, srv := newReplay(t)
-	src := newSource(t, srv, Settings{Channels: []string{channelID(t, "selected")}, Lookback: time.Hour})
+	src := newSource(t, srv, Settings{Levels: map[string]string{channelID(t, "selected"): config.ReadAll}, Default: config.ReadOff, Lookback: time.Hour})
 	msgs, _, err := src.Collect(context.Background(), inbox.Cursor{}, fixtureNow(t).Add(2*time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +281,7 @@ func TestRetryOn429(t *testing.T) {
 
 func TestListChannels(t *testing.T) {
 	_, srv := newReplay(t)
-	src := newSource(t, srv, Settings{Channels: []string{channelID(t, "other")}})
+	src := newSource(t, srv, Settings{Levels: map[string]string{channelID(t, "other"): config.ReadAll}, Default: config.ReadOff})
 	chs, err := src.ListChannels(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -318,7 +319,7 @@ func directID(t *testing.T) string {
 // A user can watch one direct conversation without all direct messages.
 func TestCollectOneSelectedDirectChannel(t *testing.T) {
 	_, srv := newReplay(t)
-	src := newSource(t, srv, Settings{Channels: []string{directID(t)}})
+	src := newSource(t, srv, Settings{Levels: map[string]string{directID(t): config.ReadAll}, Default: config.ReadOff})
 	msgs, _, err := src.Collect(context.Background(), inbox.Cursor{}, fixtureNow(t))
 	if err != nil {
 		t.Fatal(err)
@@ -365,5 +366,17 @@ func TestGroupLabelWithoutTheUser(t *testing.T) {
 		if got := groupLabel(in, "alice"); got != want {
 			t.Errorf("groupLabel(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCollectDirectChannelOff(t *testing.T) {
+	_, srv := newReplay(t)
+	src := newSource(t, srv, Settings{Levels: map[string]string{directID(t): config.ReadOff}, Default: config.ReadMentions})
+	msgs, _, err := src.Collect(context.Background(), inbox.Cursor{}, fixtureNow(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(texts(msgs), "|"); got != "@alice please check the report." {
+		t.Fatalf("messages = %q, want only the mention", got)
 	}
 }

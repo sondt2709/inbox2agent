@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS messages (
   url           TEXT NOT NULL,
   created_at    INTEGER NOT NULL,
   collected_at  INTEGER NOT NULL,
-  profile       TEXT NOT NULL DEFAULT '',
+  space         TEXT NOT NULL DEFAULT '',
   dispatch_id   INTEGER,
   state         TEXT NOT NULL DEFAULT 'pending',
   UNIQUE(source_id, external_id)
@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS cursors (
 );
 CREATE TABLE IF NOT EXISTS dispatches (
   id            INTEGER PRIMARY KEY,
-  profile       TEXT NOT NULL,
+  space         TEXT NOT NULL,
+  agent         TEXT NOT NULL DEFAULT '',
   driver        TEXT NOT NULL,
   created_at    INTEGER NOT NULL,
   status        TEXT NOT NULL,
@@ -58,7 +59,7 @@ CREATE TABLE IF NOT EXISTS dispatches (
   detail        TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
-  profile     TEXT PRIMARY KEY,
+  space       TEXT PRIMARY KEY,
   handle      TEXT NOT NULL,
   created_at  INTEGER NOT NULL,
   primer_hash TEXT NOT NULL DEFAULT ''
@@ -103,7 +104,7 @@ CREATE INDEX IF NOT EXISTS replies_target ON replies(message_id, place);
 CREATE TABLE IF NOT EXISTS asks (
   id         INTEGER PRIMARY KEY,
   card_id    INTEGER NOT NULL,
-  profile    TEXT NOT NULL,
+  space      TEXT NOT NULL,
   handle     TEXT NOT NULL DEFAULT '',
   text       TEXT NOT NULL,
   state      TEXT NOT NULL,
@@ -162,8 +163,8 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) migrate() error {
 	// The tables of an earlier version keep their columns, because CREATE
 	// TABLE IF NOT EXISTS does not change them. migrateV3 adds
-	// sessions.primer_hash, migrateV4 adds messages.thread_id and migrateV5
-	// adds cards.handle.
+	// sessions.primer_hash, migrateV4 adds messages.thread_id, migrateV5
+	// adds cards.handle and migrateV6 renames the profile columns to space.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -198,7 +199,12 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.migrateV5()
+	if v < 5 {
+		if err := s.migrateV5(); err != nil {
+			return err
+		}
+	}
+	return s.migrateV6()
 }
 
 // backup writes a consistent copy of the store to <file>.v<version>.bak
@@ -278,6 +284,50 @@ func (s *Store) migrateV5() error {
 		}
 	}
 	if _, err := tx.Exec(`UPDATE schema_version SET version = 5`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateV6 renames the profile columns to space and records the agent of
+// each dispatch. Version 5 had one agent for each profile, and the
+// configuration migration makes one space and one agent for each profile with
+// the profile name as the ID, so the old value is valid for both.
+func (s *Store) migrateV6() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	has := func(table, col string) (bool, error) {
+		var n int
+		err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, col).Scan(&n)
+		return n > 0, err
+	}
+	for _, table := range []string{"messages", "dispatches", "sessions", "asks"} {
+		old, err := has(table, "profile")
+		if err != nil {
+			return err
+		}
+		if old {
+			if _, err := tx.Exec(`ALTER TABLE ` + table + ` RENAME COLUMN profile TO space`); err != nil {
+				return err
+			}
+		}
+	}
+	agent, err := has("dispatches", "agent")
+	if err != nil {
+		return err
+	}
+	if !agent {
+		if _, err := tx.Exec(`ALTER TABLE dispatches ADD COLUMN agent TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE dispatches SET agent = space`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 6`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -366,7 +416,7 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	return added, tx.Commit()
 }
 
-const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, profile`
+const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, space`
 
 func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	defer rows.Close()
@@ -375,7 +425,7 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 		var m inbox.Message
 		var created int64
 		if err := rows.Scan(&m.ID, &m.SourceID, &m.SourceType, &m.ExternalID, &m.ChannelID, &m.ChannelName,
-			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Profile); err != nil {
+			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Space); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = time.UnixMilli(created).UTC()
@@ -385,7 +435,7 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 }
 
 // Pending returns the pending and the previewed messages, oldest first.
-// A real driver sends both; a dry-run profile takes only the pending ones.
+// A real driver sends both; a dry-run agent takes only the pending ones.
 func (s *Store) Pending(ctx context.Context) ([]inbox.Message, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+messageCols+` FROM messages WHERE state IN ('pending', 'previewed') ORDER BY created_at, id`)
 	if err != nil {
@@ -415,7 +465,8 @@ func (s *Store) ExpirePending(ctx context.Context, before time.Time) (int64, err
 // Dispatch is one attempt to deliver a batch.
 type Dispatch struct {
 	ID           int64
-	Profile      string
+	Space        string
+	Agent        string
 	Driver       string
 	CreatedAt    time.Time
 	Status       string
@@ -426,8 +477,8 @@ type Dispatch struct {
 
 // CreateDispatch records a new dispatch with the status pending.
 func (s *Store) CreateDispatch(ctx context.Context, d Dispatch) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO dispatches(profile, driver, created_at, status, digest_path, message_count, detail)
-	  VALUES (?, ?, ?, ?, ?, ?, ?)`, d.Profile, d.Driver, d.CreatedAt.UnixMilli(), DispatchPending, d.DigestPath, d.MessageCount, d.Detail)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO dispatches(space, agent, driver, created_at, status, digest_path, message_count, detail)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, d.Space, d.Agent, d.Driver, d.CreatedAt.UnixMilli(), DispatchPending, d.DigestPath, d.MessageCount, d.Detail)
 	if err != nil {
 		return 0, err
 	}
@@ -442,7 +493,7 @@ func (s *Store) SetDigestPath(ctx context.Context, id int64, path string) error 
 
 // FinishDispatch sets the final status of a dispatch. When the status is sent,
 // it sets the messages to msgState (sent, or previewed for a dry run) in the same transaction.
-func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, profile, msgState string, messageIDs []int64) error {
+func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, space, msgState string, messageIDs []int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -452,9 +503,9 @@ func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, pr
 		return err
 	}
 	if status == DispatchSent && len(messageIDs) > 0 {
-		q := `UPDATE messages SET state = ?, dispatch_id = ?, profile = ? WHERE state IN ('pending', 'previewed') AND id IN (` +
+		q := `UPDATE messages SET state = ?, dispatch_id = ?, space = ? WHERE state IN ('pending', 'previewed') AND id IN (` +
 			strings.TrimSuffix(strings.Repeat("?,", len(messageIDs)), ",") + `)`
-		args := []any{msgState, id, profile}
+		args := []any{msgState, id, space}
 		for _, mid := range messageIDs {
 			args = append(args, mid)
 		}
@@ -467,7 +518,7 @@ func (s *Store) FinishDispatch(ctx context.Context, id int64, status, detail, pr
 
 // Dispatches returns the newest dispatches, newest first.
 func (s *Store) Dispatches(ctx context.Context, limit int) ([]Dispatch, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, profile, driver, created_at, status, digest_path, message_count, detail
+	rows, err := s.db.QueryContext(ctx, `SELECT id, space, agent, driver, created_at, status, digest_path, message_count, detail
 	  FROM dispatches ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -477,11 +528,34 @@ func (s *Store) Dispatches(ctx context.Context, limit int) ([]Dispatch, error) {
 	for rows.Next() {
 		var d Dispatch
 		var created int64
-		if err := rows.Scan(&d.ID, &d.Profile, &d.Driver, &created, &d.Status, &d.DigestPath, &d.MessageCount, &d.Detail); err != nil {
+		if err := rows.Scan(&d.ID, &d.Space, &d.Agent, &d.Driver, &created, &d.Status, &d.DigestPath, &d.MessageCount, &d.Detail); err != nil {
 			return nil, err
 		}
 		d.CreatedAt = time.UnixMilli(created).UTC()
 		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// Conv identifies one conversation: the account ID and the conversation ID.
+type Conv struct{ Account, ID string }
+
+// PendingCounts returns the number of pending messages of each conversation.
+func (s *Store) PendingCounts(ctx context.Context) (map[Conv]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT source_id, channel_id, COUNT(*) FROM messages
+	  WHERE state = 'pending' GROUP BY source_id, channel_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[Conv]int{}
+	for rows.Next() {
+		var c Conv
+		var n int
+		if err := rows.Scan(&c.Account, &c.ID, &n); err != nil {
+			return nil, err
+		}
+		out[c] = n
 	}
 	return out, rows.Err()
 }
@@ -505,27 +579,27 @@ func (s *Store) Counts(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// Session returns the stored terminal handle of a profile and the hash of the
+// Session returns the stored terminal handle of a space and the hash of the
 // primer that the session got. The handle is "" when none exists.
-func (s *Store) Session(ctx context.Context, profile string) (handle, primerHash string, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT handle, primer_hash FROM sessions WHERE profile = ?`, profile).Scan(&handle, &primerHash)
+func (s *Store) Session(ctx context.Context, space string) (handle, primerHash string, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT handle, primer_hash FROM sessions WHERE space = ?`, space).Scan(&handle, &primerHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", nil
 	}
 	return handle, primerHash, err
 }
 
-// SetSession stores the terminal handle of a profile and the hash of its primer.
-func (s *Store) SetSession(ctx context.Context, profile, handle, primerHash string, now time.Time) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(profile, handle, created_at, primer_hash) VALUES (?, ?, ?, ?)
-	  ON CONFLICT(profile) DO UPDATE SET handle = excluded.handle, created_at = excluded.created_at,
-	  primer_hash = excluded.primer_hash`, profile, handle, now.UnixMilli(), primerHash)
+// SetSession stores the terminal handle of a space and the hash of its primer.
+func (s *Store) SetSession(ctx context.Context, space, handle, primerHash string, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, created_at, primer_hash) VALUES (?, ?, ?, ?)
+	  ON CONFLICT(space) DO UPDATE SET handle = excluded.handle, created_at = excluded.created_at,
+	  primer_hash = excluded.primer_hash`, space, handle, now.UnixMilli(), primerHash)
 	return err
 }
 
-// DeleteSession removes the stored handle of a profile.
-func (s *Store) DeleteSession(ctx context.Context, profile string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE profile = ?`, profile)
+// DeleteSession removes the stored handle of a space.
+func (s *Store) DeleteSession(ctx context.Context, space string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE space = ?`, space)
 	return err
 }
 

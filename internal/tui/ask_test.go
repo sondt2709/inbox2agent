@@ -29,15 +29,15 @@ func (a *tuiAgent) Ask(_ context.Context, _ string, wait time.Duration, r *rende
 	return a.result, nil
 }
 
-// newAskFeed is the Feed harness with the orca profile "triage" and a fake agent.
+// newAskFeed is the Feed harness with the orca agent "triage" of Unsorted and a fake agent.
 func newAskFeed(t *testing.T) (*feedHarness, *tuiAgent) {
 	t.Helper()
 	h := newFeedModel(t)
-	h.m.u.cfg.Profiles[0].Driver, h.m.u.cfg.Profiles[0].Workspace = config.DriverOrca, t.TempDir()
+	h.m.u.cfg.Agents[0].Driver, h.m.u.cfg.Agents[0].Workspace = config.DriverOrca, t.TempDir()
 	a := &tuiAgent{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_s, turn started", Handle: "term_s"}}
-	h.m.u.d.AskDriver = func(p config.Profile, _ agent.Sessions) (agent.Driver, error) {
-		if p.Name != "triage" {
-			t.Errorf("driver of profile %q", p.Name)
+	h.m.u.d.AskDriver = func(p config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+		if p.ID != "triage" || space != config.UnsortedID {
+			t.Errorf("driver of agent %q for space %q", p.ID, space)
 		}
 		return a, nil
 	}
@@ -64,7 +64,7 @@ func TestFeedAskTheAgent(t *testing.T) {
 	h, a := newAskFeed(t)
 	send(h.m, "t")
 	s := screen(h.m)
-	for _, want := range []string{"Ask the agent · card", "Agent      triage · orca", "Session    the session of the profile",
+	for _, want := range []string{"Ask the agent · card", "Agent      triage · orca · space Unsorted", "Session    the session of the space",
 		"The agent answers in this card.", "ctrl+s send", "esc cancel"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the ask form does not show %q:\n%s", want, s)
@@ -85,7 +85,7 @@ func TestFeedAskTheAgent(t *testing.T) {
 		t.Errorf("prompt = %s", p)
 	}
 	s = screen(h.m)
-	for _, want := range []string{"Sent to the agent (triage). It answers in this card.", "↪ asked",
+	for _, want := range []string{"Sent to the agent of Unsorted. It answers in this card.", "↪ asked",
 		"↪ Asked " + time.Now().Format("15:04") + ": Check the auth code and give me the effort. · sent"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Feed does not show %q:\n%s", want, s)
@@ -147,10 +147,10 @@ func TestFeedAskEmptyTextAndCancel(t *testing.T) {
 }
 
 func TestFeedAskDryRun(t *testing.T) {
-	h := newFeedModel(t) // the default profile is a dry run
+	h := newFeedModel(t) // the default agent is a dry run
 	send(h.m, "t")
 	s := screen(h.m)
-	if strings.Contains(s, "Ask the agent · card") || !strings.Contains(s, "Cannot ask: The profile triage uses dry-run; no agent reads asks.") {
+	if strings.Contains(s, "Ask the agent · card") || !strings.Contains(s, "Cannot ask: The space Unsorted has no agent that reads asks.") {
 		t.Errorf("dry run:\n%s", s)
 	}
 	if len(h.asks(t, "Correct your reply to Lena")) != 0 {

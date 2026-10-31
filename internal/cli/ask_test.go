@@ -29,13 +29,13 @@ func (a *cliAgent) Ask(_ context.Context, handle string, _ time.Duration, r *ren
 	return a.result, nil
 }
 
-// askEnv makes an I2A_HOME with an orca profile and the card mm:lena from the terminal term_card.
+// askEnv makes an I2A_HOME with an orca agent for Unsorted and the card mm:lena from the terminal term_card.
 func askEnv(t *testing.T, driver string) *cliAgent {
 	t.Helper()
 	cardEnv(t)
 	paths, _ := app.ResolvePaths()
 	cfg := config.Default()
-	cfg.Profiles[0].Driver, cfg.Profiles[0].Workspace = driver, t.TempDir()
+	cfg.Agents[0].Driver, cfg.Agents[0].Workspace = driver, t.TempDir()
 	if err := config.Save(paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func askEnv(t *testing.T, driver string) *cliAgent {
 	}
 	a := &cliAgent{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_card, turn started", Handle: "term_card"}}
 	old := askDriver
-	askDriver = func(config.Profile, agent.Sessions) (agent.Driver, error) { return a, nil }
+	askDriver = func(config.Agent, string, agent.Sessions) (agent.Driver, error) { return a, nil }
 	t.Cleanup(func() { askDriver = old })
 	return a
 }
@@ -56,7 +56,7 @@ func TestAskCommand(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("ask: %v %s", r.err, r.errOut)
 	}
-	if r.out != "sent to the agent of triage (term_card). Ask 1.\n" {
+	if r.out != "sent to the agent of the space Unsorted (term_card). Ask 1.\n" {
 		t.Errorf("output = %q", r.out)
 	}
 	if len(a.asks) != 1 || a.handles[0] != "term_card" || !strings.Contains(a.asks[0].Prompt, "--- ask ---\nAdd the effort in hours.\n--- end ---") {
@@ -65,7 +65,7 @@ func TestAskCommand(t *testing.T) {
 
 	a.result = agent.Result{Status: agent.StatusHeld, Detail: "agent busy in term_card"}
 	r = i2a(t, "And the risks.", "ask", "--card", "1")
-	if r.err != nil || r.out != "the agent of triage is busy; the ask is queued for the next dispatch. Ask 2.\n" {
+	if r.err != nil || r.out != "the agent of the space Unsorted is busy; the daemon sends the ask within a minute. Ask 2.\n" {
 		t.Errorf("busy: %v %q", r.err, r.out)
 	}
 }
@@ -91,7 +91,7 @@ func TestAskCommandErrors(t *testing.T) {
 func TestAskCommandDryRun(t *testing.T) {
 	a := askEnv(t, config.DriverDryRun)
 	r := i2a(t, "more", "ask", "--card", "mm:lena")
-	if r.err == nil || r.err.Error() != "The profile triage uses dry-run; no agent reads asks." || len(a.asks) != 0 {
+	if r.err == nil || r.err.Error() != "The space Unsorted has no agent that reads asks." || len(a.asks) != 0 {
 		t.Errorf("dry run: %v, asks = %d", r.err, len(a.asks))
 	}
 }

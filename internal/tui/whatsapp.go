@@ -17,17 +17,17 @@ import (
 // pairSteps tells the user how to link i2a on the phone.
 const pairSteps = whatsapp.PairSteps
 
-// removeWait is the wait for the daemon to close the connection of a removed source.
+// removeWait is the wait for the daemon to close the connection of a removed account.
 const removeWait = 5 * time.Second
 
 // pairing is a WhatsApp pairing that runs in the background.
 type pairing struct {
-	id, phone string
-	qr        string // the QR code, rendered
-	code      string // the pairing code
-	err       string
-	events    chan tea.Msg
-	cancel    context.CancelFunc
+	id, name, phone string
+	qr              string // the QR code, rendered
+	code            string // the pairing code
+	err             string
+	events          chan tea.Msg
+	cancel          context.CancelFunc
 }
 
 type (
@@ -44,16 +44,16 @@ type (
 	}
 )
 
-// startPairing opens the file of the new source and pairs it in the background.
-func (m *model) startPairing(id, phone string) tea.Cmd {
+// startPairing opens the file of the new account and pairs it in the background.
+func (m *model) startPairing(id, name, phone string) tea.Cmd {
 	if m.pair != nil {
 		return nil // one pairing at a time
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
-	p := &pairing{id: id, phone: phone, events: make(chan tea.Msg, 8), cancel: cancel}
+	p := &pairing{id: id, name: name, phone: phone, events: make(chan tea.Msg, 8), cancel: cancel}
 	m.pair = p
 	m.buildForm(true)
-	dataDir, lookback := m.u.d.Paths.DataDir, m.u.cfg.Timing.Lookback.D()
+	dataDir, lookback := m.u.d.Paths.DataDir, m.u.cfg.Settings.Lookback.D()
 	go func() {
 		done := pairDoneMsg{p: p}
 		defer func() { p.events <- done }()
@@ -83,7 +83,7 @@ func (m *model) startPairing(id, phone string) tea.Cmd {
 
 // rebuildPairForm draws the pairing panel again and keeps its focus.
 func (m *model) rebuildPairForm() {
-	if m.formFor != "src:+pair" {
+	if m.formFor != "acc:+pair" {
 		return
 	}
 	active := m.form != nil && m.form.active
@@ -134,7 +134,7 @@ func (m *model) pairDone(msg pairDoneMsg) tea.Cmd {
 		case errors.Is(msg.err, whatsapp.ErrPairTimeout):
 			text = "Pairing timed out. Nothing was added."
 		case errors.Is(msg.err, whatsapp.ErrBusy):
-			text = "Another i2a process holds the source " + p.id + ". Nothing was added."
+			text = "Another i2a process holds the account " + p.id + ". Nothing was added."
 		}
 		m.buildForm(true)
 		if m.form != nil {
@@ -143,15 +143,10 @@ func (m *model) pairDone(msg pairDoneMsg) tea.Cmd {
 		m.setStatus(text, true)
 		return nil
 	}
-	sc := config.NewWhatsAppSource(p.id)
-	sc.Profile = m.u.cfg.Profiles[0].Name
-	m.newSrc = &pendingSource{sc: sc}
-	m.chs["+new"] = chatInfos(msg.chats)
-	m.buildForm(true)
-	if m.form == nil {
-		return nil
-	}
-	return m.form.activate()
+	a := config.NewWhatsAppAccount(p.id)
+	a.Name = orStr(p.name, p.id)
+	m.chs[p.id] = chatInfos(msg.chats)
+	return m.addAccount(a, "", fmt.Sprintf("Paired %s: %s are in Unsorted. Sort them in tab 4.", a.Title(), plural(len(msg.chats), "chat", "chats")))
 }
 
 // cancelPairing stops a running pairing.
@@ -194,7 +189,7 @@ func (m *model) pairForm() *form {
 	return fm
 }
 
-// chatInfos converts WhatsApp chats for the channel picker.
+// chatInfos converts WhatsApp chats to the conversations of an account.
 func chatInfos(chats []whatsapp.Chat) []mattermost.ChannelInfo {
 	out := make([]mattermost.ChannelInfo, 0, len(chats))
 	for _, c := range chats {
@@ -210,13 +205,7 @@ func chatInfos(chats []whatsapp.Chat) []mattermost.ChannelInfo {
 	return out
 }
 
-// isWhatsApp reports whether the source with the ID is a WhatsApp source.
-func (m *model) isWhatsApp(id string) bool {
-	sc, ok := m.u.cfg.Source(id)
-	return ok && sc.Type == config.SourceWhatsApp
-}
-
-// whatsAppState returns "paired" or "not paired" for a saved source.
+// whatsAppState returns "paired" or "not paired" for a saved account.
 func (m *model) whatsAppState(id string) string {
 	ok, err := whatsapp.IsPaired(m.ctx, m.u.d.Paths.DataDir, id)
 	switch {
@@ -228,13 +217,13 @@ func (m *model) whatsAppState(id string) string {
 	return "not paired"
 }
 
-// removeWhatsApp logs out a removed source and deletes its file in the background.
+// removeWhatsApp logs out a removed account and deletes its file in the background.
 func (m *model) removeWhatsApp(id string) tea.Cmd {
 	dataDir := m.u.d.Paths.DataDir
 	return func() tea.Msg {
 		if err := whatsapp.Remove(context.Background(), dataDir, id, removeWait, nil); err != nil {
 			return statusMsg{text: whatsapp.UnlinkHint(err), isErr: true}
 		}
-		return statusMsg{text: "Removed source " + id + " and logged out the linked device."}
+		return statusMsg{text: "Removed account " + id + " and logged out the linked device."}
 	}
 }

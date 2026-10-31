@@ -33,16 +33,16 @@ func (p *tuiPlatform) Find(context.Context, inbox.ReplyRequest) (inbox.Posted, b
 	return inbox.Posted{}, false, nil
 }
 
-// newReplyFeed is the Feed harness with the source "work" in the configuration
+// newReplyFeed is the Feed harness with the account "work" in the configuration
 // and a fake platform.
 func newReplyFeed(t *testing.T) (*feedHarness, *tuiPlatform) {
 	t.Helper()
 	h := newFeedModel(t)
-	h.m.u.cfg.Sources = []config.Source{{ID: "work", Type: config.SourceMattermost, URL: "https://chat.example.com"}}
+	h.m.u.cfg.Accounts = []config.Account{{ID: "work", Platform: config.PlatformMattermost, URL: "https://chat.example.com"}}
 	p := &tuiPlatform{}
 	h.m.u.d.Replier = func(_ *config.Config, id string) (source.Replier, error) {
 		if id != "work" {
-			t.Errorf("replier of source %q", id)
+			t.Errorf("replier of account %q", id)
 		}
 		return p, nil
 	}
@@ -146,9 +146,9 @@ func TestFeedReplyRefusals(t *testing.T) {
 	if s := screen(h.m); !strings.Contains(s, "The card has no message to reply to.") || strings.Contains(s, "Reply · card") {
 		t.Errorf("card without a message:\n%s", s)
 	}
-	h.m.u.cfg.Sources = nil
+	h.m.u.cfg.Accounts = nil
 	send(h.m, "up", "up", "r")
-	if s := screen(h.m); !strings.Contains(s, `source "work" is not in the configuration`) || strings.Contains(s, "Reply · card") {
+	if s := screen(h.m); !strings.Contains(s, `account "work" is not in the configuration`) || strings.Contains(s, "Reply · card") {
 		t.Errorf("removed source:\n%s", s)
 	}
 	if len(p.posts) != 0 {

@@ -10,39 +10,6 @@ The Mattermost source SHALL send the token from the secret backend in the header
 - **WHEN** the server returns HTTP 401 during a poll
 - **THEN** the log shows an authentication error for that source, and the other sources continue
 
-### Requirement: Collect new messages from selected channels
-The source SHALL collect posts that were created after the channel cursor in these channels:
-
-- the selected channels, which can also be direct and group channels;
-- all direct and group channels, when `all_direct` is on;
-- any member channel, but only posts that contain `@<username>`, when `mentions` is on.
-
-The source SHALL skip deleted posts, system posts and posts by the user. On the first poll, the cursor SHALL be the current time minus `lookback`.
-
-#### Scenario: Post in a selected direct channel
-- **WHEN** `all_direct` and `mentions` are off, the direct channel with `bob` is selected, and `bob` posts in it and in another channel
-- **THEN** the next poll returns only the post in the direct channel
-
-#### Scenario: Post in a selected channel
-- **WHEN** another user posts in a selected channel
-- **THEN** the next poll returns that post with the channel name, the author username, the text, the time and a permalink
-
-#### Scenario: Post in a channel that is not selected
-- **WHEN** another user posts in a channel that is not selected, with no mention of the user, and `mentions` is on
-- **THEN** the poll does not return that post
-
-#### Scenario: Mention in a channel that is not selected
-- **WHEN** another user posts `@<username> please check` in a channel that is not selected, and `mentions` is on
-- **THEN** the poll returns that post
-
-#### Scenario: Direct message
-- **WHEN** another user sends a direct message to the user and `all_direct` is on
-- **THEN** the poll returns that post with the kind `direct`
-
-#### Scenario: Own post
-- **WHEN** the user posts in a selected channel
-- **THEN** the poll does not return that post
-
 ### Requirement: Read state does not change
 The source SHALL use only read requests to collect messages. The source SHALL NOT call any API that marks a channel or a post as read when it collects messages. To send a reply, the source SHALL use only `GET /posts/{id}`, `GET /channels/{id}/posts` and `POST /posts?set_online=false`. Mattermost marks the channel read for a top-level post of the user and keeps the read state for a reply in a thread; the source SHALL NOT add a request that changes this.
 
@@ -82,4 +49,31 @@ For each collected post, the source SHALL keep the ID of the thread root (`root_
 #### Scenario: Reply in a thread collected
 - **WHEN** the source collects a post with `root_id` R
 - **THEN** the stored message has the thread ID R
+
+### Requirement: Collect new messages by read level
+The source SHALL read each member channel, direct channel and group channel of the user. For each channel it SHALL use the read level of the conversation in the configuration, or `unsorted.read` when no space lists the channel. It SHALL collect the posts that were created after the channel cursor: each post for `all`; for `mentions`, each post of a direct channel and, in other channels, only posts that contain `@<username>`; no post for `off`. The source SHALL skip deleted posts, system posts and posts by the user. On the first poll, the cursor SHALL be the current time minus `lookback`.
+
+#### Scenario: Channel with read level all
+- **WHEN** another user posts in a channel with the read level `all`
+- **THEN** the next poll returns that post with the channel name, the author username, the text, the time and a permalink
+
+#### Scenario: Channel with read level mentions
+- **WHEN** another user posts in a channel with the read level `mentions`, with no mention of the user
+- **THEN** the poll does not return that post
+
+#### Scenario: Mention in an unsorted channel
+- **WHEN** `unsorted.read = "mentions"` and another user posts `@<username> please check` in a channel that no space lists
+- **THEN** the poll returns that post
+
+#### Scenario: Direct message with read level mentions
+- **WHEN** a direct channel has the read level `mentions` and the other user writes "lunch?"
+- **THEN** the poll returns that post with the kind `direct`
+
+#### Scenario: Direct channel off
+- **WHEN** the direct channel with `bob` has the read level `off` and `bob` posts in it
+- **THEN** the poll does not return that post
+
+#### Scenario: Own post
+- **WHEN** the user posts in a channel with the read level `all`
+- **THEN** the poll does not return that post
 

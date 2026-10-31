@@ -14,10 +14,10 @@ import (
 func newConfigCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "config",
-		Short: "Open the dashboard on the Overview tab (sources, channels, profiles, timing, service)",
+		Short: "Open the dashboard on the Spaces tab (accounts, conversations, spaces, agents, schedules)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDashboard(cmd, tui.TabOverview)
+			return runDashboard(cmd, tui.TabSpaces)
 		},
 	}
 }

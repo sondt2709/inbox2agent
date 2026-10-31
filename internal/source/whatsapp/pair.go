@@ -142,6 +142,45 @@ func ReadChats(ctx context.Context, dataDir, id string) ([]Chat, error) {
 	return (&DB{sql: db}).Chats(ctx)
 }
 
+// Device identifies the account of a paired source for a person.
+type Device struct {
+	Phone string // international format, for example +15551234567
+	Name  string // the profile name (push name) of the account
+}
+
+// ReadDevice reads the phone number and the profile name of a paired source
+// from its file. It needs no lock and no network. A source that is not paired
+// gives an empty Device.
+func ReadDevice(ctx context.Context, dataDir, id string) (Device, error) {
+	db, err := openRO(dataDir, id)
+	if errors.Is(err, os.ErrNotExist) {
+		return Device{}, nil
+	}
+	if err != nil {
+		return Device{}, err
+	}
+	defer db.Close()
+	var jid, name string
+	err = db.QueryRowContext(ctx, `SELECT jid, push_name FROM whatsmeow_device LIMIT 1`).Scan(&jid, &name)
+	if errors.Is(err, sql.ErrNoRows) || err != nil && strings.Contains(err.Error(), "no such table") {
+		return Device{}, nil
+	}
+	if err != nil {
+		return Device{}, err
+	}
+	return Device{Phone: phoneOf(jid), Name: name}, nil
+}
+
+// phoneOf returns "+<number>" for a device JID such as "15551234567:12@s.whatsapp.net".
+func phoneOf(jid string) string {
+	user, _, _ := strings.Cut(jid, "@")
+	user, _, _ = strings.Cut(user, ":")
+	if user == "" {
+		return ""
+	}
+	return "+" + user
+}
+
 // Remove unlinks the device on the phone and deletes the files of the source.
 // It waits up to wait for the lock, for example while the daemon closes the
 // connection after a configuration reload. It deletes the files also when the

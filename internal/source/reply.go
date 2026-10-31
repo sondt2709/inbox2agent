@@ -25,39 +25,39 @@ type Replier interface {
 // ErrCannotReply is returned for a source that cannot send replies.
 var ErrCannotReply = errors.New("cannot send replies yet")
 
-// BuildReplier builds the source with the ID from the configuration, for a send.
-func BuildReplier(cfg *config.Config, sourceID string, sec secrets.Store, hc *http.Client) (Replier, error) {
-	for _, sc := range cfg.Sources {
-		if sc.ID != sourceID {
+// BuildReplier builds the source of the account with the ID, for a send.
+func BuildReplier(cfg *config.Config, accountID string, sec secrets.Store, hc *http.Client) (Replier, error) {
+	for _, sc := range cfg.Accounts {
+		if sc.ID != accountID {
 			continue
 		}
-		if sc.Type != config.SourceMattermost {
-			return nil, fmt.Errorf("source %q (%s): %w", sc.ID, sc.Type, ErrCannotReply)
+		if sc.Platform != config.PlatformMattermost {
+			return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
 		}
-		src, err := Build(sc, Env{Secrets: sec, Lookback: cfg.Timing.Lookback.D(), HTTP: hc})
+		src, err := Build(sc, Env{Secrets: sec, Lookback: cfg.Settings.Lookback.D(), HTTP: hc, Default: config.ReadOff})
 		if err != nil {
 			return nil, err
 		}
 		r, ok := src.(Replier)
 		if !ok {
-			return nil, fmt.Errorf("source %q (%s): %w", sc.ID, sc.Type, ErrCannotReply)
+			return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
 		}
 		return r, nil
 	}
-	return nil, fmt.Errorf("source %q is not in the configuration", sourceID)
+	return nil, fmt.Errorf("account %q is not in the configuration", accountID)
 }
 
-// CanReply reports whether the source with the ID exists in the configuration
+// CanReply reports whether the account with the ID exists in the configuration
 // and can send replies. It does not read the token.
-func CanReply(cfg *config.Config, sourceID string) error {
-	for _, sc := range cfg.Sources {
-		if sc.ID != sourceID {
+func CanReply(cfg *config.Config, accountID string) error {
+	for _, sc := range cfg.Accounts {
+		if sc.ID != accountID {
 			continue
 		}
-		if sc.Type != config.SourceMattermost {
-			return fmt.Errorf("source %q (%s): %w", sc.ID, sc.Type, ErrCannotReply)
+		if sc.Platform != config.PlatformMattermost {
+			return fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
 		}
 		return nil
 	}
-	return fmt.Errorf("source %q is not in the configuration", sourceID)
+	return fmt.Errorf("account %q is not in the configuration", accountID)
 }
