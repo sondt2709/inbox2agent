@@ -48,6 +48,19 @@ daemon does the run, so only one process reads the accounts.`,
 				}
 				return nil
 			}
+			// No daemon: hold its lock, so a daemon does not start and read the
+			// same accounts while this process runs.
+			if err := e.paths.EnsureDataDir(); err != nil {
+				return err
+			}
+			unlock, err := daemon.Lock(e.paths.LockFile)
+			if errors.Is(err, daemon.ErrLocked) {
+				return errors.New("a daemon holds its lock but does not answer yet: try again in a few seconds")
+			}
+			if err != nil {
+				return err
+			}
+			defer unlock()
 			cfg, err := e.loadConfig()
 			if err != nil {
 				return err

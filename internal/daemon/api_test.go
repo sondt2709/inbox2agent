@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +67,7 @@ func TestAPIStatusRunAndEvents(t *testing.T) {
 	}
 	var st Status
 	waitFor(t, func() bool { st, err = client.Status(ctx); return err == nil && len(st.Spaces) == 2 })
-	if st.PID != os.Getpid() || st.Version != "test" || st.Spaces[1].Space != "review" || st.Spaces[1].At.IsZero() {
+	if st.PID != os.Getpid() || st.Version != "test" || st.Spaces[1].Space != "review" || st.Spaces[1].At == nil {
 		t.Fatalf("status = %+v", st)
 	}
 
@@ -116,7 +118,7 @@ func TestAPIStatusRunAndEvents(t *testing.T) {
 		}
 	}
 
-	if _, err := client.Run(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), `the space "nope" does not exist`) {
+	if _, err := client.Run(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), `the space does not exist: "nope"`) {
 		t.Errorf("run of an unknown space: %v", err)
 	}
 	cancel()
@@ -170,5 +172,32 @@ func TestOpenAPIFileHasEachPath(t *testing.T) {
 		if !strings.Contains(string(b), "\n  "+p+":\n") {
 			t.Errorf("docs/daemon-api.yaml has no path %s", p)
 		}
+	}
+}
+
+// A daemon that took the request and then failed is not "no daemon": the
+// caller must not do the run itself.
+func TestOnlyADialErrorIsNoDaemon(t *testing.T) {
+	dir := shortDir(t)
+	c := NewClient(dir)
+	if _, err := c.Run(context.Background(), nil); !errors.Is(err, ErrNoDaemon) {
+		t.Fatalf("no socket: %v, want ErrNoDaemon", err)
+	}
+	l, err := net.Listen("unix", filepath.Join(dir, SocketName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close() // the daemon stops after it took the request
+		}
+	}()
+	if _, err := c.Run(context.Background(), nil); err == nil || errors.Is(err, ErrNoDaemon) {
+		t.Fatalf("a closed connection: %v, want a daemon error that is not ErrNoDaemon", err)
 	}
 }

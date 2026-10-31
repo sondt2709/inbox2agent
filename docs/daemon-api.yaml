@@ -51,8 +51,18 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500":
+          description: The run failed, for example a store error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "504":
+          description: The run did not end in 10 minutes; it continues in the daemon
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "503":
-          description: The loop did not take the run in time
+          description: The loop did not take the run in time, or the daemon is stopping
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -87,7 +97,7 @@ components:
         space: { type: string }
         name: { type: string }
         agent: { type: string, description: Empty when the space holds its messages }
-        at: { type: string, format: date-time, description: The next send; the zero time when the space does not send }
+        at: { type: string, format: date-time, description: The next send; missing when the space does not send }
     Status:
       type: object
       properties:

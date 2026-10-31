@@ -13,8 +13,25 @@ import (
 	"time"
 )
 
-// ErrNoDaemon means that no daemon answers on the socket.
+// ErrNoDaemon means that no daemon listens on the socket: the dial failed.
+// An error after the dial is not ErrNoDaemon, because the daemon can have
+// started the work.
 var ErrNoDaemon = errors.New("no i2a daemon answers")
+
+// dialError marks an error of the dial to the socket.
+type dialError struct{ err error }
+
+func (e dialError) Error() string { return e.err.Error() }
+func (e dialError) Unwrap() error { return e.err }
+
+// noDaemon returns ErrNoDaemon for a dial error, else a daemon error.
+func noDaemon(err error) error {
+	var de dialError
+	if errors.As(err, &de) {
+		return fmt.Errorf("%w: %v", ErrNoDaemon, de.err)
+	}
+	return fmt.Errorf("the daemon did not answer: %w", err)
+}
 
 // Client calls the API of the daemon of a data directory.
 type Client struct {
@@ -28,7 +45,11 @@ func NewClient(dataDir string) *Client {
 	d := net.Dialer{Timeout: 2 * time.Second}
 	return &Client{Socket: socket, http: &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return d.DialContext(ctx, "unix", socket)
+			c, err := d.DialContext(ctx, "unix", socket)
+			if err != nil {
+				return nil, dialError{err}
+			}
+			return c, nil
 		},
 	}}}
 }
@@ -54,7 +75,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return fmt.Errorf("%w: %v", ErrNoDaemon, err)
+		return noDaemon(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -100,7 +121,7 @@ func (c *Client) Events(ctx context.Context) (<-chan Event, error) {
 	}
 	resp, err := c.http.Do(req) //nolint:bodyclose // the goroutine below closes the body of the stream
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrNoDaemon, err)
+		return nil, noDaemon(err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
