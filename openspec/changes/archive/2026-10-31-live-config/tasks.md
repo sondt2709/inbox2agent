@@ -40,6 +40,6 @@
 
 ## 7. Verify
 
-- [ ] 7.1 Run `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task e2e` and `task leakcheck` on the last commit. Write the SHA in each result.
-- [ ] 7.2 Run the steps of `7-lost-external-edit.txt` again with the real binary and capture the screen and the file after the save.
+- [x] 7.1 Run `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task e2e` and `task leakcheck` on the last commit. Write the SHA in each result.
+- [x] 7.2 Run the steps of `7-lost-external-edit.txt` again with the real binary and capture the screen and the file after the save.
 - [ ] 7.3 Open the PR with Summary, OpenSpec, Risk, Evidence, Not verified and Rollback.
