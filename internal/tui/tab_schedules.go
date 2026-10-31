@@ -146,29 +146,32 @@ func (m *model) saveSchedule(id string) tea.Cmd {
 	if !fm.validate() {
 		return nil
 	}
-	next := clone(m.u.cfg)
 	s := config.Schedule{}
 	if id == "" {
 		s.ID = fm.field("id").value()
-	} else {
-		cur, _ := next.Schedule(id)
+	} else if cur, ok := m.u.cfg.Schedule(id); ok {
 		s = *cur
 	}
 	s.Name = fm.field("name").value()
 	s.Every, _ = config.ParseDuration(fm.field("every").value())
 	s.Days = splitDays(fm.field("days").value())
 	s.Hours = fm.field("hours").value()
-	if id == "" {
-		next.Schedules = append(next.Schedules, s)
-	} else {
-		cur, _ := next.Schedule(id)
+	if err := m.commitForm(fm, func(c *config.Config) error {
+		if id == "" {
+			c.Schedules = append(c.Schedules, s)
+			return nil
+		}
+		cur, ok := c.Schedule(id)
+		if !ok {
+			return config.MissingError{Kind: config.KindSchedule, ID: id}
+		}
 		*cur = s
-	}
-	if err := m.u.commit(next, nil); err != nil {
-		fm.err = "Cannot save: " + err.Error()
+		return nil
+	}, nil); err != nil {
+		saveError(fm, err)
 		return nil
 	}
-	for i, x := range next.Schedules {
+	for i, x := range m.u.cfg.Schedules {
 		if x.ID == s.ID {
 			m.sch = i
 		}

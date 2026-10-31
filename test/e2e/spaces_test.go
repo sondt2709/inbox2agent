@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
 )
@@ -133,5 +134,44 @@ func TestS39SortAHeldConversation(t *testing.T) {
 	}
 	if got := texts(readDigest(t, p.digests()[0])); !slices.Equal(got, []string{"S39 can you review my PR?"}) {
 		t.Fatalf("digest texts = %q", got)
+	}
+}
+
+// S40: the TUI is open. Another process adds a space to config.toml by hand.
+// The TUI shows it, and a save of the Settings tab keeps it.
+func TestS40EditFromAnotherProcess(t *testing.T) {
+	p := newPerson(t, "S40")
+	c := config.Default()
+	c.Spaces = []config.Space{{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"}}
+	if err := config.Save(p.configFile(), c); err != nil {
+		t.Fatal(err)
+	}
+	tm := p.term("config")
+	tm.WaitFor(`5 Spaces`, 30*time.Second)
+	f, err := os.OpenFile(p.configFile(), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString("\n[[spaces]]\nid = 'side-project'\nname = 'Side project'\nagent = 'triage'\nschedule = 'always'\n")
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := tm.WaitFor(`Side project`, 5*time.Second)
+	if !strings.Contains(s, "changed in another process") {
+		t.Errorf("the status line does not say that the file changed:\n%s", s)
+	}
+	tm.Press("8", `Lookback\s+1d`, 5*time.Second)
+	tm.Press("Enter", `▌ Lookback`, 5*time.Second)
+	tm.Replace("2d")
+	tm.Press("C-s", `Saved the settings`, 5*time.Second)
+	tm.Press("q", `Saved /`, 5*time.Second)
+	c = p.config()
+	if c.Settings.Lookback.String() != "2d" {
+		t.Errorf("lookback = %s, want 2d", c.Settings.Lookback)
+	}
+	if _, ok := c.Space("side-project"); !ok {
+		raw, _ := os.ReadFile(p.configFile())
+		t.Fatalf("the save removed the space of the other process:\n%s", raw)
 	}
 }

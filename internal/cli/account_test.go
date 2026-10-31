@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
@@ -111,5 +112,36 @@ func TestLoadPrintsTheMigrationReport(t *testing.T) {
 	if r.err != nil || !strings.Contains(string(b[:n]), "i2a converted the configuration to version 2") ||
 		!strings.Contains(string(b[:n]), paths.ConfigFile+".v1.bak") {
 		t.Errorf("stderr = %q, err = %v", b[:n], r.err)
+	}
+}
+
+func TestConversationSetWaitsForTheLockOfAnotherWriter(t *testing.T) {
+	file := spacesEnv(t)
+	locked, done := make(chan struct{}), make(chan error)
+	go func() {
+		_, _, err := config.Update(file, func(c *config.Config) error {
+			close(locked)
+			time.Sleep(300 * time.Millisecond) // another writer holds the lock
+			c.Spaces = append(c.Spaces, config.Space{ID: "side-project", Name: "Side project", Agent: "claude-work", Schedule: "always"})
+			return nil
+		})
+		done <- err
+	}()
+	<-locked
+	if r := i2a(t, "", "conversation", "set", "phone", "g1@g.us", "--space", "acme"); r.err != nil {
+		t.Fatal(r.err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Space("side-project"); !ok {
+		t.Errorf("the command removed the space of the other writer")
+	}
+	if c.Route("phone", "g1@g.us") != "acme" {
+		t.Errorf("the command did not move the conversation")
 	}
 }
