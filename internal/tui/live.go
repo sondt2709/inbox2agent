@@ -165,6 +165,9 @@ func (m *model) applyFile(st fileState) tea.Cmd {
 		}
 	}
 	c := m.u.cfg
+	if m.activeSpace() == "" {
+		m.spaceFilter = "" // the space of the filter is gone: all spaces, also when a new space gets its ID
+	}
 	m.acc, m.agt, m.sch, m.spc = min(m.acc, len(c.Accounts)), min(m.agt, len(c.Agents)), min(m.sch, len(c.Schedules)), min(m.spc, len(c.Spaces))
 	var cmd tea.Cmd
 	if m.tab == tabFeed {
