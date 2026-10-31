@@ -60,7 +60,13 @@ type Engine struct {
 	sources  map[string]source.Source
 	lastPoll map[string]time.Time
 	unpaired map[string]bool // WhatsApp accounts that got ErrNotPaired since their last good read
+	api      *Server         // the API of the daemon, or nil
+	reads    map[string]AccountRead
 }
+
+// SetAPI connects the API server: the loop serves its runs, and the engine
+// publishes its events and its status.
+func (e *Engine) SetAPI(s *Server) { e.api = s }
 
 // New returns an engine. Nil fields in Deps get the default values.
 func New(d Deps, cfg *config.Config) *Engine {
@@ -89,7 +95,7 @@ func New(d Deps, cfg *config.Config) *Engine {
 		}
 		d.CardCommand = render.CardCommand(exe, os.Getenv("I2A_HOME"))
 	}
-	e := &Engine{d: d, lastPoll: map[string]time.Time{}, unpaired: map[string]bool{}}
+	e := &Engine{d: d, lastPoll: map[string]time.Time{}, unpaired: map[string]bool{}, reads: map[string]AccountRead{}}
 	e.SetConfig(cfg)
 	return e
 }
@@ -141,7 +147,48 @@ func (e *Engine) Poll(ctx context.Context, force bool) []PollResult {
 		e.notifyPaired(sc.ID, err)
 		out = append(out, PollResult{AccountID: sc.ID, New: n, Err: err})
 	}
+	e.publishReads(out, now)
 	return out
+}
+
+// publishReads records the reads in the status of the API and publishes a
+// read event for each read with new messages or an error.
+func (e *Engine) publishReads(polls []PollResult, now time.Time) {
+	if e.api == nil || len(polls) == 0 {
+		return
+	}
+	for _, p := range polls {
+		r := AccountRead{Account: p.AccountID, At: now, New: p.New}
+		if p.Err != nil {
+			r.Error = p.Err.Error()
+		}
+		e.reads[p.AccountID] = r
+		if p.New > 0 || p.Err != nil {
+			e.api.Publish(Event{At: now, Kind: EventRead, Account: p.AccountID, Count: p.New, Detail: r.Error})
+		}
+	}
+	var reads []AccountRead
+	for _, a := range e.cfg.Accounts {
+		if r, ok := e.reads[a.ID]; ok {
+			reads = append(reads, r)
+		}
+	}
+	e.api.setStatus(nil, reads)
+}
+
+// publishDispatch publishes a send event for each batch and an ask event for
+// each ask that a dispatch tried.
+func (e *Engine) publishDispatch(d DispatchResult) {
+	for _, b := range d.Batches {
+		ev := Event{Kind: EventSend, Space: b.Space, Agent: b.Agent, Count: b.Count, Status: b.Status, Detail: b.Detail}
+		if b.Err != nil {
+			ev.Status, ev.Detail = "failed", b.Err.Error()
+		}
+		e.api.Publish(ev)
+	}
+	for _, a := range d.Asks {
+		e.api.Publish(Event{Kind: EventAsk, Space: a.Space, Status: a.State, Detail: a.Detail})
+	}
 }
 
 func (e *Engine) pollOne(ctx context.Context, sc config.Account, now time.Time) (int, error) {
@@ -230,6 +277,44 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 		e.notify(*a, br)
 		res.Batches = append(res.Batches, br)
 	}
+	e.publishDispatch(res)
+	return res, nil
+}
+
+// RunNow reads all accounts and sends the given spaces (nil: all spaces), as
+// "i2a run --once" does. An unknown space is an error, and nothing runs.
+func (e *Engine) RunNow(ctx context.Context, spaces []string) (RunResult, error) {
+	for _, id := range spaces {
+		if _, ok := e.cfg.Space(id); !ok && id != config.UnsortedID {
+			return RunResult{}, fmt.Errorf("the space %q does not exist", id)
+		}
+	}
+	if len(spaces) == 0 {
+		spaces = nil
+	}
+	e.api.Publish(Event{Kind: EventRun, Status: "started", Detail: strings.Join(spaces, ",")})
+	polls := e.Poll(ctx, true)
+	d, err := e.Dispatch(ctx, spaces)
+	if err != nil {
+		e.api.Publish(Event{Kind: EventError, Detail: err.Error()})
+		return RunResult{}, err
+	}
+	res := RunResult{Summary: Summary(polls, d), Reads: []AccountRead{}, Batches: []Batch{}}
+	for _, p := range polls {
+		r := AccountRead{Account: p.AccountID, At: e.d.Now(), New: p.New}
+		if p.Err != nil {
+			r.Error, res.Failed = p.Err.Error(), true
+		}
+		res.Reads = append(res.Reads, r)
+	}
+	for _, b := range d.Batches {
+		x := Batch{Space: b.Space, Agent: b.Agent, Driver: b.Driver, Count: b.Count, Status: b.Status, Detail: b.Detail}
+		if b.Err != nil {
+			x.Error, res.Failed = b.Err.Error(), true
+		}
+		res.Batches = append(res.Batches, x)
+	}
+	e.api.Publish(Event{Kind: EventRun, Status: "done", Count: len(d.Batches)})
 	return res, nil
 }
 

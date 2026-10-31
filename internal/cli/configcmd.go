@@ -1,14 +1,18 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync/atomic"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/daemon"
+	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/store"
 	"github.com/sondt2709/inbox2agent/internal/tui"
@@ -112,6 +116,40 @@ func newConfigSchemaCmd() *cobra.Command {
 	}
 }
 
+// runNow reads all accounts and sends the spaces now: with the daemon when it
+// answers, else in this process under the daemon lock, so a daemon does not
+// start while this process reads the accounts.
+func runNow(ctx context.Context, e *env, spaces []string) (daemon.RunResult, error) {
+	res, err := daemon.NewClient(e.paths.DataDir).Run(ctx, spaces)
+	if !errors.Is(err, daemon.ErrNoDaemon) {
+		return res, err
+	}
+	if err := e.paths.EnsureDataDir(); err != nil {
+		return res, err
+	}
+	unlock, err := daemon.Lock(e.paths.LockFile)
+	if errors.Is(err, daemon.ErrLocked) {
+		return res, errors.New("the daemon is starting: press R again in a few seconds")
+	}
+	if err != nil {
+		return res, err
+	}
+	defer unlock()
+	cfg, err := e.loadConfig()
+	if err != nil {
+		return res, err
+	}
+	st, err := e.openStore()
+	if err != nil {
+		return res, err
+	}
+	defer st.Close()
+	eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets,
+		Log: slog.New(slog.DiscardHandler), Notify: notify.Desktop()}, cfg)
+	defer eng.Close()
+	return eng.RunNow(ctx, spaces)
+}
+
 // count writes "1 space" or "2 spaces".
 func count(n int, unit string) string {
 	if n == 1 {
@@ -135,6 +173,8 @@ func runDashboard(cmd *cobra.Command, tab tui.TabID) error {
 	d := tui.Deps{
 		Paths: e.paths, Config: cfg, Secrets: e.secrets, Tab: tab,
 		Check: CheckMattermost, Out: cmd.OutOrStdout(),
+		RunNow: func(ctx context.Context, spaces []string) (daemon.RunResult, error) { return runNow(ctx, e, spaces) },
+		Events: daemon.NewClient(e.paths.DataDir).Events,
 		InstallService: func() (string, error) {
 			saved, err := e.loadConfig() // the service runs the saved file
 			if err != nil {

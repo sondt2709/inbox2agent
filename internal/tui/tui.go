@@ -23,6 +23,7 @@ import (
 	i2aapp "github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/ask"
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
@@ -85,6 +86,12 @@ type Deps struct {
 	// CardCommand is the command of the card section in the primer of a new
 	// session; the default is this executable, with I2A_HOME when it is set.
 	CardCommand string
+
+	// RunNow reads all accounts and sends the spaces now (nil: all spaces):
+	// with the daemon when it runs, else in this process.
+	RunNow func(ctx context.Context, spaces []string) (daemon.RunResult, error)
+	// Events reads the events of the daemon; an error means that no daemon answers.
+	Events func(ctx context.Context) (<-chan daemon.Event, error)
 
 	ServiceStatus    func() (service.State, error)
 	InstallService   func() (string, error) // installs or restarts the LaunchAgent; returns its path
