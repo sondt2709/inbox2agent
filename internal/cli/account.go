@@ -343,7 +343,7 @@ name, label, space and read.`,
 }
 
 // errConversationRemoved is the exit of the removed command "i2a conversation".
-var errConversationRemoved = exitError{code: 2, msg: `i2a conversation set is removed: edit config.toml. Add the conversation to a space:
+var errConversationRemoved = exitError{code: 2, msg: `The command i2a conversation is removed: edit config.toml. Add the conversation to a space:
 
   [[spaces.conversations]]
   account = '<account-id>'
@@ -352,7 +352,7 @@ var errConversationRemoved = exitError{code: 2, msg: `i2a conversation set is re
   label = ''     # optional
 
 Remove it from the other space. "i2a conversations --json" gives the IDs,
-"i2a config check" checks the file, and "i2a config --help" explains it.`}
+"i2a config check" checks the file, and "i2a config --help" explains it`}
 
 // newConversationCmd only tells the user how to edit the file.
 func newConversationCmd() *cobra.Command {

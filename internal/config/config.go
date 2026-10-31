@@ -97,7 +97,7 @@ type Settings struct {
 // Notify controls the desktop notifications.
 type Notify struct {
 	Enabled    bool   `toml:"enabled" comment:"Show macOS notifications for new cards and failed dispatches."`
-	MinUrgency string `toml:"min_urgency" comment:"The lowest card urgency that gives a notification: high, normal or low." enum:"high,normal,low"`
+	MinUrgency string `toml:"min_urgency" comment:"The lowest card urgency that gives a notification: high, normal or low." enum:"high,normal,low" schema:"default"`
 }
 
 // Account is one login to one platform. It only connects: it names no space,
@@ -107,7 +107,7 @@ type Account struct {
 	Name      string   `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
 	Platform  string   `toml:"platform" doc:"The chat tool of the account." enum:"mattermost,whatsapp" schema:"required"`
 	URL       string   `toml:"url,omitempty" doc:"The server URL of a Mattermost account, with https:// or http://."`
-	User      string   `toml:"user,omitempty" doc:"The Mattermost username. i2a writes it after the connection check."` // the Mattermost username, a cache for the screens
+	User      string   `toml:"user,omitempty" doc:"The Mattermost username. i2a writes it after the connection check."`
 	ReadEvery Duration `toml:"read_every" doc:"The time between two reads of the account. At least 5s. Default: 1m, or 10s for WhatsApp."`
 }
 
@@ -115,11 +115,11 @@ type Account struct {
 type Agent struct {
 	ID              string `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it." schema:"required,id"`
 	Name            string `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
-	Driver          string `toml:"driver" doc:"orca types the batch into an agent terminal of Orca. dry-run only writes the digest file." enum:"orca,dry-run"`
+	Driver          string `toml:"driver" doc:"orca types the batch into an agent terminal of Orca. dry-run only writes the digest file." enum:"orca,dry-run" schema:"default"`
 	CLI             string `toml:"cli" doc:"The agent CLI that Orca starts, for example claude."`
 	Workspace       string `toml:"workspace" doc:"The folder of the agent terminal. The orca driver needs it."`
-	Session         string `toml:"session" doc:"new: a new terminal for each batch. reuse: one terminal for each space while it is live. worktree: a new Git worktree for each batch." enum:"new,reuse,worktree"`
-	Payload         string `toml:"payload" doc:"pointer: the prompt names the digest file. inline: the prompt contains the messages." enum:"pointer,inline"`
+	Session         string `toml:"session" doc:"new: a new terminal for each batch. reuse: one terminal for each space while it is live. worktree: a new Git worktree for each batch." enum:"new,reuse,worktree" schema:"default"`
+	Payload         string `toml:"payload" doc:"pointer: the prompt names the digest file. inline: the prompt contains the messages." enum:"pointer,inline" schema:"default"`
 	InlineMaxBytes  int    `toml:"inline_max_bytes" doc:"The largest inline prompt in bytes, from 1024 to 65536." min:"1024" max:"65536"`
 	MessageMaxChars int    `toml:"message_max_chars" doc:"The longest message text in a batch, from 100 to 20000 characters." min:"100" max:"20000"`
 	Model           string `toml:"model,omitempty" doc:"The model of the agent CLI. Empty: the default of the CLI."`
@@ -133,17 +133,17 @@ type Schedule struct {
 	ID    string   `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it." schema:"required,id"`
 	Name  string   `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
 	Every Duration `toml:"every" doc:"The time between two sends, from the start of the hours. At least 1m."`
-	Days  []string `toml:"days,omitempty" doc:"The days of the sends. Empty: each day." enum:"mon,tue,wed,thu,fri,sat,sun"`                                                     // mon to sun; empty means every day
-	Hours string   `toml:"hours,omitempty" doc:"The hours of the sends in local time, HH:MM-HH:MM. Empty: all day." pattern:"^$|^[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]$"` // HH:MM-HH:MM in local time; empty means all day
+	Days  []string `toml:"days,omitempty" doc:"The days of the sends. Empty: each day." enum:"mon,tue,wed,thu,fri,sat,sun"`
+	Hours string   `toml:"hours,omitempty" doc:"The hours of the sends in local time, HH:MM-HH:MM. Empty: all day." pattern:"^\\s*([0-9]{2}:[0-9]{2}\\s*-\\s*[0-9]{2}:[0-9]{2}\\s*)?$"`
 }
 
 // Conversation is one direct conversation, group or channel of an account.
 type Conversation struct {
 	Account string `toml:"account" doc:"The ID of the account of the conversation." schema:"required"`
 	ID      string `toml:"id" doc:"The platform ID of the conversation. i2a conversations --json lists them." schema:"required"`
-	Name    string `toml:"name,omitempty" doc:"The platform name. The dashboard writes it."`                            // the platform name, refreshed by the TUI
-	Label   string `toml:"label,omitempty" doc:"The name that you give. It replaces the platform name on the screens."` // the name that the user gave; it replaces Name
-	Read    string `toml:"read" doc:"all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted." enum:"all,mentions,off"`
+	Name    string `toml:"name,omitempty" doc:"The platform name. The dashboard writes it."`
+	Label   string `toml:"label,omitempty" doc:"The name that you give. It replaces the platform name on the screens."`
+	Read    string `toml:"read" doc:"all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted." enum:"all,mentions,off" schema:"default"`
 }
 
 // Space is a group of conversations that the user names. Its conversations go
@@ -162,7 +162,7 @@ type Space struct {
 type Unsorted struct {
 	Agent         string         `toml:"agent" comment:"Empty: hold the messages until you sort their conversations."`
 	Schedule      string         `toml:"schedule" doc:"The ID of the schedule of Unsorted. Default: the first schedule."`
-	Read          string         `toml:"read" comment:"The read level of a conversation that no space lists: all, mentions or off." enum:"all,mentions,off"`
+	Read          string         `toml:"read" comment:"The read level of a conversation that no space lists: all, mentions or off." enum:"all,mentions,off" schema:"default"`
 	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations in Unsorted that have their own read level or label."`
 }
 
@@ -255,6 +255,7 @@ func Load(path string) (*Config, error) {
 	if c.Migration != nil {
 		return convert(path)
 	}
+	_ = writeSchema(path) // keep the schema of this binary next to the file, also before the first save
 	return c, nil
 }
 
@@ -461,9 +462,7 @@ func save(path string, c *Config) (string, error) {
 		return "", err
 	}
 	b = append([]byte(SchemaLine+Header), b...)
-	if err := writeSchema(path); err != nil {
-		return "", err
-	}
+	_ = writeSchema(path) // only an aid for editors: it must not stop a save
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return "", err
