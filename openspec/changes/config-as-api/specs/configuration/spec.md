@@ -42,7 +42,7 @@ Each save SHALL write `#:schema ./config.schema.json` as the first line, then a 
 ## ADDED Requirements
 
 ### Requirement: Schema of the configuration file
-The system SHALL generate a JSON Schema (draft 2020-12) of `config.toml` from the Go types of the configuration. The schema SHALL describe each key with a description, its type, the allowed values of each choice, the pattern of a duration and of hours, and SHALL NOT allow unknown keys. Each save of `config.toml` SHALL write the schema to `config.schema.json` in the same directory, with the mode 0600, when the file is missing or different. `i2a config schema` SHALL print the schema. The repository SHALL have a copy in `docs/config.schema.json`, and a test SHALL fail when the copy differs from the generated schema.
+The system SHALL generate a JSON Schema (draft 2020-12) of `config.toml` from the Go types of the configuration. The schema SHALL describe each key with a description, its type, the allowed values of each choice, the pattern of a duration and of hours, and SHALL NOT allow unknown keys. The empty text and 0 SHALL be valid for each key that has a default, because i2a uses the default for them. Each load and each save of `config.toml` SHALL write the schema to `config.schema.json` in the same directory, with the mode 0600, when the file is missing or different. A failed write of the schema SHALL NOT stop a load or a save. `i2a config schema` SHALL print the schema. The repository SHALL have a copy in `docs/config.schema.json`, and a test SHALL fail when the copy differs from the generated schema.
 
 #### Scenario: Schema next to the file
 - **WHEN** i2a saves `config.toml` in a new directory
@@ -52,9 +52,17 @@ The system SHALL generate a JSON Schema (draft 2020-12) of `config.toml` from th
 - **WHEN** a TOML language server that reads `#:schema` (Taplo) checks a file with the key `colour` in `[settings]`
 - **THEN** it reports the key `colour` as not allowed
 
+#### Scenario: Default values are valid in an editor
+- **WHEN** Taplo checks a file with `read = ''` and `inline_max_bytes = 0`
+- **THEN** it reports no error
+
+#### Scenario: Schema after an upgrade
+- **WHEN** a new i2a loads a `config.toml` whose `config.schema.json` is from an older i2a
+- **THEN** `config.schema.json` is the schema of the new i2a
+
 #### Scenario: Choices in the schema
 - **WHEN** an agent reads the schema
-- **THEN** the key `read` of a conversation allows only `all`, `mentions` and `off`
+- **THEN** the key `read` of a conversation allows only `all`, `mentions`, `off` and the empty text
 
 ### Requirement: Check a configuration file
 `i2a config check [file]` SHALL read the file (default: the configuration file of i2a), and run the same validation as a load: the format, the unknown keys, the references between items, the duplicates and the templates. When the file is valid, the command SHALL print the number of accounts, agents, schedules, spaces and conversations, and exit with code 0. When it is invalid, the command SHALL print each problem and exit with code 1. The command SHALL NOT write a file.

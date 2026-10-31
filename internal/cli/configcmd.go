@@ -86,7 +86,7 @@ templates. With no file, check config.toml. The command writes no file.`,
 				err = render.CheckAgents(c)
 			}
 			if err != nil {
-				return exitError{code: 1, msg: path + " is not valid: " + err.Error()}
+				return exitError{code: 1, msg: "The file " + path + " is not valid: " + err.Error()}
 			}
 			n := 0
 			for _, s := range c.AllSpaces() {

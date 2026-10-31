@@ -97,6 +97,8 @@ After you install a new version, run `i2a service install`. It restarts the back
 
 The spaces change the configuration to version 2 and the store from schema version 5 to 6. The first start converts `config.toml` (the old file stays in `config.toml.v1.bak`, see [From version 1](#from-version-1)) and writes a copy of the old store to `inbox.db.v5.bak`. To go back, install the older binary, run `i2a service uninstall`, copy `config.toml.v1.bak` to `config.toml` and `inbox.db.v5.bak` to `inbox.db`, and run `i2a service install`. Scripts that call `i2a source` must call `i2a account` and `i2a conversations` now.
 
+The next major version removes `i2a conversation set`. A script edits `[[spaces.conversations]]` in `config.toml` and checks it with `i2a config check` (see [The file is the interface for scripts and agents](#the-file-is-the-interface-for-scripts-and-agents)).
+
 The cards change the store from schema version 2 to 3. The first start writes a copy of the old store to `inbox.db.v2.bak`. An older `i2a` cannot open the new store. To go back, install the older binary, run `i2a service uninstall`, replace `inbox.db` with `inbox.db.v2.bak`, and run `i2a service install`. The cards are lost, and the messages after the copy are collected again within `lookback`.
 
 A `reuse` session starts again one time after an upgrade that changes the primer (for example a new card section, or the space in the default primer). The old terminal stays open; you can close it.

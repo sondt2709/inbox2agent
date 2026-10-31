@@ -19,7 +19,8 @@ const SchemaLine = "#:schema ./" + SchemaFile + "\n"
 
 // durationPattern matches the text of a Duration: Go duration text or a whole
 // number of days.
-const durationPattern = `^\s*([0-9]+d|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)\s*$`
+// "" and "0" are the default value.
+const durationPattern = `^\s*(|0|[0-9]+d|([0-9]+(\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+)\s*$`
 
 var durationType = reflect.TypeFor[Duration]()
 
@@ -73,21 +74,27 @@ func schemaOf(t reflect.Type) map[string]any {
 				target := p
 				if f.Type.Kind() == reflect.Slice {
 					target = p["items"].(map[string]any)
-					p["uniqueItems"] = true
 				}
 				target["enum"] = enumValues(f.Type, e)
+				if strings.Contains(f.Tag.Get("schema"), "default") {
+					target["enum"] = append([]any{""}, target["enum"].([]any)...) // empty is the default
+				}
 			}
 			if v := f.Tag.Get("pattern"); v != "" {
 				p["pattern"] = v
 			}
-			for tag, key := range map[string]string{"min": "minimum", "max": "maximum"} {
-				if v := f.Tag.Get(tag); v != "" {
-					n, err := strconv.Atoi(v)
-					if err != nil {
-						panic("config: bad " + tag + " tag on " + f.Name)
+			if lo, hi := f.Tag.Get("min"), f.Tag.Get("max"); lo != "" || hi != "" {
+				r := map[string]any{}
+				for v, key := range map[string]string{lo: "minimum", hi: "maximum"} {
+					if v != "" {
+						n, err := strconv.Atoi(v)
+						if err != nil {
+							panic("config: bad min or max tag on " + f.Name)
+						}
+						r[key] = n
 					}
-					p[key] = n
 				}
+				p["anyOf"] = []any{map[string]any{"const": 0}, r} // 0 is the default
 			}
 			for opt := range strings.SplitSeq(f.Tag.Get("schema"), ",") {
 				switch opt {
@@ -126,7 +133,7 @@ func enumValues(t reflect.Type, tag string) []any {
 }
 
 // writeSchema writes the schema next to config.toml when the file is missing
-// or different. The caller holds the lock of the configuration file.
+// or different. The schema only helps editors, so the callers ignore an error.
 func writeSchema(configPath string) error {
 	path := filepath.Join(filepath.Dir(configPath), SchemaFile)
 	b := Schema()

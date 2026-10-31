@@ -64,15 +64,16 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		path []string
 		want []string
 	}{
-		{[]string{"spaces", "items", "conversations", "items", "read"}, []string{"all", "mentions", "off"}},
-		{[]string{"unsorted", "conversations", "items", "read"}, []string{"all", "mentions", "off"}},
-		{[]string{"unsorted", "read"}, []string{"all", "mentions", "off"}},
+		// "" is the default value of a key with a default.
+		{[]string{"spaces", "items", "conversations", "items", "read"}, []string{"", "all", "mentions", "off"}},
+		{[]string{"unsorted", "conversations", "items", "read"}, []string{"", "all", "mentions", "off"}},
+		{[]string{"unsorted", "read"}, []string{"", "all", "mentions", "off"}},
 		{[]string{"accounts", "items", "platform"}, []string{"mattermost", "whatsapp"}},
-		{[]string{"agents", "items", "driver"}, []string{"orca", "dry-run"}},
-		{[]string{"agents", "items", "session"}, []string{"new", "reuse", "worktree"}},
-		{[]string{"agents", "items", "payload"}, []string{"pointer", "inline"}},
+		{[]string{"agents", "items", "driver"}, []string{"", "orca", "dry-run"}},
+		{[]string{"agents", "items", "session"}, []string{"", "new", "reuse", "worktree"}},
+		{[]string{"agents", "items", "payload"}, []string{"", "pointer", "inline"}},
 		{[]string{"schedules", "items", "days", "items"}, Days},
-		{[]string{"notify", "min_urgency"}, []string{"high", "normal", "low"}},
+		{[]string{"notify", "min_urgency"}, []string{"", "high", "normal", "low"}},
 	} {
 		if got := strs(at(t, s, tc.path...)["enum"]); !slices.Equal(got, tc.want) {
 			t.Errorf("%v enum = %v, want %v", tc.path, got, tc.want)
@@ -93,7 +94,7 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		}
 	}
 	re := regexp.MustCompile(at(t, s, "schedules", "items", "every")["pattern"].(string))
-	for _, ok := range []string{"15m", "1h30m", "7d", "30s"} {
+	for _, ok := range []string{"15m", "1h30m", "7d", "30s", "", "0"} {
 		if !re.MatchString(ok) {
 			t.Errorf("the duration pattern rejects %q", ok)
 		}
@@ -106,8 +107,17 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 	if p := at(t, s, "spaces", "items", "id")["pattern"]; p != nameRe.String() {
 		t.Errorf("space id pattern = %v", p)
 	}
-	if v := at(t, s, "agents", "items", "inline_max_bytes"); v["minimum"] != float64(MinInlineBytes) || v["maximum"] != float64(MaxInlineBytes) {
+	// 0 is the default; another value is in the range.
+	v := at(t, s, "agents", "items", "inline_max_bytes")["anyOf"].([]any)
+	if r := v[1].(map[string]any); len(v) != 2 || v[0].(map[string]any)["const"] != float64(0) ||
+		r["minimum"] != float64(MinInlineBytes) || r["maximum"] != float64(MaxInlineBytes) {
 		t.Errorf("inline_max_bytes = %v", v)
+	}
+	hours := regexp.MustCompile(at(t, s, "schedules", "items", "hours")["pattern"].(string))
+	for _, h := range []string{"", "09:00-17:00", "09:00 - 17:00", "22:00-06:00"} {
+		if _, err := ParseHours(h); err != nil || !hours.MatchString(h) {
+			t.Errorf("hours %q: ParseHours %v, pattern %v", h, err, hours.MatchString(h))
+		}
 	}
 	// Each key has a description and each object refuses unknown keys.
 	var walk func(path string, n map[string]any)
@@ -210,5 +220,22 @@ func TestSaveWritesTheSchemaLineAndFile(t *testing.T) {
 	}
 	if b2, _ := os.ReadFile(path); string(b2) != string(b) {
 		t.Errorf("a second save changed the file:\n%s\n---\n%s", b, b2)
+	}
+}
+
+func TestLoadWritesAMissingSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := Save(path, Default()); err != nil {
+		t.Fatal(err)
+	}
+	schema := filepath.Join(filepath.Dir(path), "config.schema.json")
+	if err := os.WriteFile(schema, []byte("{}"), 0o600); err != nil { // the schema of an older binary
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(schema); string(b) != string(Schema()) {
+		t.Error("the load did not write the schema of this binary")
 	}
 }
