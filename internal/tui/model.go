@@ -116,11 +116,11 @@ type model struct {
 	acc, conv, spc, agt, sch, act                      int // cursors of the lists
 	accOff, convOff, spcOff, agtOff, schOff, actOffset int // first visible rows
 
-	convFilter string          // "", "unsorted", "space:<id>", "account:<id>" or "kind:<kind>"
-	convSel    map[string]bool // the selected conversations (convKey)
-	search     textinput.Model // the search of the Conversations tab
-	searching  bool            // the search has the keyboard
-	feedSpace  int             // index in feedSpaces(): 0 is all spaces
+	convFilter  string          // "", "unsorted", "space:<id>", "account:<id>" or "kind:<kind>"
+	convSel     map[string]bool // the selected conversations (convKey)
+	search      textinput.Model // the search of the Conversations tab
+	searching   bool            // the search has the keyboard
+	spaceFilter string          // the space of the Feed and Activity filter (F); "" is all spaces
 
 	cards      []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
 	refs       map[int64]inbox.Message // the source messages of the cards
@@ -482,7 +482,7 @@ func (m *model) key(k string) tea.Cmd {
 	case "q", "ctrl+c":
 		return m.quit()
 	case "?":
-		m.openDialog(&msgDialog{name: "Keys", text: helpText})
+		m.openDialog(helpDialog())
 		return nil
 	case "ctrl+r":
 		return m.load()
@@ -578,7 +578,7 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 	case tabActivity:
 		// The table has a header row under the panel title.
 		row := y - 3 + m.actOffset
-		if row >= 0 && row < len(m.dispatches) {
+		if row >= 0 && row < len(m.visibleDispatches()) {
 			if row == m.act {
 				return m.keyActivity("enter")
 			}
@@ -618,10 +618,10 @@ func (m *model) quit() tea.Cmd {
 }
 
 const helpText = `The model   Account → Conversation → Space → Agent + Schedule
-            An account only connects. Each DM, group or channel is in one
-            space, with a read level: all, mentions (messages for you) or off.
-            A space sends its conversations to one agent on one schedule.
-            Unsorted holds the conversations that no space lists.
+            An account only connects. Each DM, group or channel is
+            in one space, with a read level: all, mentions (messages
+            for you) or off. A space sends its conversations to one
+            agent on one schedule. Unsorted holds the others.
 
 Tabs        1-8 or tab / shift+tab, or click a tab
 Move        ↑ ↓ or j k in a list, or the mouse wheel
@@ -631,16 +631,28 @@ Form        tab / shift+tab or ↑ ↓ move between the fields
             ctrl+s saves the form · esc goes back to the list
 Quit        q or ctrl+c · Refresh ctrl+r
 
-Feed           r reply · t ask the agent · c copy the reply · o open the thread
-               d done · u unread · s sort · f category · F space · a done cards
+Feed           r reply · t ask the agent · c copy the reply
+               o open the thread · d done · u unread · s sort
+               f category · F space · a done cards
+Activity       enter show the digest file · F space (as the Feed)
 Accounts       enter edit · x remove
-Conversations  space select · a select all shown · m move to a space · l read level · n rename
-               / search · f filter (all, Unsorted, account, kind, space)
-Spaces         enter edit · a add conversations · c show its conversations · x delete
+Conversations  space select · a select all shown · m move to a space
+               l read level · n rename · / search · f filter
+Spaces         enter edit · a add conversations · x delete
+               c show its conversations
 Agents         enter edit · x delete (choose a replacement)
 Schedules      enter edit · x delete (choose a replacement)
-Settings       enter edit · i install or restart the service · u uninstall it
-Activity       enter show the digest file`
+Settings       enter edit · i install the service · u uninstall it`
+
+// helpDialog shows the key help as wide as its longest line.
+func helpDialog() *viewerDialog {
+	d := newViewer("Keys", helpText)
+	for l := range strings.SplitSeq(helpText, "\n") {
+		d.width = max(d.width, lipgloss.Width(l)+4)
+	}
+	d.lines = strings.Count(helpText, "\n") + 1
+	return d
+}
 
 // ---- view ----
 
@@ -780,7 +792,7 @@ func (m *model) renderFooter() string {
 	var left string
 	switch d := m.topDialog(); {
 	case d != nil:
-		left = renderHints(d.hints())
+		left = fitHints(d.hints(), m.w-2)
 	case m.status != "" && m.now().Sub(m.statusAt) < 6*time.Second:
 		st := okStyle
 		if m.statusErr {
@@ -788,11 +800,11 @@ func (m *model) renderFooter() string {
 		}
 		left = st.Render(truncate(m.status, m.w-lipgloss.Width(right)-4))
 	case formActive && (m.replyCard != 0 || m.askCard != 0):
-		left = renderHints([]hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}})
+		left = fitHints([]hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}}, m.w-2)
 	case formActive:
-		left = renderHints([]hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}})
+		left = fitHints([]hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}}, m.w-2)
 	default:
-		left = renderHints(m.tabHints())
+		left = fitHints(m.tabHints(), m.w-4-lipgloss.Width(right))
 	}
 	gap := m.w - 1 - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
@@ -824,7 +836,7 @@ func (m *model) renderTab(w, h int) string {
 func (m *model) tabHints() []hint {
 	switch m.tab {
 	case tabActivity:
-		return []hint{{"↑↓", "move"}, {"enter", "show digest"}}
+		return []hint{{"↑↓", "move"}, {"enter", "show digest"}, {"F", "space"}}
 	case tabAccounts:
 		return m.hintsAccounts()
 	case tabConversations:

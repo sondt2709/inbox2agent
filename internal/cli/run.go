@@ -21,8 +21,9 @@ func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run --once",
 		Short: "Collect new messages and send them now, one time",
-		Long: `Poll all sources one time, then send all pending messages to their profiles.
-This command ignores the interval and the active hours.`,
+		Long: `Read each account one time, then send the waiting messages of each space
+to the agent of the space. This command does not wait for the schedule of a
+space. A space with no agent keeps its messages.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !once {
@@ -52,7 +53,7 @@ This command ignores the interval and the active hours.`,
 			fmt.Fprint(cmd.OutOrStdout(), daemon.Summary(polls, d))
 			for _, p := range polls {
 				if p.Err != nil {
-					return errors.New("one or more sources failed")
+					return errors.New("one or more accounts failed")
 				}
 			}
 			for _, b := range d.Batches {
@@ -70,11 +71,11 @@ This command ignores the interval and the active hours.`,
 func newDaemonCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "daemon",
-		Short: "Run continuously: poll the sources and dispatch on the interval",
-		Long: `Run in the foreground. Poll each source on its poll interval and dispatch
-on the timing interval inside the active hours. The daemon reads the
-configuration again when the file changes. Use "i2a service install" to run
-it in the background at login.`,
+		Short: "Run continuously: read the accounts and send each space on its schedule",
+		Long: `Run in the foreground. Read each account at its read_every time, and send
+the waiting messages of each space to its agent at the times of the schedule
+of the space. The daemon reads config.toml again when the file changes. Use
+"i2a service install" to run it in the background at login.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			e, err := newEnv()

@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/sondt2709/inbox2agent/internal/ask"
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/reply"
 	"github.com/sondt2709/inbox2agent/internal/source"
@@ -125,17 +126,23 @@ func (m *model) setFeed(f feedMsg) {
 	}
 }
 
+// cardShown reports whether the done and category filters show the card.
+func (m *model) cardShown(c inbox.Card) bool {
+	if c.State == inbox.CardDone && !m.feedAll {
+		return false
+	}
+	f := feedFilters[m.feedFilter]
+	return f == "" || c.Category == f
+}
+
 // visibleCards returns the cards of the filter in the sort order.
 func (m *model) visibleCards() []inbox.Card {
 	var v []inbox.Card
 	for _, c := range m.cards {
-		if c.State == inbox.CardDone && !m.feedAll {
+		if !m.cardShown(c) {
 			continue
 		}
-		if f := feedFilters[m.feedFilter]; f != "" && c.Category != f {
-			continue
-		}
-		if sp := m.feedSpaces()[min(m.feedSpace, len(m.feedSpaces())-1)]; sp != "" && m.cardSpace(c) != sp {
+		if sp := m.activeSpace(); sp != "" && m.cardSpace(c) != sp {
 			continue
 		}
 		v = append(v, c)
@@ -228,10 +235,15 @@ func (m *model) keyFeed(k string) tea.Cmd {
 		m.feedSel = 0
 		m.setStatus("Filter: "+orStr(feedFilters[m.feedFilter], "all")+".", false)
 	case "F":
-		sp := m.feedSpaces()
-		m.feedSpace = (m.feedSpace + 1) % len(sp)
-		m.feedSel = 0
-		m.setStatus("Space: "+orStr(m.spaceNames()[sp[m.feedSpace]], "all")+".", false)
+		m.pickSpaceFilter("card", func(space string) int {
+			n := 0
+			for _, c := range m.cards {
+				if m.cardShown(c) && (space == "" || m.cardSpace(c) == space) {
+					n++
+				}
+			}
+			return n
+		})
 	case "a":
 		m.feedAll = !m.feedAll
 		m.setStatus(map[bool]string{true: "Done cards are shown.", false: "Done cards are hidden."}[m.feedAll], false)
@@ -314,6 +326,11 @@ var (
 		inbox.CategoryQuestion: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#111111")).Background(yellow),
 		inbox.CategoryInfo:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#111111")).Background(blue),
 	}
+	urgBars = map[string]string{
+		inbox.UrgencyHigh:   "▰▰▰",
+		inbox.UrgencyNormal: "▰▰▱",
+		inbox.UrgencyLow:    "▰▱▱",
+	}
 	urgStyles = map[string]lipgloss.Style{
 		inbox.UrgencyHigh:   errStyle.Bold(true),
 		inbox.UrgencyNormal: textStyle,
@@ -325,7 +342,10 @@ func catBadge(c string) string {
 	return catStyles[c].Render(fmt.Sprintf(" %-8s ", strings.ToUpper(c)))
 }
 
-func urgLabel(u string) string { return urgStyles[u].Render(fmt.Sprintf("%-6s", u)) }
+// urgBar returns the bars of an urgency: three columns wide.
+func urgBar(u string) string { return orStr(urgBars[u], "▱▱▱") }
+
+func urgLabel(u string) string { return urgStyles[u].Render(urgBar(u)) }
 
 // when shows the time of today, or the date of an earlier day.
 func when(t, now time.Time) string {
@@ -376,7 +396,7 @@ func (m *model) viewFeed(w, h int) string {
 	if m.feedAll {
 		right += faint.Render(" · done shown")
 	}
-	if sp := m.feedSpaces()[min(m.feedSpace, len(m.feedSpaces())-1)]; sp != "" {
+	if sp := m.activeSpace(); sp != "" {
 		right = faint.Render("space: ") + warnStyle.Render(m.spaceNames()[sp]) + faint.Render(" · ") + right
 	}
 	gap := max(1, w-lipgloss.Width(bar.String())-lipgloss.Width(right)-1)
@@ -396,7 +416,7 @@ func (m *model) viewFeed(w, h int) string {
 		if c.State == inbox.CardNew {
 			mark, plainMark = unreadMark.Render("● "), "● "
 		}
-		titleW := max(5, inner-2-12-7-2)
+		titleW := max(5, inner-2-12-4-2)
 		title := truncate(c.Title, titleW)
 		replied := ""
 		if len(m.replies[c.ID]) > 0 {
@@ -408,7 +428,7 @@ func (m *model) viewFeed(w, h int) string {
 		}
 		meta := truncate(strings.Join(nonEmpty(m.spaceNames()[m.cardSpace(c)], c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied, asked), " · "), inner-2)
 		if i == m.feedSel {
-			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %-6s ", strings.ToUpper(c.Category), c.Urgency)+title))
+			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %s ", strings.ToUpper(c.Category), urgBar(c.Urgency))+title))
 			list = append(list, selectedRow.Width(inner).Render("▌     "+meta))
 			continue
 		}
@@ -467,17 +487,23 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 	wrap := lipgloss.NewStyle().Width(w)
 	var b strings.Builder
 	b.WriteString(boldStyle.Render(wrap.Render(c.Title)) + "\n")
-	b.WriteString(catBadge(c.Category) + " " + urgStyles[c.Urgency].Render(c.Urgency))
+	var meta strings.Builder // one line when it fits, else wrapped at w
+	meta.WriteString(catBadge(c.Category) + " " + urgStyles[c.Urgency].Render(urgBar(c.Urgency)+" "+c.Urgency))
 	space := orStr(m.spaceNames()[m.cardSpace(c)], "unknown")
-	b.WriteString(faint.Render(" · space ") + warnStyle.Render(space))
+	meta.WriteString(faint.Render(" · space ") + warnStyle.Render(space))
 	if c.Group != "" {
-		b.WriteString(faint.Render(" · " + c.Group))
+		meta.WriteString(faint.Render(" · " + c.Group))
 	}
-	b.WriteString(faint.Render(" · " + when(c.UpdatedAt, m.now())))
+	meta.WriteString(faint.Render(" · " + when(c.UpdatedAt, m.now())))
 	if c.Key != "" {
-		b.WriteString(faint.Render(" · key " + c.Key))
+		// The key goes to the next line when the line is too long, so it is not cut.
+		sep := " · "
+		if lipgloss.Width(meta.String())+lipgloss.Width(sep+"key "+c.Key) > w {
+			sep = "\n"
+		}
+		meta.WriteString(faint.Render(sep + "key " + c.Key))
 	}
-	b.WriteString("\n\n")
+	b.WriteString(wrap.Render(meta.String()) + "\n\n")
 	if c.Body != "" {
 		b.WriteString(m.md.body(c.ID, c.UpdatedAt, c.Body, w) + "\n\n")
 	}
@@ -809,14 +835,40 @@ func feedHints() []hint {
 		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"F", "space"}, {"a", "done cards"}}
 }
 
-// feedSpaces returns the space filters of the F key: "" (all), then each
-// space, Unsorted first.
-func (m *model) feedSpaces() []string {
-	out := []string{""}
-	for _, s := range m.u.cfg.AllSpaces() {
-		out = append(out, s.ID)
+// activeSpace returns the space of the filter of the Feed and Activity, or ""
+// for all spaces. A space that does not exist any more is all spaces.
+func (m *model) activeSpace() string {
+	if _, ok := m.u.cfg.Space(m.spaceFilter); ok || m.spaceFilter == config.UnsortedID {
+		return m.spaceFilter
 	}
-	return out
+	return ""
+}
+
+// pickSpaceFilter opens the dialog of the F key: all spaces, then each space,
+// Unsorted first, each with count(space) items of the unit ("card", "send").
+func (m *model) pickSpaceFilter(unit string, count func(space string) int) {
+	items := func(n int) string {
+		if n == 1 {
+			return "1 " + unit
+		}
+		return fmt.Sprintf("%d %ss", n, unit)
+	}
+	set := func(id, name string) func() tea.Cmd {
+		return func() tea.Cmd {
+			m.spaceFilter, m.feedSel, m.act = id, 0, 0
+			m.setStatus("Space: "+name+".", false)
+			return nil
+		}
+	}
+	d := &pickDialog{name: "Show a space", text: "The Feed and Activity show the " + unit + "s of this space."}
+	d.options = append(d.options, pickOption{label: "All spaces", note: items(count("")), run: set("", "all")})
+	for _, s := range m.u.cfg.AllSpaces() {
+		if s.ID == m.activeSpace() {
+			d.cursor = len(d.options)
+		}
+		d.options = append(d.options, pickOption{label: s.Title(), note: items(count(s.ID)), run: set(s.ID, s.Title())})
+	}
+	m.openDialog(d)
 }
 
 // cardSpace returns the ID of the space of a card: the space of its newest ref

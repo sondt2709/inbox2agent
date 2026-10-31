@@ -115,6 +115,17 @@ func renderHints(hs []hint) string {
 	return strings.Join(parts, faint.Render("  ·  "))
 }
 
+// fitHints renders the hints that fit in w columns, in their order. It drops
+// whole hints from the end and never cuts a hint.
+func fitHints(hs []hint, w int) string {
+	for n := len(hs); n > 0; n-- {
+		if s := renderHints(hs[:n]); lipgloss.Width(s) <= w {
+			return s
+		}
+	}
+	return ""
+}
+
 func truncate(s string, n int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	r := []rune(s)
