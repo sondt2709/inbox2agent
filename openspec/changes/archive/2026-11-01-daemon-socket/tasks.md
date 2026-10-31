@@ -29,5 +29,5 @@
 ## 5. Check
 
 - [x] 5.1 Break each change one time and see the new test fail
-- [ ] 5.2 `task test`, `task lint`, e2e lint, `task e2e`, `task leakcheck`, `openspec validate --strict`
-- [ ] 5.3 Archive the change and open the PR
+- [x] 5.2 `task test`, `task lint`, e2e lint, `task e2e`, `task leakcheck`, `openspec validate --strict`
+- [x] 5.3 Archive the change and open the PR
