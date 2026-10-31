@@ -279,14 +279,20 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 		if len(msgs) == 0 {
 			continue
 		}
-		br := e.deliver(ctx, s, *a, msgs, now)
+		state := inbox.StateSent
+		if a.Driver == config.DriverDryRun {
+			state = inbox.StatePreviewed
+		}
+		// The state of each message for all its spaces when this batch is sent:
+		// the store writes it with the delivery, in one transaction.
+		states := map[int64]string{}
+		for _, m := range msgs {
+			states[m.ID] = e.aggregate(m, got[m.ID], s.ID, state)
+		}
+		br := e.deliver(ctx, s, *a, msgs, now, states)
 		e.notify(*a, br)
 		res.Batches = append(res.Batches, br)
 		if br.Err == nil && br.Status == agent.StatusSent {
-			state := inbox.StateSent
-			if a.Driver == config.DriverDryRun {
-				state = inbox.StatePreviewed
-			}
 			for _, m := range msgs {
 				if got[m.ID] == nil {
 					got[m.ID] = map[string]string{}
@@ -295,47 +301,63 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 			}
 		}
 	}
-	if err := e.setStates(ctx, pending, got); err != nil {
+	if err := e.settle(ctx, pending, got); err != nil {
 		return res, err
 	}
 	e.publishDispatch(res)
 	return res, nil
 }
 
-// setStates sets the state of each message of a round for all its spaces:
-// sent when each space that wants it has it, previewed when each has it and
-// one has only a preview, else pending. FinishDispatch set the state of the
-// space of the batch; this corrects a message that another space still wants.
-func (e *Engine) setStates(ctx context.Context, pending []inbox.Message, got map[int64]map[string]string) error {
+// aggregate returns the state of a message for all its spaces: sent when each
+// space that wants it has a sent delivery, previewed when each has a delivery
+// and one has only a preview, else pending. round has the deliveries of this
+// round; space and state add one more. A message that no link wants and that
+// a space has is sent (for example its link was removed).
+func (e *Engine) aggregate(m inbox.Message, round map[string]string, space, state string) string {
+	have := map[string]string{}
+	for sp, st := range m.Delivered {
+		have[sp] = st
+	}
+	for sp, st := range round {
+		have[sp] = st
+	}
+	if space != "" {
+		have[space] = state
+	}
+	want, wanted := inbox.StateSent, false
+	for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
+		if !config.Wants(l.Read, m.ForMe) {
+			continue
+		}
+		wanted = true
+		switch have[l.Space] {
+		case inbox.StateSent:
+		case inbox.StatePreviewed:
+			if want == inbox.StateSent {
+				want = inbox.StatePreviewed
+			}
+		default:
+			want = inbox.StatePending
+		}
+	}
+	if !wanted && len(have) == 0 {
+		return inbox.StatePending // no space has it yet: it waits until lookback expires it, as before
+	}
+	return want
+}
+
+// settle sets the state of the waiting messages that no batch of this round
+// has, when the links changed: a message that each space that wants it has
+// now (a link was removed) is sent.
+func (e *Engine) settle(ctx context.Context, pending []inbox.Message, got map[int64]map[string]string) error {
 	states := map[int64]string{}
 	for _, m := range pending {
-		round, ok := got[m.ID]
-		if !ok {
-			continue // no batch of this round has it: its state stays
+		if _, ok := got[m.ID]; ok || len(m.Delivered) == 0 {
+			continue // set with its delivery, or no space has it
 		}
-		have := map[string]string{}
-		for sp, st := range m.Delivered {
-			have[sp] = st
+		if st := e.aggregate(m, nil, "", ""); st != m.State {
+			states[m.ID] = st
 		}
-		for sp, st := range round {
-			have[sp] = st
-		}
-		want := inbox.StateSent
-		for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
-			if !config.Wants(l.Read, m.ForMe) {
-				continue
-			}
-			switch have[l.Space] {
-			case inbox.StateSent:
-			case inbox.StatePreviewed:
-				if want == inbox.StateSent {
-					want = inbox.StatePreviewed
-				}
-			default:
-				want = inbox.StatePending
-			}
-		}
-		states[m.ID] = want
 	}
 	return e.d.Store.SetStates(ctx, states)
 }
@@ -411,7 +433,7 @@ func (e *Engine) SendAsks(ctx context.Context) ([]inbox.Ask, error) {
 	return out, nil
 }
 
-func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, msgs []inbox.Message, now time.Time) BatchResult {
+func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, msgs []inbox.Message, now time.Time, states map[int64]string) BatchResult {
 	br := BatchResult{Space: s.ID, SpaceName: s.Title(), Agent: p.ID, Driver: p.Driver, Count: len(msgs)}
 	fail := func(id int64, err error) BatchResult {
 		br.Status, br.Err = store.DispatchFailed, err
@@ -457,7 +479,7 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 	if p.Driver == config.DriverDryRun {
 		state = inbox.StatePreviewed
 	}
-	if err := e.d.Store.FinishDispatch(ctx, id, out.Status, br.Detail, s.ID, state, ids); err != nil {
+	if err := e.d.Store.FinishDispatchStates(ctx, id, out.Status, br.Detail, s.ID, state, ids, states); err != nil {
 		return fail(id, err)
 	}
 	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "status", out.Status,

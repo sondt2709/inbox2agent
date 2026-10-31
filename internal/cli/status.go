@@ -34,7 +34,7 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
-			pending, err := st.PendingCounts(contextBackground())
+			pending, err := st.Pending(contextBackground())
 			if err != nil {
 				return err
 			}
@@ -59,7 +59,7 @@ func newStatusCmd() *cobra.Command {
 
 // printConfig prints the model: accounts, then each space with its agent,
 // schedule, next send and waiting messages, then agents and schedules.
-func printConfig(w io.Writer, c *config.Config, dataDir string, pending map[store.Conv]int, now time.Time) {
+func printConfig(w io.Writer, c *config.Config, dataDir string, pending []inbox.Message, now time.Time) {
 	fmt.Fprintf(w, "\nSettings: lookback %s, retention %s, notifications %s\n", c.Settings.Lookback, c.Settings.Retention, onOff(c.Notify.Enabled))
 	fmt.Fprintln(w, "\nAccounts:")
 	if len(c.Accounts) == 0 {
@@ -72,10 +72,14 @@ func printConfig(w io.Writer, c *config.Config, dataDir string, pending map[stor
 	tw.Flush()
 
 	waiting := map[string]int{}
-	for conv, n := range pending {
-		for _, l := range c.Links(conv.Account, conv.ID) { // each space of the conversation waits for its messages
-			if l.Read != config.ReadOff {
-				waiting[l.Space] += n
+	for _, m := range pending {
+		if m.State != inbox.StatePending {
+			continue // previewed by each space: not waiting, as before
+		}
+		// A space waits for a message that its link wants and that it does not have.
+		for _, l := range c.Links(m.SourceID, m.ChannelID) {
+			if config.Wants(l.Read, m.ForMe) && m.Delivered[l.Space] == "" {
+				waiting[l.Space]++
 			}
 		}
 	}

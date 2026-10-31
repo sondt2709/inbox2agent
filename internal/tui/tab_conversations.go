@@ -344,8 +344,8 @@ func (m *model) cycleRead(rows []convRow) tea.Cmd {
 	return m.setConversations(rows, "", level, fmt.Sprintf("%s: read %s. Saved.", what, level))
 }
 
-// linkDialog asks for one more space of the conversations. The other spaces
-// keep them; each new link reads all.
+// linkDialog asks for one more space of the conversations, then for the read
+// level of the new link. The other spaces keep them.
 func (m *model) linkDialog(rows []convRow) {
 	what := rows[0].Title()
 	if len(rows) > 1 {
@@ -362,22 +362,7 @@ func (m *model) linkDialog(rows []convRow) {
 		}
 		note := "→ " + s.Agent + " · " + s.Schedule
 		opts = append(opts, pickOption{label: s.Title(), note: note, run: func() tea.Cmd {
-			if err := m.u.commit(func(c *config.Config) error {
-				for _, r := range rows {
-					if slices.Contains(c.Routes(r.Account.ID, r.ID), s.ID) {
-						continue
-					}
-					if err := c.AddLink(r.Account.ID, r.ID, s.ID, config.ReadAll); err != nil {
-						return err
-					}
-				}
-				return nil
-			}, nil); err != nil {
-				m.setStatus("Cannot save: "+err.Error(), true)
-				return nil
-			}
-			clear(m.convSel)
-			m.saved(fmt.Sprintf("%s is also in %s now, with the read level all. Saved.", what, s.Title()))
+			m.levelDialog(rows, what, s)
 			return nil
 		}})
 	}
@@ -387,6 +372,35 @@ func (m *model) linkDialog(rows []convRow) {
 	}
 	m.openDialog(&pickDialog{name: "Add to one more space",
 		text: "The spaces that list " + what + " keep it. Each space gets its own copy of each message, for its own agent.", options: opts})
+}
+
+// levelDialog asks for the read level of the new link in the space s, and adds it.
+func (m *model) levelDialog(rows []convRow, what string, s config.Space) {
+	var opts []pickOption
+	for _, lv := range []string{config.ReadAll, config.ReadMentions} {
+		note := map[string]string{config.ReadAll: "each message", config.ReadMentions: "only the messages for you"}[lv]
+		opts = append(opts, pickOption{label: lv, note: note, run: func() tea.Cmd {
+			if err := m.u.commit(func(c *config.Config) error {
+				for _, r := range rows {
+					if slices.Contains(c.Routes(r.Account.ID, r.ID), s.ID) {
+						continue
+					}
+					if err := c.AddLink(r.Account.ID, r.ID, s.ID, lv); err != nil {
+						return err
+					}
+				}
+				return nil
+			}, nil); err != nil {
+				m.setStatus("Cannot save: "+err.Error(), true)
+				return nil
+			}
+			clear(m.convSel)
+			m.saved(fmt.Sprintf("%s is also in %s now, with the read level %s. Saved.", what, s.Title(), lv))
+			return nil
+		}})
+	}
+	m.openDialog(&pickDialog{name: "Read level in " + s.Title(),
+		text: "The read level of " + what + " in " + s.Title() + ". The other spaces keep their level.", options: opts})
 }
 
 // moveDialog asks for the space of the conversations.
@@ -498,7 +512,7 @@ func (m *model) viewConversations(w, h int) string {
 		status = faint.Render(truncate(strings.Join(loading, " · "), inner))
 	}
 
-	cols := []int{2, 2, max(16, inner/4), 8, max(10, inner/7), max(12, inner/6), 9, 8}
+	cols := []int{2, 2, max(16, inner/4), 8, max(10, inner/7), max(12, inner/6), 14, 8} // READ fits "all, mentions"
 	head := colHeadStyle.Render(fmt.Sprintf("%-*s%-*s%-*s %-*s %-*s %-*s %-*s %s", cols[0], "", cols[1], "", cols[2], "CONVERSATION",
 		cols[3], "KIND", cols[4], "ACCOUNT", cols[5], "SPACE", cols[6], "READ", "WAITING"))
 	lines := []string{bar, status, head}
