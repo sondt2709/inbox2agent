@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/store"
@@ -50,6 +51,7 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 			printService(w)
+			printDaemon(w, e.paths.DataDir)
 			return nil
 		},
 	}
@@ -165,6 +167,17 @@ func printService(w io.Writer) {
 	default:
 		fmt.Fprintf(w, "\nService: %s (pid %s)\n", or(st.State, "loaded"), or(st.PID, "-"))
 	}
+}
+
+// printDaemon says whether a daemon answers on its socket.
+func printDaemon(w io.Writer, dataDir string) {
+	c := daemon.NewClient(dataDir)
+	st, err := c.Status(contextBackground())
+	if err != nil {
+		fmt.Fprintln(w, "Daemon: not running (no answer on "+c.Socket+")")
+		return
+	}
+	fmt.Fprintf(w, "Daemon: running, API %s (pid %d, version %s)\n", c.Socket, st.PID, st.Version)
 }
 
 func or(a, b string) string {

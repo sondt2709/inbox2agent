@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -57,6 +58,11 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 	next := nextSends(e.cfg, e.d.Now())
 	log.Info("daemon started", "accounts", len(e.cfg.Accounts), "spaces", len(e.cfg.Spaces), "agents", len(e.cfg.Agents))
 	logNext(log, e.cfg, next)
+	var runs chan runRequest // nil without an API: the select never takes it
+	if e.api != nil {
+		runs = e.api.runs
+	}
+	e.api.setStatus(spaceNexts(e.cfg, next), nil)
 
 	t := time.NewTicker(tick)
 	defer t.Stop()
@@ -66,12 +72,16 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 			cfg, err := load()
 			if err != nil {
 				log.Error("configuration not reloaded, the previous configuration stays", "err", err)
+				first, _, _ := strings.Cut(err.Error(), "\n")
+				e.api.Publish(Event{Kind: EventError, Detail: "config.toml not reloaded: " + first})
 			} else {
 				e.SetConfig(cfg)
 				next = nextSends(cfg, e.d.Now())
 				log.Info("configuration reloaded", "accounts", len(cfg.Accounts), "spaces", len(cfg.Spaces))
 				logNext(log, cfg, next)
+				e.api.Publish(Event{Kind: EventReload, Count: len(cfg.Spaces)})
 			}
+			e.api.setStatus(spaceNexts(e.cfg, next), nil)
 		}
 
 		e.Poll(ctx, false)
@@ -85,6 +95,9 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 					next[s.ID] = sc.Next(now)
 				}
 			}
+		}
+		if len(due) > 0 {
+			e.api.setStatus(spaceNexts(e.cfg, next), nil)
 		}
 		switch {
 		case len(due) > 0:
@@ -114,6 +127,13 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 			log.Info("daemon stopped")
 			return nil
 		case <-t.C:
+		case rr := <-runs:
+			// A run of the API: the loop does it, so it never runs at the
+			// same time as a scheduled send.
+			lastAsk = e.d.Now()
+			log.Info("run from the API", "spaces", rr.spaces)
+			res, err := e.RunNow(ctx, rr.spaces)
+			rr.reply <- runReply{res: res, err: err}
 		}
 	}
 }
@@ -130,6 +150,15 @@ func nextSends(cfg *config.Config, now time.Time) map[string]time.Time {
 				out[s.ID] = at
 			}
 		}
+	}
+	return out
+}
+
+// spaceNexts returns the next send of each space for the status of the API.
+func spaceNexts(cfg *config.Config, next map[string]time.Time) []SpaceNext {
+	out := []SpaceNext{}
+	for _, s := range cfg.AllSpaces() {
+		out = append(out, SpaceNext{Space: s.ID, Name: s.Title(), Agent: s.Agent, At: next[s.ID]})
 	}
 	return out
 }
