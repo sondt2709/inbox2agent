@@ -85,7 +85,8 @@ func (m *model) deleteSpace(id string) {
 	name := s.Title()
 	n := len(s.Conversations)
 	m.openDialog(&confirmDialog{name: "Delete space " + name,
-		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted. Its cards stay in the Feed.", name, plural(n, "conversation", "conversations")),
+		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted, except the ones that another space also lists. Its cards stay in the Feed.",
+			name, plural(n, "conversation", "conversations")),
 		choices: []choice{{"y", "Delete", func() tea.Cmd {
 			if err := m.u.commit(func(c *config.Config) error {
 				cur, ok := c.Space(id)
