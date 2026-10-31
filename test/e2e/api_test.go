@@ -35,7 +35,8 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 		t.Fatalf("status does not show the daemon:\n%s", s)
 	}
 	curl := harness.Start(t, filepath.Join(outRoot, p.id), "curl -s --unix-socket "+socket+" http://i2a/v1/status", p.env)
-	s := curl.WaitFor(`\[exit \d+\]`, 10*time.Second)
+	// The terminal breaks the long JSON line, so compare without spaces.
+	s := strings.Join(strings.Fields(curl.WaitFor(`\[exit \d+\]`, 10*time.Second)), "")
 	if !strings.Contains(s, `"space":"unsorted"`) || !strings.Contains(s, `"pid":`) {
 		t.Fatalf("curl /v1/status:\n%s", s)
 	}
@@ -64,12 +65,18 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S41 third message")
 	tui.Keys("R")
 	tui.WaitFor(`Read 1 new messages · Unsorted: \w+ \(1\)`, 30*time.Second)
+	// R in the Spaces tab without the daemon: the selected space is Unsorted.
+	w.Post(t, w.Bob, w.Selected, "S41 fourth message")
+	tui.Press("5", `5 Spaces`, 5*time.Second)
+	tui.WaitFor(`R send now`, 10*time.Second) // after the status line of the last run
+	tui.Keys("R")
+	tui.WaitFor(`Read 1 new messages · Unsorted: \w+ \(1\)`, 30*time.Second)
 	tui.Keys("q")
 	var all []string
 	for _, f := range p.digests() {
 		all = append(all, texts(readDigest(t, f))...)
 	}
-	if got := strings.Join(all, " | "); !regexp.MustCompile(`S41 first message.*S41 second message.*S41 third message`).MatchString(got) {
+	if got := strings.Join(all, " | "); !regexp.MustCompile(`S41 first message.*S41 second message.*S41 third message.*S41 fourth message`).MatchString(got) {
 		t.Errorf("digest texts = %q", got)
 	}
 }

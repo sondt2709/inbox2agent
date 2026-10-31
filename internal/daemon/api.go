@@ -113,12 +113,13 @@ type AccountRead struct {
 	Error   string    `json:"error,omitempty"`
 }
 
-// SpaceNext is the next send of one space; At is zero when the space does not send.
+// SpaceNext is the next send of one space. At is nil when the space does not
+// send (it has no agent, or its schedule has no next time).
 type SpaceNext struct {
-	Space string    `json:"space"`
-	Name  string    `json:"name"`
-	Agent string    `json:"agent"`
-	At    time.Time `json:"at"`
+	Space string     `json:"space"`
+	Name  string     `json:"name"`
+	Agent string     `json:"agent"`
+	At    *time.Time `json:"at,omitempty"`
 }
 
 // Status is the answer of GET /v1/status.
@@ -177,11 +178,15 @@ type Server struct {
 	status    Status // the spaces and the reads; the loop updates them
 	listener  net.Listener
 	removeOld []string // the files to remove when the server stops
+	stopping  chan struct{}
 }
+
+// ErrUnknownSpace is the error of a run of a space that does not exist.
+var ErrUnknownSpace = errors.New("the space does not exist")
 
 // NewServer returns a server. The daemon loop serves its run requests.
 func NewServer(version, configFile string, now time.Time) *Server {
-	return &Server{version: version, started: now, cfgFile: configFile, runs: make(chan runRequest)}
+	return &Server{version: version, started: now, cfgFile: configFile, runs: make(chan runRequest), stopping: make(chan struct{})}
 }
 
 // Listen opens the socket of the data directory with the mode 0600. The
@@ -216,6 +221,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		BaseContext: func(net.Listener) context.Context { return ctx }}
 	go func() {
 		<-ctx.Done()
+		close(s.stopping)
 		sctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
@@ -279,17 +285,25 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	rr := runRequest{spaces: req.Spaces, reply: make(chan runReply, 1)}
 	select {
 	case s.runs <- rr:
+	case <-s.stopping:
+		writeError(w, http.StatusServiceUnavailable, "the daemon is stopping: no run")
+		return
 	case <-ctx.Done():
 		writeError(w, http.StatusServiceUnavailable, "the daemon is busy: try again")
 		return
 	}
 	select {
 	case rep := <-rr.reply:
-		if rep.err != nil {
+		switch {
+		case errors.Is(rep.err, ErrUnknownSpace):
 			writeError(w, http.StatusBadRequest, rep.err.Error())
-			return
+		case rep.err != nil:
+			writeError(w, http.StatusInternalServerError, rep.err.Error())
+		default:
+			writeJSON(w, http.StatusOK, rep.res)
 		}
-		writeJSON(w, http.StatusOK, rep.res)
+	case <-s.stopping:
+		writeError(w, http.StatusServiceUnavailable, "the daemon is stopping: the run stops with it")
 	case <-ctx.Done():
 		writeError(w, http.StatusGatewayTimeout, "the run did not end in time; it continues in the daemon")
 	}

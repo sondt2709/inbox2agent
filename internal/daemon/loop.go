@@ -158,7 +158,11 @@ func nextSends(cfg *config.Config, now time.Time) map[string]time.Time {
 func spaceNexts(cfg *config.Config, next map[string]time.Time) []SpaceNext {
 	out := []SpaceNext{}
 	for _, s := range cfg.AllSpaces() {
-		out = append(out, SpaceNext{Space: s.ID, Name: s.Title(), Agent: s.Agent, At: next[s.ID]})
+		n := SpaceNext{Space: s.ID, Name: s.Title(), Agent: s.Agent}
+		if at, ok := next[s.ID]; ok {
+			n.At = &at
+		}
+		out = append(out, n)
 	}
 	return out
 }

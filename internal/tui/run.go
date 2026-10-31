@@ -99,7 +99,8 @@ func (m *model) nextEvent() tea.Cmd {
 }
 
 // gotEvent shows the events that the user wants to see now: sends, reloads
-// and errors. The Feed and Activity show the rest on the next refresh.
+// and errors. A failed read shows in the Accounts tab, not on each read in
+// the status line. The Feed and Activity show the rest on the next refresh.
 func (m *model) gotEvent(msg eventMsg) tea.Cmd {
 	if !msg.ok {
 		m.events = nil // the daemon stopped; the next refresh tries again
@@ -114,12 +115,8 @@ func (m *model) gotEvent(msg eventMsg) tea.Cmd {
 		m.setStatus(fmt.Sprintf("Daemon: batch of %s to %s, %d messages: %s.", space, ev.Agent, ev.Count, ev.Status), false)
 	case ev.Kind == daemon.EventReload:
 		m.setStatus("Daemon: loaded the new config.toml.", false)
-	case ev.Kind == daemon.EventError, ev.Kind == daemon.EventRead && ev.Detail != "":
-		what := ""
-		if ev.Account != "" {
-			what = "account " + ev.Account + ": "
-		}
-		m.setStatus("Daemon: "+what+ev.Detail, true)
+	case ev.Kind == daemon.EventError:
+		m.setStatus("Daemon: "+ev.Detail, true)
 	}
 	return m.nextEvent()
 }

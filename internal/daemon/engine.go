@@ -286,7 +286,7 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 func (e *Engine) RunNow(ctx context.Context, spaces []string) (RunResult, error) {
 	for _, id := range spaces {
 		if _, ok := e.cfg.Space(id); !ok && id != config.UnsortedID {
-			return RunResult{}, fmt.Errorf("the space %q does not exist", id)
+			return RunResult{}, fmt.Errorf("%w: %q", ErrUnknownSpace, id)
 		}
 	}
 	if len(spaces) == 0 {
