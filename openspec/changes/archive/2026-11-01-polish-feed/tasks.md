@@ -23,6 +23,6 @@
 ## 4. Check
 
 - [x] 4.1 Break each change one time and see the new test fail
-- [ ] 4.2 `task test`, `task lint`, e2e lint, `task e2e`, `task leakcheck`, `openspec validate --strict`
-- [ ] 4.3 Real binary at 140 × 34 in tmux: Feed, `F` dialog, Activity, `?`; save the screens in `tmp/evidence/polish-feed/`
-- [ ] 4.4 Archive the change and open the PR
+- [x] 4.2 `task test`, `task lint`, e2e lint, `task e2e`, `task leakcheck`, `openspec validate --strict`
+- [x] 4.3 Real binary at 140 × 34 in tmux: Feed, `F` dialog, Activity, `?`; save the screens in `tmp/evidence/polish-feed/`
+- [x] 4.4 Archive the change and open the PR
