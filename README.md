@@ -304,7 +304,20 @@ label = "Client group"    # your name for the conversation
 read = "all"
 ```
 
-A conversation is in one space only. Find the IDs with `i2a conversations`, and move a conversation with `i2a conversation set <account> <id> --space <space> [--read all|mentions|off] [--label <name>]`.
+A conversation is in one space only. To move a conversation, remove its `[[spaces.conversations]]` entry from one space and add it to the other. Find the IDs with `i2a conversations` (or `--json`).
+
+### The file is the interface for scripts and agents
+
+i2a has no command for each item. A script or an AI agent reads and writes `config.toml`, as you do in an editor:
+
+1. Run `i2a config --help` for the items and the rules, and `i2a conversations --json` for the IDs.
+2. Write the new file to a temporary file in the same directory.
+3. Run `i2a config check <temporary file>`. It does the same checks as the daemon and prints each problem (exit code 1).
+4. Rename the temporary file to `config.toml`.
+
+The first line of the file is `#:schema ./config.schema.json`. i2a writes `config.schema.json` (JSON Schema) next to the file on each save; `i2a config schema` prints it, and [`docs/config.schema.json`](docs/config.schema.json) is a copy. An editor with [Taplo](https://taplo.tamasfe.dev) or Tombi (for example VS Code with Even Better TOML) uses it to show the help of each key, complete the values and mark errors. The schema does not check references between items; `i2a config check` does.
+
+An account needs a token or a pairing, so add it with `i2a account add`, not in the file.
 
 ### Edit the file while i2a runs
 
@@ -476,6 +489,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 |---|---|
 | `i2a` | Open the dashboard on the Feed of cards |
 | `i2a config` | Open the dashboard on the Spaces tab: accounts, conversations, spaces, agents, schedules, settings |
+| `i2a config check [file]` / `schema` | Check a configuration file (exit 1 with each problem), print the JSON Schema |
 | `i2a card add` / `done --key <key>` / `list [--json] [--all]` | Add cards (JSON on stdin), close a card, list the cards |
 | `i2a reply --to <message id>` or `--card <id or key>`, `[--thread or --channel]` | Send a reply (text on stdin, or the suggested reply of the card) |
 | `i2a ask --card <id or key>` | Ask the agent about a card (text on stdin) |
@@ -485,8 +499,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | `i2a account add mattermost --id <id> [--name <name>] --url <url> --token-stdin` | Add a Mattermost account from a script |
 | `i2a account add whatsapp --id <id> [--name <name>] [--phone <number>]` | Pair a WhatsApp account in the terminal and add it |
 | `i2a account list` / `remove <id>` | List the accounts, remove an account |
-| `i2a conversations [--account <id>] [--unsorted]` | List the conversations with their IDs, spaces and read levels |
-| `i2a conversation set <account> <id> [--space <id>] [--read <level>] [--label <name>]` | Move a conversation, set its read level, or give it a name |
+| `i2a conversations [--account <id>] [--unsorted] [--json]` | List the conversations with their IDs, spaces and read levels |
 | `i2a service install` / `uninstall` / `status` | Manage the macOS LaunchAgent |
 
 ## Development

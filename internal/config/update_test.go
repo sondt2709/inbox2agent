@@ -129,7 +129,7 @@ func TestSaveWritesTheHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	if !strings.HasPrefix(string(b), Header) || !strings.Contains(Header, "removes other comments") {
+	if !strings.HasPrefix(string(b), SchemaLine+Header) || !strings.Contains(Header, "removes other comments") {
 		t.Errorf("the file does not start with the header:\n%s", b)
 	}
 }

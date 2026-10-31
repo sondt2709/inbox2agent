@@ -75,14 +75,14 @@ const (
 
 // Config is the whole configuration file.
 type Config struct {
-	Version   int        `toml:"version"`
-	Settings  Settings   `toml:"settings"`
-	Notify    Notify     `toml:"notify"`
-	Accounts  []Account  `toml:"accounts"`
-	Agents    []Agent    `toml:"agents"`
-	Schedules []Schedule `toml:"schedules"`
-	Unsorted  Unsorted   `toml:"unsorted"`
-	Spaces    []Space    `toml:"spaces"`
+	Version   int        `toml:"version" doc:"The version of the file format. i2a writes 2." enum:"1,2"`
+	Settings  Settings   `toml:"settings" doc:"The message limits of the store."`
+	Notify    Notify     `toml:"notify" doc:"The desktop notifications."`
+	Accounts  []Account  `toml:"accounts" doc:"The logins to chat tools. An account only connects. Add one with i2a account add, which keeps the token in the secret store."`
+	Agents    []Agent    `toml:"agents" doc:"How i2a sends a batch to an AI agent. A space names one agent."`
+	Schedules []Schedule `toml:"schedules" doc:"When a space sends. A space names one schedule."`
+	Unsorted  Unsorted   `toml:"unsorted" doc:"The built-in space of each conversation that no space lists."`
+	Spaces    []Space    `toml:"spaces" doc:"The groups of conversations that you name. Each space sends its conversations to one agent on one schedule."`
 
 	// Migration is the report of the conversion from version 1, or nil.
 	Migration *Migration `toml:"-"`
@@ -90,70 +90,70 @@ type Config struct {
 
 // Settings are the message limits of the store.
 type Settings struct {
-	Lookback  Duration `toml:"lookback" comment:"First-run window and maximum age of a waiting message."`
+	Lookback  Duration `toml:"lookback" comment:"First-run window and maximum age of a waiting message." doc:"At least 1m."`
 	Retention Duration `toml:"retention" comment:"Keep sent messages and digests for this time."`
 }
 
 // Notify controls the desktop notifications.
 type Notify struct {
 	Enabled    bool   `toml:"enabled" comment:"Show macOS notifications for new cards and failed dispatches."`
-	MinUrgency string `toml:"min_urgency" comment:"The lowest card urgency that gives a notification: high, normal or low."`
+	MinUrgency string `toml:"min_urgency" comment:"The lowest card urgency that gives a notification: high, normal or low." enum:"high,normal,low"`
 }
 
 // Account is one login to one platform. It only connects: it names no space,
 // no agent and no conversation.
 type Account struct {
-	ID        string   `toml:"id"`
-	Name      string   `toml:"name"`
-	Platform  string   `toml:"platform"`
-	URL       string   `toml:"url,omitempty"`
-	User      string   `toml:"user,omitempty"` // the Mattermost username, a cache for the screens
-	ReadEvery Duration `toml:"read_every"`
+	ID        string   `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. The token in the secret store uses it." schema:"required,id"`
+	Name      string   `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
+	Platform  string   `toml:"platform" doc:"The chat tool of the account." enum:"mattermost,whatsapp" schema:"required"`
+	URL       string   `toml:"url,omitempty" doc:"The server URL of a Mattermost account, with https:// or http://."`
+	User      string   `toml:"user,omitempty" doc:"The Mattermost username. i2a writes it after the connection check."` // the Mattermost username, a cache for the screens
+	ReadEvery Duration `toml:"read_every" doc:"The time between two reads of the account. At least 5s. Default: 1m, or 10s for WhatsApp."`
 }
 
 // Agent tells i2a how to send a batch to an AI agent.
 type Agent struct {
-	ID              string `toml:"id"`
-	Name            string `toml:"name"`
-	Driver          string `toml:"driver"`
-	CLI             string `toml:"cli"`
-	Workspace       string `toml:"workspace"`
-	Session         string `toml:"session"`
-	Payload         string `toml:"payload"`
-	InlineMaxBytes  int    `toml:"inline_max_bytes"`
-	MessageMaxChars int    `toml:"message_max_chars"`
-	Model           string `toml:"model,omitempty"`
-	OrcaBin         string `toml:"orca_bin,omitempty"`
-	Primer          string `toml:"primer,multiline,omitempty"`
-	Batch           string `toml:"batch,multiline,omitempty"`
+	ID              string `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it." schema:"required,id"`
+	Name            string `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
+	Driver          string `toml:"driver" doc:"orca types the batch into an agent terminal of Orca. dry-run only writes the digest file." enum:"orca,dry-run"`
+	CLI             string `toml:"cli" doc:"The agent CLI that Orca starts, for example claude."`
+	Workspace       string `toml:"workspace" doc:"The folder of the agent terminal. The orca driver needs it."`
+	Session         string `toml:"session" doc:"new: a new terminal for each batch. reuse: one terminal for each space while it is live. worktree: a new Git worktree for each batch." enum:"new,reuse,worktree"`
+	Payload         string `toml:"payload" doc:"pointer: the prompt names the digest file. inline: the prompt contains the messages." enum:"pointer,inline"`
+	InlineMaxBytes  int    `toml:"inline_max_bytes" doc:"The largest inline prompt in bytes, from 1024 to 65536." min:"1024" max:"65536"`
+	MessageMaxChars int    `toml:"message_max_chars" doc:"The longest message text in a batch, from 100 to 20000 characters." min:"100" max:"20000"`
+	Model           string `toml:"model,omitempty" doc:"The model of the agent CLI. Empty: the default of the CLI."`
+	OrcaBin         string `toml:"orca_bin,omitempty" doc:"The path of the orca command. Empty: orca in PATH."`
+	Primer          string `toml:"primer,multiline,omitempty" doc:"A Go template of the first prompt of a session. Empty: the built-in primer."`
+	Batch           string `toml:"batch,multiline,omitempty" doc:"A Go template of the prompt of each batch. Empty: the built-in prompt."`
 }
 
 // Schedule tells i2a when a space sends.
 type Schedule struct {
-	ID    string   `toml:"id"`
-	Name  string   `toml:"name"`
-	Every Duration `toml:"every"`
-	Days  []string `toml:"days,omitempty"`  // mon to sun; empty means every day
-	Hours string   `toml:"hours,omitempty"` // HH:MM-HH:MM in local time; empty means all day
+	ID    string   `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it." schema:"required,id"`
+	Name  string   `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
+	Every Duration `toml:"every" doc:"The time between two sends, from the start of the hours. At least 1m."`
+	Days  []string `toml:"days,omitempty" doc:"The days of the sends. Empty: each day." enum:"mon,tue,wed,thu,fri,sat,sun"`                                                     // mon to sun; empty means every day
+	Hours string   `toml:"hours,omitempty" doc:"The hours of the sends in local time, HH:MM-HH:MM. Empty: all day." pattern:"^$|^[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]$"` // HH:MM-HH:MM in local time; empty means all day
 }
 
 // Conversation is one direct conversation, group or channel of an account.
 type Conversation struct {
-	Account string `toml:"account"`
-	ID      string `toml:"id"`
-	Name    string `toml:"name,omitempty"`  // the platform name, refreshed by the TUI
-	Label   string `toml:"label,omitempty"` // the name that the user gave; it replaces Name
-	Read    string `toml:"read"`
+	Account string `toml:"account" doc:"The ID of the account of the conversation." schema:"required"`
+	ID      string `toml:"id" doc:"The platform ID of the conversation. i2a conversations --json lists them." schema:"required"`
+	Name    string `toml:"name,omitempty" doc:"The platform name. The dashboard writes it."`                            // the platform name, refreshed by the TUI
+	Label   string `toml:"label,omitempty" doc:"The name that you give. It replaces the platform name on the screens."` // the name that the user gave; it replaces Name
+	Read    string `toml:"read" doc:"all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted." enum:"all,mentions,off"`
 }
 
 // Space is a group of conversations that the user names. Its conversations go
 // to one agent on one schedule.
 type Space struct {
-	ID            string         `toml:"id"`
-	Name          string         `toml:"name"`
-	Agent         string         `toml:"agent"`
-	Schedule      string         `toml:"schedule"`
-	Conversations []Conversation `toml:"conversations,omitempty"`
+	ID            string         `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. It cannot be unsorted." schema:"required,id"`
+	Name          string         `toml:"name" doc:"The name that i2a shows. Empty: the ID. Two spaces cannot have the same name."`
+	Agent         string         `toml:"agent" doc:"The ID of the agent of the space." schema:"required"`
+	Schedule      string         `toml:"schedule" doc:"The ID of the schedule of the space." schema:"required"`
+	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations of the space. A conversation is in one space only."`
 }
 
 // Unsorted is the built-in space. Read is the level of each conversation that
@@ -161,9 +161,9 @@ type Space struct {
 // level. An empty Agent holds the messages.
 type Unsorted struct {
 	Agent         string         `toml:"agent" comment:"Empty: hold the messages until you sort their conversations."`
-	Schedule      string         `toml:"schedule"`
-	Read          string         `toml:"read" comment:"The read level of a conversation that no space lists: all, mentions or off."`
-	Conversations []Conversation `toml:"conversations,omitempty"`
+	Schedule      string         `toml:"schedule" doc:"The ID of the schedule of Unsorted. Default: the first schedule."`
+	Read          string         `toml:"read" comment:"The read level of a conversation that no space lists: all, mentions or off." enum:"all,mentions,off"`
+	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations in Unsorted that have their own read level or label."`
 }
 
 // Title returns the name of the account, or its ID.
@@ -429,7 +429,7 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// Header is the comment at the start of each file that i2a writes.
+// Header is the comment after the schema line of each file that i2a writes.
 const Header = "# i2a configuration. Edit it with `i2a` or by hand, also while i2a runs.\n" +
 	"# i2a writes this file again on each save and removes other comments.\n" +
 	"# Tokens are not in this file. They are in the secret store.\n\n"
@@ -460,7 +460,10 @@ func save(path string, c *Config) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	b = append([]byte(Header), b...)
+	b = append([]byte(SchemaLine+Header), b...)
+	if err := writeSchema(path); err != nil {
+		return "", err
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return "", err
