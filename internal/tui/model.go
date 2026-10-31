@@ -618,10 +618,10 @@ func (m *model) quit() tea.Cmd {
 }
 
 const helpText = `The model   Account → Conversation → Space → Agent + Schedule
-            An account only connects. Each DM, group or channel is in one space,
-            with a read level: all, mentions (messages for you) or off.
-            A space sends its conversations to one agent on one schedule.
-            Unsorted holds the conversations that no space lists.
+            An account only connects. Each DM, group or channel is
+            in one space, with a read level: all, mentions (messages
+            for you) or off. A space sends its conversations to one
+            agent on one schedule. Unsorted holds the others.
 
 Tabs        1-8 or tab / shift+tab, or click a tab
 Move        ↑ ↓ or j k in a list, or the mouse wheel
@@ -631,17 +631,18 @@ Form        tab / shift+tab or ↑ ↓ move between the fields
             ctrl+s saves the form · esc goes back to the list
 Quit        q or ctrl+c · Refresh ctrl+r
 
-Feed           r reply · t ask the agent · c copy the reply · o open the thread
-               d done · u unread · s sort · f category · F space · a done cards
-Activity       enter show the digest file · F space (the same filter as the Feed)
+Feed           r reply · t ask the agent · c copy the reply
+               o open the thread · d done · u unread · s sort
+               f category · F space · a done cards
+Activity       enter show the digest file · F space (as the Feed)
 Accounts       enter edit · x remove
 Conversations  space select · a select all shown · m move to a space
-               l read level · n rename · / search
-               f filter (all, Unsorted, account, kind, space)
-Spaces         enter edit · a add conversations · c its conversations · x delete
+               l read level · n rename · / search · f filter
+Spaces         enter edit · a add conversations · x delete
+               c show its conversations
 Agents         enter edit · x delete (choose a replacement)
 Schedules      enter edit · x delete (choose a replacement)
-Settings       enter edit · i install or restart the service · u uninstall it`
+Settings       enter edit · i install the service · u uninstall it`
 
 // helpDialog shows the key help as wide as its longest line.
 func helpDialog() *viewerDialog {

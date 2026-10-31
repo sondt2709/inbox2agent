@@ -202,3 +202,38 @@ func TestActivityWithASpaceThatHasNoSend(t *testing.T) {
 		t.Errorf("Activity of a space with no send:\n%s", s)
 	}
 }
+
+func TestKeyHelpFitsEightyColumns(t *testing.T) {
+	h := newFeedModel(t)
+	h.m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	send(h.m, "?")
+	s := screen(h.m)
+	for l := range strings.SplitSeq(helpText, "\n") {
+		if l = strings.TrimRight(l, " "); l != "" && !strings.Contains(s, l) {
+			t.Errorf("at 80 columns the key help wraps the line %q:\n%s", l, s)
+		}
+	}
+}
+
+func TestRemovedSpaceDoesNotComeBackInTheFilter(t *testing.T) {
+	h := newFeedModel(t)
+	withAcme(t, h)
+	pickSpace(t, h.m, "Acme")
+	cfg := loadFile(t, h.m)
+	spaces := cfg.Spaces
+	cfg.Unsorted.Conversations = append(cfg.Unsorted.Conversations, cfg.Spaces[0].Conversations...)
+	cfg.Spaces = nil
+	if err := config.Save(h.m.u.d.Paths.ConfigFile, cfg); err != nil {
+		t.Fatal(err)
+	}
+	refresh(h.m)
+	cfg.Spaces = spaces // another process adds a space with the same ID
+	cfg.Unsorted.Conversations = nil
+	if err := config.Save(h.m.u.d.Paths.ConfigFile, cfg); err != nil {
+		t.Fatal(err)
+	}
+	refresh(h.m)
+	if got := titles(h.m); !strings.Contains(got, "Staging deployed") {
+		t.Errorf("the old filter came back: cards = %q", got)
+	}
+}

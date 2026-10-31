@@ -498,7 +498,7 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 	if c.Key != "" {
 		// The key goes to the next line when the line is too long, so it is not cut.
 		sep := " · "
-		if lipgloss.Width(meta.String())+len(sep+"key "+c.Key) > w {
+		if lipgloss.Width(meta.String())+lipgloss.Width(sep+"key "+c.Key) > w {
 			sep = "\n"
 		}
 		meta.WriteString(faint.Render(sep + "key " + c.Key))
