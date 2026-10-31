@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
@@ -116,11 +117,14 @@ type model struct {
 	acc, conv, spc, agt, sch, act                      int // cursors of the lists
 	accOff, convOff, spcOff, agtOff, schOff, actOffset int // first visible rows
 
-	convFilter  string          // "", "unsorted", "space:<id>", "account:<id>" or "kind:<kind>"
-	convSel     map[string]bool // the selected conversations (convKey)
-	search      textinput.Model // the search of the Conversations tab
-	searching   bool            // the search has the keyboard
-	spaceFilter string          // the space of the Feed and Activity filter (F); "" is all spaces
+	convFilter  string              // "", "unsorted", "space:<id>", "account:<id>" or "kind:<kind>"
+	convSel     map[string]bool     // the selected conversations (convKey)
+	search      textinput.Model     // the search of the Conversations tab
+	searching   bool                // the search has the keyboard
+	spaceFilter string              // the space of the Feed and Activity filter (F); "" is all spaces
+	running     bool                // a run of the R key is busy
+	events      <-chan daemon.Event // the events of the daemon, or nil
+	subscribing bool                // a try to read the events is busy
 
 	cards      []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
 	refs       map[int64]inbox.Message // the source messages of the cards
@@ -165,7 +169,9 @@ func newModel(ctx context.Context, u *ui) *model {
 
 // Init reads the store and lists the conversations of the accounts in the
 // background, so the unsorted count of the tab bar is right from the start.
-func (m *model) Init() tea.Cmd { return tea.Batch(m.load(), m.spin.Tick, m.loadConversations()) }
+func (m *model) Init() tea.Cmd {
+	return tea.Batch(m.load(), m.spin.Tick, m.loadConversations(), m.subscribe())
+}
 
 // load reads the store and the service state outside the UI loop.
 func (m *model) load() tea.Cmd {
@@ -367,7 +373,19 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case refreshMsg:
-		return m.load()
+		return tea.Batch(m.load(), m.subscribe())
+	case runDoneMsg:
+		m.runDone(msg)
+		return nil
+	case eventsMsg:
+		m.subscribing = false
+		if msg.ch == nil {
+			return nil
+		}
+		m.events = msg.ch
+		return m.nextEvent()
+	case eventMsg:
+		return m.gotEvent(msg)
 	case dataMsg:
 		if msg.opened != nil && m.u.d.Store == nil {
 			m.u.d.Store = msg.opened
@@ -633,13 +651,13 @@ Quit        q or ctrl+c · Refresh ctrl+r
 
 Feed           r reply · t ask the agent · c copy the reply
                o open the thread · d done · u unread · s sort
-               f category · F space · a done cards
+               f category · F space · a done cards · R send now
 Activity       enter show the digest file · F space (as the Feed)
 Accounts       enter edit · x remove
 Conversations  space select · a select all shown · m move to a space
                l read level · n rename · / search · f filter
 Spaces         enter edit · a add conversations · x delete
-               c show its conversations
+               c show its conversations · R send this space now
 Agents         enter edit · x delete (choose a replacement)
 Schedules      enter edit · x delete (choose a replacement)
 Settings       enter edit · i install the service · u uninstall it`
