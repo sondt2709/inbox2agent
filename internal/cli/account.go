@@ -255,13 +255,21 @@ func (e *env) listConversations(ctx context.Context, cfg *config.Config, a confi
 
 // conversationRow is one row of "i2a conversations", and one object of its JSON output.
 type conversationRow struct {
-	Account string `json:"account"`
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`  // direct, group or channel; "" when the account does not list it
-	Name    string `json:"name"`  // the platform name
-	Label   string `json:"label"` // the name that the user gave, or ""
-	Space   string `json:"space"` // the ID of the space
-	Read    string `json:"read"`
+	Account string             `json:"account"`
+	ID      string             `json:"id"`
+	Kind    string             `json:"kind"`   // direct, group or channel; "" when the account does not list it
+	Name    string             `json:"name"`   // the platform name
+	Label   string             `json:"label"`  // the name that the user gave, or ""
+	Space   string             `json:"space"`  // the ID of the first space
+	Read    string             `json:"read"`   // the read level of the first link
+	Spaces  []conversationLink `json:"spaces"` // each space that lists it, Unsorted when none
+}
+
+// conversationLink is one space of a conversation in the JSON output.
+type conversationLink struct {
+	Space string `json:"space"`
+	Read  string `json:"read"`
+	Label string `json:"label"`
 }
 
 func newConversationsCmd() *cobra.Command {
@@ -272,11 +280,13 @@ func newConversationsCmd() *cobra.Command {
 		Short: "List the conversations of the accounts with their space and read level",
 		Long: `List each conversation: the conversations that the accounts list, and the
 conversations in the configuration. A direct conversation, a group and a
-channel have the same columns. To move a conversation, write its account and
-ID in [[spaces.conversations]] of config.toml (see "i2a config --help").
+channel have the same columns. A conversation can be in many spaces. To add
+it to a space, write its account and ID in [[spaces.conversations]] of
+config.toml (see "i2a config --help").
 
 --json prints one JSON array. Each object has the keys account, id, kind,
-name, label, space and read.`,
+name, label, space and read (of the first space), and spaces: each space that
+lists the conversation, with its space, read and label.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			e, err := newEnv()
@@ -318,8 +328,12 @@ name, label, space and read.`,
 					if unsorted && space != config.UnsortedID {
 						continue
 					}
-					out = append(out, conversationRow{Account: a.ID, ID: r.id, Kind: r.kind, Name: or(r.name, cv.Name),
-						Label: cv.Label, Space: space, Read: cv.Read})
+					row := conversationRow{Account: a.ID, ID: r.id, Kind: r.kind, Name: or(r.name, cv.Name),
+						Label: cv.Label, Space: space, Read: cv.Read}
+					for _, l := range cfg.Links(a.ID, r.id) {
+						row.Spaces = append(row.Spaces, conversationLink{Space: l.Space, Read: l.Read, Label: l.Label})
+					}
+					out = append(out, row)
 				}
 			}
 			if asJSON {
@@ -330,8 +344,13 @@ name, label, space and read.`,
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 2, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "ACCOUNT\tID\tKIND\tNAME\tSPACE\tREAD")
 			for _, r := range out {
-				s, _ := cfg.Space(r.Space)
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Account, r.ID, or(r.Kind, "-"), or(r.Label, or(r.Name, "-")), s.Title(), r.Read)
+				var spaces, reads []string
+				for _, l := range r.Spaces {
+					s, _ := cfg.Space(l.Space)
+					spaces, reads = append(spaces, s.Title()), append(reads, l.Read)
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Account, r.ID, or(r.Kind, "-"), or(r.Label, or(r.Name, "-")),
+					strings.Join(spaces, ", "), strings.Join(reads, ", "))
 			}
 			return tw.Flush()
 		},
@@ -351,7 +370,7 @@ var errConversationRemoved = exitError{code: 2, msg: `The command i2a conversati
   read = 'all'   # all, mentions or off
   label = ''     # optional
 
-Remove it from the other space. "i2a conversations --json" gives the IDs,
+To move it, also remove it from the other space. "i2a conversations --json" gives the IDs,
 "i2a config check" checks the file, and "i2a config --help" explains it`}
 
 // newConversationCmd only tells the user how to edit the file.

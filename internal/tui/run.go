@@ -61,7 +61,7 @@ func (m *model) runDone(msg runDoneMsg) {
 	}
 	parts := []string{fmt.Sprintf("Read %d new messages", n)}
 	if len(msg.res.Batches) == 0 {
-		parts = append(parts, "no batch to send")
+		parts = append(parts, "no message waits. A sent message does not go again")
 	}
 	names := m.spaceNames()
 	for _, b := range msg.res.Batches {

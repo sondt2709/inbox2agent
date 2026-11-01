@@ -833,7 +833,7 @@ func (m *model) askDone(msg askDoneMsg) tea.Cmd {
 }
 
 func feedHints() []hint {
-	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"R", "send now"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
+	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"R", "run now"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
 		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"F", "space"}, {"a", "done cards"}}
 }
 
@@ -877,6 +877,11 @@ func (m *model) pickSpaceFilter(unit string, count func(space string) int) {
 // message that a dispatch sent, or else the space of the conversation of its
 // newest ref message, or "" when no ref message exists.
 func (m *model) cardSpace(c inbox.Card) string {
+	if c.Space != "" { // the space of the session of the terminal that added the card
+		if _, ok := m.u.cfg.Space(c.Space); ok {
+			return c.Space
+		}
+	}
 	var newest, sent inbox.Message
 	for _, id := range c.Refs {
 		msg, ok := m.refs[id]

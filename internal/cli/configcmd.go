@@ -39,12 +39,13 @@ The items:
                              lists; agent = '' holds its messages.
   [[spaces]]                 id, name, agent, schedule, and its
   [[spaces.conversations]]   conversations: account, id, read (all,
-                             mentions or off) and label. A conversation is in
-                             one space only.
+                             mentions or off) and label. A conversation can
+                             be in many spaces, each with its own read level;
+                             each space gets its own copy of each message.
   [settings], [notify]       limits and notifications.
 
-To move a conversation, remove its entry from one space and add it to the
-other. "i2a conversations --json" gives the account and the ID of each
+To add a conversation to a space, add an entry to that space. To move it,
+also remove its entry from the other space. "i2a conversations --json" gives the account and the ID of each
 conversation.
 
 Write the file safely: write a temporary file in the same directory, run

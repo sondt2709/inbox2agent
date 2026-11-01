@@ -52,7 +52,7 @@ func (f *fakeSource) addText(id, channel, text string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.msgs = append(f.msgs, inbox.Message{SourceID: f.id, SourceType: "fake", ExternalID: id, ChannelID: channel,
-		ChannelName: "chan", ChannelKind: inbox.KindChannel, Author: "bob", Text: text, CreatedAt: time.Now()})
+		ChannelName: "chan", ChannelKind: inbox.KindChannel, Author: "bob", Text: text, CreatedAt: time.Now(), ForMe: true})
 }
 
 func TestAPIStatusRunAndEvents(t *testing.T) {

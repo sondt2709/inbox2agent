@@ -68,7 +68,7 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	// R in the Spaces tab without the daemon: the selected space is Unsorted.
 	w.Post(t, w.Bob, w.Selected, "S41 fourth message")
 	tui.Press("5", `5 Spaces`, 5*time.Second)
-	tui.WaitFor(`R send now`, 10*time.Second) // after the status line of the last run
+	tui.WaitFor(`R run now`, 10*time.Second) // after the status line of the last run
 	tui.Keys("R")
 	tui.WaitFor(`Read 1 new messages · Unsorted: \w+ \(1\)`, 30*time.Second)
 	tui.Keys("q")

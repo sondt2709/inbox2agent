@@ -29,9 +29,9 @@ func (m *model) hintsSpaces() []hint {
 	case !ok:
 		return []hint{{"↑↓", "move"}, {"enter", "add a space"}}
 	case id == config.UnsortedID:
-		return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"c", "sort its conversations"}, {"R", "send now"}}
+		return []hint{{"enter", "edit"}, {"R", "run now"}, {"c", "sort its conversations"}, {"↑↓", "move"}}
 	}
-	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"a", "add conversations"}, {"c", "its conversations"}, {"R", "send now"}, {"x", "delete"}}
+	return []hint{{"enter", "edit"}, {"R", "run now"}, {"a", "add conversations"}, {"c", "its conversations"}, {"x", "delete"}, {"↑↓", "move"}}
 }
 
 func (m *model) keySpaces(k string) tea.Cmd {
@@ -64,6 +64,10 @@ func (m *model) keySpaces(k string) tea.Cmd {
 	return nil
 }
 
+// spaceKeys tells the keys of the Spaces tab that the footer can drop on a
+// narrow terminal.
+const spaceKeys = "R reads all accounts and sends this space now. a adds conversations: m moves a conversation here, L adds it here and keeps its other spaces."
+
 // showConversations opens the Conversations tab with the conversations of a
 // space, or, to add, with the unsorted conversations and the space as the
 // target of m.
@@ -75,7 +79,7 @@ func (m *model) showConversations(id string, add bool) tea.Cmd {
 	}
 	if add {
 		m.convFilter = "unsorted"
-		m.setStatus("Select the conversations for "+s.Title()+" with space, then press m and choose "+s.Title()+". Press f to see other filters.", false)
+		m.setStatus("Select the conversations for "+s.Title()+" with space. Press m to move them to "+s.Title()+", or L to add them and keep their other spaces. Press f to see the conversations of other spaces.", false)
 	}
 	return m.setTab(tabConversations)
 }
@@ -85,15 +89,22 @@ func (m *model) deleteSpace(id string) {
 	name := s.Title()
 	n := len(s.Conversations)
 	m.openDialog(&confirmDialog{name: "Delete space " + name,
-		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted. Its cards stay in the Feed.", name, plural(n, "conversation", "conversations")),
+		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted, except the ones that another space also lists. Its cards stay in the Feed.",
+			name, plural(n, "conversation", "conversations")),
 		choices: []choice{{"y", "Delete", func() tea.Cmd {
 			if err := m.u.commit(func(c *config.Config) error {
 				cur, ok := c.Space(id)
 				if !ok {
 					return config.MissingError{Kind: config.KindSpace, ID: id}
 				}
-				c.Unsorted.Conversations = append(c.Unsorted.Conversations, cur.Conversations...)
+				gone := cur.Conversations
 				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
+				for _, cv := range gone {
+					// A conversation that another space lists stays in that space only.
+					if _, _, listed := c.Conversation(cv.Account, cv.ID); !listed {
+						c.Unsorted.Conversations = append(c.Unsorted.Conversations, cv)
+					}
+				}
 				return nil
 			}, nil); err != nil {
 				m.setStatus("Cannot delete: "+err.Error(), true)
@@ -109,7 +120,7 @@ func (m *model) deleteSpace(id string) {
 func (m *model) spaceWaiting(id string) int {
 	n := 0
 	for c, k := range m.pending {
-		if m.u.cfg.Route(c.Account, c.ID) == id {
+		if slices.Contains(m.u.cfg.Routes(c.Account, c.ID), id) {
 			n += k
 		}
 	}
@@ -121,7 +132,7 @@ func (m *model) spaceWaiting(id string) int {
 func (m *model) spaceRows(id string) []convRow {
 	var out []convRow
 	for _, r := range m.convRows() {
-		if r.Space == id {
+		if slices.Contains(r.Spaces, id) {
 			out = append(out, r)
 		}
 	}
@@ -245,7 +256,7 @@ func (m *model) spaceForm(id string) *form {
 	}
 	fm := &form{}
 	if id != "" {
-		fm.fields = append(fm.fields, noteField(m.sentence(s), textStyle))
+		fm.fields = append(fm.fields, noteField(m.sentence(s), textStyle), noteField(spaceKeys, faint))
 	} else {
 		fm.fields = append(fm.fields, noteField("A space is your own group: a company, a project, personal. After you create it, add conversations from any account with a.", faint))
 	}
@@ -321,6 +332,7 @@ func (m *model) unsortedForm() *form {
 	fm.fields = []*formField{
 		noteField(m.sentence(s), textStyle),
 		noteField("New conversations land here. Move each one to a space in tab 4 (m), or set it to off (l).", warnStyle),
+		noteField(spaceKeys, faint),
 		choiceField("read", "Read level", "For each conversation that no space lists: all · mentions (messages for you) · off.",
 			config.ReadLevels, nil, u.Read),
 		agent,

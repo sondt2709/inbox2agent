@@ -252,11 +252,17 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 	if err != nil {
 		return res, err
 	}
+	// Fan-out: each space that links the conversation and whose read level
+	// wants the message gets its own copy, one time.
 	groups := map[string][]inbox.Message{}
 	for _, m := range pending {
-		sp := e.cfg.Route(m.SourceID, m.ChannelID)
-		groups[sp] = append(groups[sp], m)
+		for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
+			if config.Wants(l.Read, m.ForMe) && m.Delivered[l.Space] != inbox.StateSent {
+				groups[l.Space] = append(groups[l.Space], m)
+			}
+		}
 	}
+	got := map[int64]map[string]string{} // the deliveries of this round
 	for _, s := range e.cfg.AllSpaces() {
 		if s.Agent == "" || (spaces != nil && !slices.Contains(spaces, s.ID)) {
 			continue
@@ -267,18 +273,103 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 		}
 		msgs := groups[s.ID]
 		if a.Driver == config.DriverDryRun {
-			// A dry run previews each message one time.
-			msgs = slices.DeleteFunc(msgs, func(m inbox.Message) bool { return m.State == inbox.StatePreviewed })
+			// A dry run previews each message one time for each space.
+			msgs = slices.DeleteFunc(msgs, func(m inbox.Message) bool { return m.Delivered[s.ID] == inbox.StatePreviewed })
 		}
 		if len(msgs) == 0 {
 			continue
 		}
-		br := e.deliver(ctx, s, *a, msgs, now)
+		state := inbox.StateSent
+		if a.Driver == config.DriverDryRun {
+			state = inbox.StatePreviewed
+		}
+		// The state of each message for all its spaces when this batch is sent:
+		// the store writes it with the delivery, in one transaction.
+		states := map[int64]string{}
+		for _, m := range msgs {
+			states[m.ID] = e.aggregate(m, got[m.ID], s.ID, state)
+		}
+		br := e.deliver(ctx, s, *a, msgs, now, states)
 		e.notify(*a, br)
 		res.Batches = append(res.Batches, br)
+		if br.Err == nil && br.Status == agent.StatusSent {
+			for _, m := range msgs {
+				if got[m.ID] == nil {
+					got[m.ID] = map[string]string{}
+				}
+				got[m.ID][s.ID] = state
+			}
+		}
+	}
+	if err := e.settle(ctx, pending, got); err != nil {
+		return res, err
 	}
 	e.publishDispatch(res)
 	return res, nil
+}
+
+// aggregate returns the state of a message for all its spaces: sent when each
+// space that wants it has a sent delivery, previewed when each has a delivery
+// and one has only a preview, else pending. round has the deliveries of this
+// round; space and state add one more. A message that no link wants and that
+// a space sent is sent (for example its link was removed).
+func (e *Engine) aggregate(m inbox.Message, round map[string]string, space, state string) string {
+	have := map[string]string{}
+	for sp, st := range m.Delivered {
+		have[sp] = st
+	}
+	for sp, st := range round {
+		have[sp] = st
+	}
+	if space != "" {
+		have[space] = state
+	}
+	want, wanted := inbox.StateSent, false
+	for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
+		if !config.Wants(l.Read, m.ForMe) {
+			continue
+		}
+		wanted = true
+		switch have[l.Space] {
+		case inbox.StateSent:
+		case inbox.StatePreviewed:
+			if want == inbox.StateSent {
+				want = inbox.StatePreviewed
+			}
+		default:
+			want = inbox.StatePending
+		}
+	}
+	if !wanted {
+		// No link wants it now: it is sent when a space sent it, previewed
+		// when the spaces only previewed it (a real driver can still send it
+		// later), and it waits when no space has it, until lookback expires it.
+		state := inbox.StatePending
+		for _, st := range have {
+			if st == inbox.StateSent {
+				return inbox.StateSent
+			}
+			state = inbox.StatePreviewed
+		}
+		return state
+	}
+	return want
+}
+
+// settle sets the state of the waiting messages that no batch of this round
+// has, when the links changed: a message that each space that wants it has
+// now (a link was removed) is sent.
+func (e *Engine) settle(ctx context.Context, pending []inbox.Message, got map[int64]map[string]string) error {
+	states := map[int64]string{}
+	for _, m := range pending {
+		if _, ok := got[m.ID]; ok || len(m.Delivered) == 0 {
+			continue // set with its delivery, or no space has it
+		}
+		if st := e.aggregate(m, nil, "", ""); st != m.State {
+			states[m.ID] = st
+		}
+	}
+	return e.d.Store.SetStates(ctx, states)
 }
 
 // RunNow reads all accounts and sends the given spaces (nil: all spaces), as
@@ -352,7 +443,7 @@ func (e *Engine) SendAsks(ctx context.Context) ([]inbox.Ask, error) {
 	return out, nil
 }
 
-func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, msgs []inbox.Message, now time.Time) BatchResult {
+func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, msgs []inbox.Message, now time.Time, states map[int64]string) BatchResult {
 	br := BatchResult{Space: s.ID, SpaceName: s.Title(), Agent: p.ID, Driver: p.Driver, Count: len(msgs)}
 	fail := func(id int64, err error) BatchResult {
 		br.Status, br.Err = store.DispatchFailed, err
@@ -398,7 +489,7 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 	if p.Driver == config.DriverDryRun {
 		state = inbox.StatePreviewed
 	}
-	if err := e.d.Store.FinishDispatch(ctx, id, out.Status, br.Detail, s.ID, state, ids); err != nil {
+	if err := e.d.Store.FinishDispatchStates(ctx, id, out.Status, br.Detail, s.ID, state, ids, states); err != nil {
 		return fail(id, err)
 	}
 	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "status", out.Status,

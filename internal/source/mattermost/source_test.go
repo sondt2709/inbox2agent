@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -169,6 +170,14 @@ func TestCollectReadLevels(t *testing.T) {
 		}
 		if msgs[4].ChannelName != "other" || msgs[4].ChannelKind != inbox.KindChannel {
 			t.Errorf("mention message = %+v", msgs[4])
+		}
+		// The mark for the user: the mention and the direct posts, not the posts of a channel at all.
+		var forMe []bool
+		for _, m := range msgs {
+			forMe = append(forMe, m.ForMe)
+		}
+		if want := []bool{false, false, false, false, true, true, true}; !slices.Equal(forMe, want) {
+			t.Errorf("ForMe = %v, want %v", forMe, want)
 		}
 		if len(cur) != 5 { // mentions on: all 5 member channels have new posts
 			t.Errorf("cursor has %d channels, want 5: %v", len(cur), cur)

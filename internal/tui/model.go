@@ -637,27 +637,27 @@ func (m *model) quit() tea.Cmd {
 
 const helpText = `The model   Account → Conversation → Space → Agent + Schedule
             An account only connects. Each DM, group or channel is
-            in one space, with a read level: all, mentions (messages
-            for you) or off. A space sends its conversations to one
+            in one space or more, each with a read level: all,
+            mentions (messages for you) or off. A space sends to one
             agent on one schedule. Unsorted holds the others.
 
-Tabs        1-8 or tab / shift+tab, or click a tab
+Tabs        1-8, tab, shift+tab or a click · q quit · ctrl+r reload
 Move        ↑ ↓ or j k in a list, or the mouse wheel
 Edit        enter or → opens the form at the right; or click it
 Form        tab / shift+tab or ↑ ↓ move between the fields
             ←/→ or space change a choice or a switch
             ctrl+s saves the form · esc goes back to the list
-Quit        q or ctrl+c · Refresh ctrl+r
 
 Feed           r reply · t ask the agent · c copy the reply
                o open the thread · d done · u unread · s sort
-               f category · F space · a done cards · R send now
+               f category · F space · a done cards · R run now
 Activity       enter show the digest file · F space (as the Feed)
 Accounts       enter edit · x remove
-Conversations  space select · a select all shown · m move to a space
-               l read level · n rename · / search · f filter
+Conversations  m move to a space · L add to a space, keep the others
+               l read level · space select · a select all · n rename
+               / search · f filter
 Spaces         enter edit · a add conversations · x delete
-               c show its conversations · R send this space now
+               c show its conversations · R run this space now
 Agents         enter edit · x delete (choose a replacement)
 Schedules      enter edit · x delete (choose a replacement)
 Settings       enter edit · i install the service · u uninstall it`

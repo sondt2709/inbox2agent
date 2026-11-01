@@ -318,7 +318,8 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 			if p.UserID == me.ID || p.DeleteAt != 0 || p.Type != "" {
 				continue
 			}
-			if !all && !mention.MatchString(p.Message) {
+			forMe := ch.Type == "D" || mention.MatchString(p.Message)
+			if !all && !forMe {
 				continue
 			}
 			msgs = append(msgs, inbox.Message{
@@ -333,6 +334,7 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 				Text:        p.Message,
 				URL:         strings.TrimRight(src.s.URL, "/") + "/" + team + "/pl/" + p.ID,
 				CreatedAt:   time.UnixMilli(p.CreateAt).UTC(),
+				ForMe:       forMe,
 			})
 		}
 	}
