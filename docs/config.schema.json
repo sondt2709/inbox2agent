@@ -1,0 +1,384 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The configuration of i2a. An account connects; each conversation is in one space; a space sends its conversations to one agent on one schedule. Check a file with `i2a config check`.",
+  "properties": {
+    "accounts": {
+      "description": "The logins to chat tools. An account only connects. Add one with i2a account add, which keeps the token in the secret store.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The stable ID: 1-32 lowercase letters, digits, - or _. The token in the secret store uses it.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name that i2a shows. Empty: the ID.",
+            "type": "string"
+          },
+          "platform": {
+            "description": "The chat tool of the account.",
+            "enum": [
+              "mattermost",
+              "whatsapp"
+            ],
+            "type": "string"
+          },
+          "read_every": {
+            "description": "The time between two reads of the account. At least 5s. Default: 1m, or 10s for WhatsApp.",
+            "pattern": "^\\s*(|0|[0-9]+d|([0-9]+(\\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+)\\s*$",
+            "type": "string"
+          },
+          "url": {
+            "description": "The server URL of a Mattermost account, with https:// or http://.",
+            "type": "string"
+          },
+          "user": {
+            "description": "The Mattermost username. i2a writes it after the connection check.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "platform"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "agents": {
+      "description": "How i2a sends a batch to an AI agent. A space names one agent.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "batch": {
+            "description": "A Go template of the prompt of each batch. Empty: the built-in prompt.",
+            "type": "string"
+          },
+          "cli": {
+            "description": "The agent CLI that Orca starts, for example claude.",
+            "type": "string"
+          },
+          "driver": {
+            "description": "orca types the batch into an agent terminal of Orca. dry-run only writes the digest file.",
+            "enum": [
+              "",
+              "orca",
+              "dry-run"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "inline_max_bytes": {
+            "anyOf": [
+              {
+                "const": 0
+              },
+              {
+                "maximum": 65536,
+                "minimum": 1024
+              }
+            ],
+            "description": "The largest inline prompt in bytes, from 1024 to 65536.",
+            "type": "integer"
+          },
+          "message_max_chars": {
+            "anyOf": [
+              {
+                "const": 0
+              },
+              {
+                "maximum": 20000,
+                "minimum": 100
+              }
+            ],
+            "description": "The longest message text in a batch, from 100 to 20000 characters.",
+            "type": "integer"
+          },
+          "model": {
+            "description": "The model of the agent CLI. Empty: the default of the CLI.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name that i2a shows. Empty: the ID.",
+            "type": "string"
+          },
+          "orca_bin": {
+            "description": "The path of the orca command. Empty: orca in PATH.",
+            "type": "string"
+          },
+          "payload": {
+            "description": "pointer: the prompt names the digest file. inline: the prompt contains the messages.",
+            "enum": [
+              "",
+              "pointer",
+              "inline"
+            ],
+            "type": "string"
+          },
+          "primer": {
+            "description": "A Go template of the first prompt of a session. Empty: the built-in primer.",
+            "type": "string"
+          },
+          "session": {
+            "description": "new: a new terminal for each batch. reuse: one terminal for each space while it is live. worktree: a new Git worktree for each batch.",
+            "enum": [
+              "",
+              "new",
+              "reuse",
+              "worktree"
+            ],
+            "type": "string"
+          },
+          "workspace": {
+            "description": "The folder of the agent terminal. The orca driver needs it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "notify": {
+      "additionalProperties": false,
+      "description": "The desktop notifications.",
+      "properties": {
+        "enabled": {
+          "description": "Show macOS notifications for new cards and failed dispatches.",
+          "type": "boolean"
+        },
+        "min_urgency": {
+          "description": "The lowest card urgency that gives a notification: high, normal or low.",
+          "enum": [
+            "",
+            "high",
+            "normal",
+            "low"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "schedules": {
+      "description": "When a space sends. A space names one schedule.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "description": "The days of the sends. Empty: each day.",
+            "items": {
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "every": {
+            "description": "The time between two sends, from the start of the hours. At least 1m.",
+            "pattern": "^\\s*(|0|[0-9]+d|([0-9]+(\\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+)\\s*$",
+            "type": "string"
+          },
+          "hours": {
+            "description": "The hours of the sends in local time, HH:MM-HH:MM. Empty: all day.",
+            "pattern": "^\\s*([0-9]{2}:[0-9]{2}\\s*-\\s*[0-9]{2}:[0-9]{2}\\s*)?$",
+            "type": "string"
+          },
+          "id": {
+            "description": "The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name that i2a shows. Empty: the ID.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "settings": {
+      "additionalProperties": false,
+      "description": "The message limits of the store.",
+      "properties": {
+        "lookback": {
+          "description": "First-run window and maximum age of a waiting message. At least 1m.",
+          "pattern": "^\\s*(|0|[0-9]+d|([0-9]+(\\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+)\\s*$",
+          "type": "string"
+        },
+        "retention": {
+          "description": "Keep sent messages and digests for this time.",
+          "pattern": "^\\s*(|0|[0-9]+d|([0-9]+(\\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+)\\s*$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "spaces": {
+      "description": "The groups of conversations that you name. Each space sends its conversations to one agent on one schedule.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "description": "The ID of the agent of the space.",
+            "type": "string"
+          },
+          "conversations": {
+            "description": "The conversations of the space. A conversation is in one space only.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "account": {
+                  "description": "The ID of the account of the conversation.",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "The platform ID of the conversation. i2a conversations --json lists them.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "The name that you give. It replaces the platform name on the screens.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "The platform name. The dashboard writes it.",
+                  "type": "string"
+                },
+                "read": {
+                  "description": "all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted.",
+                  "enum": [
+                    "",
+                    "all",
+                    "mentions",
+                    "off"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "account",
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The stable ID: 1-32 lowercase letters, digits, - or _. It cannot be unsorted.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name that i2a shows. Empty: the ID. Two spaces cannot have the same name.",
+            "type": "string"
+          },
+          "schedule": {
+            "description": "The ID of the schedule of the space.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent",
+          "schedule"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "unsorted": {
+      "additionalProperties": false,
+      "description": "The built-in space of each conversation that no space lists.",
+      "properties": {
+        "agent": {
+          "description": "Empty: hold the messages until you sort their conversations.",
+          "type": "string"
+        },
+        "conversations": {
+          "description": "The conversations in Unsorted that have their own read level or label.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "description": "The ID of the account of the conversation.",
+                "type": "string"
+              },
+              "id": {
+                "description": "The platform ID of the conversation. i2a conversations --json lists them.",
+                "type": "string"
+              },
+              "label": {
+                "description": "The name that you give. It replaces the platform name on the screens.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The platform name. The dashboard writes it.",
+                "type": "string"
+              },
+              "read": {
+                "description": "all: each message. mentions: the messages for you (a mention, a reply to you, each message of a direct conversation). off: no message. Default: all in a space; the read of unsorted in Unsorted.",
+                "enum": [
+                  "",
+                  "all",
+                  "mentions",
+                  "off"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "account",
+              "id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "read": {
+          "description": "The read level of a conversation that no space lists: all, mentions or off.",
+          "enum": [
+            "",
+            "all",
+            "mentions",
+            "off"
+          ],
+          "type": "string"
+        },
+        "schedule": {
+          "description": "The ID of the schedule of Unsorted. Default: the first schedule.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "version": {
+      "description": "The version of the file format. i2a writes 2.",
+      "enum": [
+        1,
+        2
+      ],
+      "type": "integer"
+    }
+  },
+  "title": "i2a configuration (config.toml)",
+  "type": "object"
+}

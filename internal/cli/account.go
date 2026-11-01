@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,17 +23,6 @@ import (
 
 func contextBackground() context.Context { return context.Background() }
 
-// errRenamed is the exit of the old command "i2a source".
-var errRenamed = exitError{code: 2, msg: "i2a source is renamed: use i2a account (and i2a conversations)"}
-
-// newSourceCmd only tells the user the new command names.
-func newSourceCmd() *cobra.Command {
-	return &cobra.Command{
-		Use: "source", Hidden: true, DisableFlagParsing: true,
-		RunE: func(*cobra.Command, []string) error { return errRenamed },
-	}
-}
-
 func newAccountCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "account", Short: "Add, list and remove accounts (logins to chat tools)"}
 	cmd.AddCommand(newAccountAddCmd(), newAccountListCmd(), newAccountRemoveCmd())
@@ -48,8 +38,8 @@ func newAccountAddCmd() *cobra.Command {
 		Short: "Add a Mattermost account with a personal access token",
 		Long: `Add a Mattermost account. Pipe the personal access token to standard input.
 i2a checks the token with the server before it saves anything. The
-conversations of the account start in Unsorted; sort them with
-"i2a conversation set" or in "i2a config".
+conversations of the account start in Unsorted; sort them in "i2a config",
+or edit config.toml (see "i2a config --help").
 
 Example:
   printf '%s' "$TOKEN" | i2a account add mattermost --id work --url https://chat.example.com --token-stdin`,
@@ -263,15 +253,30 @@ func (e *env) listConversations(ctx context.Context, cfg *config.Config, a confi
 	return out, nil
 }
 
+// conversationRow is one row of "i2a conversations", and one object of its JSON output.
+type conversationRow struct {
+	Account string `json:"account"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`  // direct, group or channel; "" when the account does not list it
+	Name    string `json:"name"`  // the platform name
+	Label   string `json:"label"` // the name that the user gave, or ""
+	Space   string `json:"space"` // the ID of the space
+	Read    string `json:"read"`
+}
+
 func newConversationsCmd() *cobra.Command {
 	var account string
-	var unsorted bool
+	var unsorted, asJSON bool
 	cmd := &cobra.Command{
-		Use:   "conversations [--account <id>] [--unsorted]",
+		Use:   "conversations [--account <id>] [--unsorted] [--json]",
 		Short: "List the conversations of the accounts with their space and read level",
 		Long: `List each conversation: the conversations that the accounts list, and the
 conversations in the configuration. A direct conversation, a group and a
-channel have the same columns. Use the ID with "i2a conversation set".`,
+channel have the same columns. To move a conversation, write its account and
+ID in [[spaces.conversations]] of config.toml (see "i2a config --help").
+
+--json prints one JSON array. Each object has the keys account, id, kind,
+name, label, space and read.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			e, err := newEnv()
@@ -287,8 +292,7 @@ channel have the same columns. Use the ID with "i2a conversation set".`,
 					return fmt.Errorf("no account with the ID %q", account)
 				}
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 2, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ACCOUNT\tID\tKIND\tNAME\tSPACE\tREAD")
+			out := []conversationRow{}
 			for _, a := range cfg.Accounts {
 				if account != "" && a.ID != account {
 					continue
@@ -297,14 +301,14 @@ channel have the same columns. Use the ID with "i2a conversation set".`,
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "account %s: %v\n", a.ID, err)
 				}
-				seen := map[string]bool{}
 				for _, s := range cfg.AllSpaces() {
 					for _, cv := range s.Conversations {
 						if cv.Account == a.ID && !slices.ContainsFunc(rows, func(r listed) bool { return r.id == cv.ID }) {
-							rows = append(rows, listed{cv.ID, "-", cv.Name})
+							rows = append(rows, listed{cv.ID, "", cv.Name})
 						}
 					}
 				}
+				seen := map[string]bool{}
 				for _, r := range rows {
 					if seen[r.id] {
 						continue
@@ -314,70 +318,48 @@ channel have the same columns. Use the ID with "i2a conversation set".`,
 					if unsorted && space != config.UnsortedID {
 						continue
 					}
-					s, _ := cfg.Space(space)
-					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, r.id, or(r.kind, "-"), or(cv.Label, or(r.name, "-")), s.Title(), cv.Read)
+					out = append(out, conversationRow{Account: a.ID, ID: r.id, Kind: r.kind, Name: or(r.name, cv.Name),
+						Label: cv.Label, Space: space, Read: cv.Read})
 				}
+			}
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 2, 4, 2, ' ', 0)
+			fmt.Fprintln(tw, "ACCOUNT\tID\tKIND\tNAME\tSPACE\tREAD")
+			for _, r := range out {
+				s, _ := cfg.Space(r.Space)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Account, r.ID, or(r.Kind, "-"), or(r.Label, or(r.Name, "-")), s.Title(), r.Read)
 			}
 			return tw.Flush()
 		},
 	}
 	cmd.Flags().StringVar(&account, "account", "", "only this account")
 	cmd.Flags().BoolVar(&unsorted, "unsorted", false, "only the conversations in Unsorted")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print a JSON array")
 	return cmd
 }
 
-func newConversationCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "conversation", Short: "Change one conversation"}
-	var space, read, label string
-	set := &cobra.Command{
-		Use:   "set <account> <conversation-id> [--space <id>] [--read all|mentions|off] [--label <text>]",
-		Short: "Move a conversation to a space, set its read level, or rename it",
-		Long: `Move a conversation to a space (or to "unsorted"), set its read level, or
-give it a label. Find the IDs with "i2a conversations".
+// errConversationRemoved is the exit of the removed command "i2a conversation".
+var errConversationRemoved = exitError{code: 2, msg: `The command i2a conversation is removed: edit config.toml. Add the conversation to a space:
 
-Example:
-  i2a conversation set work 4xp9fdt1ajr3 --space acme --read mentions`,
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if space == "" && read == "" && !cmd.Flags().Changed("label") {
-				return errors.New("give --space, --read or --label")
-			}
-			e, err := newEnv()
-			if err != nil {
-				return err
-			}
-			if _, err := e.loadConfig(); err != nil { // the file is valid before the change
-				return err
-			}
-			acc, id := args[0], args[1]
-			if read != "" && !slices.Contains(config.ReadLevels, read) {
-				return fmt.Errorf("--read %q is not all, mentions or off", read)
-			}
-			setLabel := cmd.Flags().Changed("label")
-			cfg, _, err := config.Update(e.paths.ConfigFile, func(c *config.Config) error {
-				cur, curSpace, _ := c.Conversation(acc, id)
-				if err := c.SetConversation(acc, id, or(space, curSpace), or(read, map[bool]string{true: cur.Read}[space == ""]), ""); err != nil {
-					return err
-				}
-				if setLabel {
-					return c.SetLabel(acc, id, label)
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-			cv, sp, _ := cfg.Conversation(acc, id)
-			s, _ := cfg.Space(sp)
-			fmt.Fprintf(cmd.OutOrStdout(), "%s/%s: space %s, read %s\n", acc, id, s.Title(), cv.Read)
-			return nil
-		},
+  [[spaces.conversations]]
+  account = '<account-id>'
+  id = '<conversation-id>'
+  read = 'all'   # all, mentions or off
+  label = ''     # optional
+
+Remove it from the other space. "i2a conversations --json" gives the IDs,
+"i2a config check" checks the file, and "i2a config --help" explains it`}
+
+// newConversationCmd only tells the user how to edit the file.
+func newConversationCmd() *cobra.Command {
+	return &cobra.Command{
+		Use: "conversation", Hidden: true, DisableFlagParsing: true,
+		RunE: func(*cobra.Command, []string) error { return errConversationRemoved },
 	}
-	set.Flags().StringVar(&space, "space", "", "the ID of the space, or unsorted")
-	set.Flags().StringVar(&read, "read", "", "all, mentions or off")
-	set.Flags().StringVar(&label, "label", "", "the name that i2a shows; empty shows the platform name")
-	cmd.AddCommand(set)
-	return cmd
 }
 
 // addAccount adds an account to the configuration file that is on disk now.

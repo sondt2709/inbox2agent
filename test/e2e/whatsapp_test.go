@@ -31,9 +31,9 @@ func TestS33WhatsAppNotPaired(t *testing.T) {
 	if code != 0 || !regexp.MustCompile(`phone\s+phone\s+whatsapp\s+not paired`).MatchString(s) {
 		t.Fatalf("account list: exit %d:\n%s", code, s)
 	}
-	s, code = p.run("source list")
-	if code != 2 || !strings.Contains(s, "use i2a account") {
-		t.Fatalf("source list: exit %d, want 2 and the new command:\n%s", code, s)
+	s, code = p.run("conversation set phone g1@g.us --space acme")
+	if code != 2 || !strings.Contains(s, "[[spaces.conversations]]") {
+		t.Fatalf("conversation set: exit %d, want 2 and the TOML to write:\n%s", code, s)
 	}
 	s, code = p.run("run --once")
 	if code == 0 || !strings.Contains(s, "not paired: pair again in i2a config") {

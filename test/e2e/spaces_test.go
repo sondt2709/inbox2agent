@@ -80,9 +80,18 @@ func TestS38TwoSpacesFromOneAccount(t *testing.T) {
 		c.Agents = append(c.Agents, config.NewAgent("reviewer"))
 		c.Spaces = append(c.Spaces, config.Space{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always"})
 	})
-	s, code := p.run("conversation set work " + w.Selected + " --space review --read all --label Releases")
-	if code != 0 || !strings.Contains(s, "work/"+w.Selected+": space Review, read all") {
-		t.Fatalf("conversation set: exit %d:\n%s", code, s)
+	// An agent adds the channel to Review by hand: Review is the last [[spaces]].
+	s := p.writeConfigText(func(text string) string {
+		return text + "\n[[spaces.conversations]]\naccount = 'work'\nid = '" + w.Selected + "'\nread = 'all'\nlabel = 'Releases'\n"
+	})
+	// The terminal can break the line in a word, so compare without spaces.
+	squash := func(s string) string { return strings.Join(strings.Fields(s), "") }
+	if !strings.Contains(squash(s), squash("is valid: 1 account, 2 agents, 1 schedule, 1 space and Unsorted, 1 conversation")) {
+		t.Fatalf("config check:\n%s", s)
+	}
+	s, code := p.run("conversations --account work --json")
+	if code != 0 || !regexp.MustCompile(`"id": "`+regexp.QuoteMeta(w.Selected)+`",\s+"kind": "channel",\s+"name": "[^"]+",\s+"label": "Releases",\s+"space": "review",\s+"read": "all"`).MatchString(s) {
+		t.Fatalf("conversations --json: exit %d:\n%s", code, s)
 	}
 	s, code = p.run("conversations --account work")
 	if code != 0 || !regexp.MustCompile(regexp.QuoteMeta(w.Selected)+`\s+channel\s+Releases\s+Review\s+all`).MatchString(s) {
@@ -125,9 +134,10 @@ func TestS39SortAHeldConversation(t *testing.T) {
 	if !regexp.MustCompile(`unsorted\s+Unsorted\s+-\s+always\s+hold: does not send\s+1 waiting`).MatchString(s) {
 		t.Fatalf("status:\n%s", s)
 	}
-	if _, code := p.run("conversation set work " + w.Direct + " --space team"); code != 0 {
-		t.Fatal("conversation set failed")
-	}
+	// An agent sorts the conversation by hand: Team is the last [[spaces]].
+	p.writeConfigText(func(text string) string {
+		return text + "\n[[spaces.conversations]]\naccount = 'work'\nid = '" + w.Direct + "'\nread = 'all'\n"
+	})
 	s, code = p.run("run --once")
 	if code != 0 || !strings.Contains(s, "batch of Team to triage (dry-run, 1 messages)") {
 		t.Fatalf("second run: exit %d:\n%s", code, s)
