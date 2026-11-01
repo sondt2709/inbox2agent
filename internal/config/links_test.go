@@ -92,3 +92,47 @@ func TestAddLinkMoveAndSetLevel(t *testing.T) {
 		t.Errorf("links after the move = %+v, want only team", got)
 	}
 }
+
+func TestSetSpacesIsTheOneWayToSetTheLinks(t *testing.T) {
+	c := linked(t)
+	// Move: Team only, with the level all. The label of the old entries stays.
+	if err := c.SetSpaces("work", "C1", "release", []Link{{Space: "team", Read: ReadAll}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Links("work", "C1"); !reflect.DeepEqual(got, []Link{{Space: "team", Read: ReadAll, Label: "Releases"}}) {
+		t.Fatalf("after a move: %+v", got)
+	}
+	// Two spaces with their own levels.
+	if err := c.SetSpaces("work", "C1", "", []Link{{Space: "review", Read: ReadMentions}, {Space: "team", Read: ReadAll}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Routes("work", "C1"); !reflect.DeepEqual(got, []string{"review", "team"}) || c.Spaces[0].Conversations[0].Name != "release" {
+		t.Fatalf("routes = %v, entry %+v", got, c.Spaces[0].Conversations[0])
+	}
+	// Ignore: one Unsorted entry with off.
+	if err := c.SetSpaces("work", "C1", "", []Link{{Space: UnsortedID, Read: ReadOff}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Links("work", "C1"); len(got) != 1 || got[0].Space != UnsortedID || got[0].Read != ReadOff || len(c.Spaces[0].Conversations) != 0 {
+		t.Fatalf("after ignore: %+v", got)
+	}
+	// No link: no entry, so the conversation follows unsorted.read.
+	if err := c.SetSpaces("work", "C1", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := c.Conversation("work", "C1"); ok || c.Level("work", "C1") != c.Unsorted.Read {
+		t.Fatalf("after no link: an entry stays, or the level is %s", c.Level("work", "C1"))
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][]Link{
+		{{Space: UnsortedID, Read: ReadAll}, {Space: "team", Read: ReadAll}},
+		{{Space: "nope", Read: ReadAll}},
+		{{Space: "team", Read: "loud"}},
+	} {
+		if err := c.SetSpaces("work", "C1", "", bad); err == nil {
+			t.Errorf("SetSpaces(%+v) is accepted", bad)
+		}
+	}
+}

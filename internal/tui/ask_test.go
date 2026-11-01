@@ -85,7 +85,7 @@ func TestFeedAskTheAgent(t *testing.T) {
 		t.Errorf("prompt = %s", p)
 	}
 	s = screen(h.m)
-	for _, want := range []string{"Sent to the agent of Unsorted. It answers in this card.", "↪ asked",
+	for _, want := range []string{"Sent to the agent of Everything else. It answers in this card.", "↪ asked",
 		"↪ Asked " + time.Now().Format("15:04") + ": Check the auth code and give me the effort. · sent"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Feed does not show %q:\n%s", want, s)

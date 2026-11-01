@@ -137,7 +137,7 @@ func TestS31AskTheAgent(t *testing.T) {
 	}
 	tm.Type("S31 check the auth code and give me the effort in hours.")
 	tm.WaitFor(`effort in hours\.`, 5*time.Second)
-	tm.Press("C-s", `Sent to the agent of Unsorted\. It answers in this card\.`, 30*time.Second)
+	tm.Press("C-s", `Sent to the agent of Everything else\. It answers in this card\.`, 30*time.Second)
 	s = tm.WaitFor(`↪ asked`, 5*time.Second)
 	if !regexp.MustCompile(`↪ Asked \d\d:\d\d: S31 check the auth code .* · sent`).MatchString(s) { // the panel cuts the text
 		t.Errorf("the detail panel does not show the ask:\n%s", s)

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
@@ -56,9 +57,9 @@ func (m *model) viewActivity(w, h int) string {
 	ds := m.visibleDispatches()
 	m.act = min(m.act, max(0, len(ds)-1))
 	m.actOffset = scrollTo(m.act, m.actOffset, rows)
-	title := fmt.Sprintf("Activity · last %d sends · refreshes every %s", len(ds), refreshEvery)
+	title := fmt.Sprintf("Send log · last %d sends · refreshes every %s", len(ds), refreshEvery)
 	if sp := m.activeSpace(); sp != "" {
-		title = fmt.Sprintf("Activity · space %s · %d of the last %d sends · F changes the space", m.spaceNames()[sp], len(ds), len(m.dispatches))
+		title = fmt.Sprintf("Send log · space %s · %d of the last %d sends · F changes the space", m.spaceNames()[sp], len(ds), len(m.dispatches))
 	}
 	table := dispatchTable(ds, m.spaceNames(), m.act, m.actOffset, w-4, rows+1)
 	if len(ds) == 0 && len(m.dispatches) > 0 {
@@ -89,6 +90,7 @@ func (m *model) spaceNames() map[string]string {
 	for _, s := range m.u.cfg.AllSpaces() {
 		out[s.ID] = s.Title()
 	}
+	out[config.UnsortedID] = "Everything else"
 	return out
 }
 

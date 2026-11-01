@@ -44,7 +44,7 @@ func TestS33WhatsAppNotPaired(t *testing.T) {
 	}
 
 	tm := p.term("config")
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
 	s = tm.Press("3", `linked device "i2a" · not paired`, 5*time.Second)
 	if strings.Contains(s, "Server URL") || strings.Contains(s, "Token") || !strings.Contains(s, "Phone       unknown") {
 		t.Errorf("the form of a WhatsApp account shows Mattermost fields, or no phone line:\n%s", s)
@@ -56,7 +56,7 @@ func TestS33WhatsAppNotPaired(t *testing.T) {
 func TestS34WhatsAppAddForm(t *testing.T) {
 	p := newPerson(t, "S34")
 	tm := p.term("config")
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
 	tm.Press("3", `An account only connects`, 5*time.Second)
 	tm.Press("Enter", `▌ Platform`, 5*time.Second)
 	s := tm.Press("Right", `Phone number`, 5*time.Second)

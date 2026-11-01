@@ -52,6 +52,9 @@ type Store interface {
 	SentReplies(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Reply, error)
 	ask.Store
 	Asks(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Ask, error)
+	// Requeue makes the sent messages of a conversation after since pending
+	// again, for a space that the conversation joined.
+	Requeue(ctx context.Context, account, conversation string, since time.Time, forMeOnly bool) (int64, error)
 }
 
 // TabID names a tab that Run can open first.
@@ -103,6 +106,31 @@ type ui struct {
 	cfg     *config.Config // the configuration of the file
 	cfgHash string         // the hash of the file bytes that the dashboard read or wrote last
 	theme   huh.Theme
+
+	prev     *config.Config // the configuration of the file before the last save, for undo
+	prevHash string         // the hash of the file after the last save
+}
+
+// errNoUndo means that the dashboard saved nothing that it can undo.
+var errNoUndo = errors.New("nothing to undo")
+
+// errFileChanged means that another process changed the file after the last save.
+var errFileChanged = errors.New("another process changed config.toml after the last save")
+
+// undo writes back the configuration from before the last save, when the file
+// did not change after that save. The undo itself can be undone.
+func (u *ui) undo() error {
+	if u.prev == nil {
+		return errNoUndo
+	}
+	if fileHash(u.d.Paths.ConfigFile) != u.prevHash {
+		return errFileChanged
+	}
+	prev := clone(u.prev)
+	return u.commit(func(c *config.Config) error {
+		*c = *prev
+		return nil
+	}, nil)
 }
 
 func newUI(d Deps) *ui {
@@ -175,7 +203,9 @@ func clone(c *config.Config) *config.Config {
 // accounts. On success the result becomes the configuration of the dashboard.
 // On error the file does not change.
 func (u *ui) commit(change func(*config.Config) error, tokens map[string]string, removed ...string) error {
+	var before *config.Config
 	next, hash, err := config.Update(u.d.Paths.ConfigFile, func(c *config.Config) error {
+		before = clone(c)
 		if err := change(c); err != nil {
 			return err
 		}
@@ -199,6 +229,7 @@ func (u *ui) commit(change func(*config.Config) error, tokens map[string]string,
 		_ = u.d.Secrets.Delete(secretsKey(id))
 	}
 	u.cfg, u.cfgHash = next, hash
+	u.prev, u.prevHash = before, hash
 	return nil
 }
 

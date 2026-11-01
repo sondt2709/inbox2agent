@@ -257,10 +257,20 @@ func TestS01FirstStart(t *testing.T) {
 	}
 }
 
+// openSection opens Setup and presses tab n times: 1 Agents, 2 Schedules,
+// 3 Settings, 4 Send log. It waits for text of that section.
+func openSection(tm *harness.Term, n int, want string) string {
+	tm.Press("3", `Accounts · Agents · Schedules`, 5*time.Second)
+	for range n {
+		tm.Keys("Tab")
+	}
+	return tm.WaitFor(want, 5*time.Second)
+}
+
 // openAddAccount opens the Accounts tab, where the detail panel is the form
 // of a new account, and fills the form.
 func openAddAccount(tm *harness.Term, url, token string) {
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
 	tm.Press("3", `An account only connects`, 5*time.Second)
 	tm.Press("Enter", `▌ Platform`, 5*time.Second) // Mattermost is the default platform
 	tm.Press("Tab", `▌ Account ID`, 5*time.Second)
@@ -280,7 +290,7 @@ func TestS02S04ConnectAndSortAChannel(t *testing.T) {
 	tm := p.term("config")
 	openAddAccount(tm, mm.URL, w.AlicePAT)
 	// Enter in the last field submits the form, as in a web form.
-	s := tm.Press("Enter", `Its conversations are in Unsorted`, 30*time.Second)
+	s := tm.Press("Enter", `Its conversations are in Everything else`, 30*time.Second)
 	if !strings.Contains(s, "Connected as "+w.Alice.Name) { // S02
 		t.Fatalf("no 'Connected as %s' on the screen:\n%s", w.Alice.Name, s)
 	}
@@ -290,19 +300,19 @@ func TestS02S04ConnectAndSortAChannel(t *testing.T) {
 	if !strings.Contains(s, "User        @"+w.Alice.Name) || !strings.Contains(s, "Server      "+mm.URL) {
 		t.Errorf("the account does not show the server and the user:\n%s", s)
 	}
-	// S04: search the channel, move it to a new space.
-	tm.Press("4", `CONVERSATION`, 5*time.Second)
-	tm.Press("/", `/ `, 5*time.Second)
+	// S04: find the channel from any area, and put it in a new space.
+	tm.Press("2", `\+ New space`, 5*time.Second)
+	tm.Press("/", `Find a conversation`, 5*time.Second)
 	tm.Type("selected")
-	s = tm.Press("Enter", `1 shown`, 5*time.Second)
-	if !strings.Contains(s, "# selected") {
-		t.Fatalf("the search does not show the channel:\n%s", s)
+	s = tm.Press("Enter", `# selected · work`, 5*time.Second) // one match: its spaces dialog
+	if !strings.Contains(s, "Ignore: never read this conversation") {
+		t.Fatalf("the spaces dialog of the channel:\n%s", s)
 	}
-	tm.Press("m", `Move to a space`, 5*time.Second)
 	tm.Press("Down", `▌ \+ New space`, 5*time.Second)
 	tm.Press("Enter", `The name of the new space`, 5*time.Second)
 	tm.Type("Team")
-	tm.Press("Enter", `Created the space Team`, 5*time.Second)
+	tm.Press("Enter", `▌ \[x\] Team`, 5*time.Second)
+	tm.Press("Enter", `# selected is in Team\. Saved · u undo`, 5*time.Second)
 	tm.Press("q", `Saved /`, 5*time.Second)
 
 	c := p.config()
@@ -429,8 +439,8 @@ func TestS08InjectionStaysData(t *testing.T) {
 func TestS09ScheduleValidation(t *testing.T) {
 	p := newPerson(t, "S09")
 	tm := p.term("config")
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
-	tm.Press("7", `every 15m · every day · all day`, 5*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
+	openSection(tm, 2, `every 15m · every day · all day`)
 	tm.Press("Enter", `▌ Name`, 5*time.Second)
 	tm.Press("Tab", `▌ Send every`, 5*time.Second)
 	tm.Replace("abc")
@@ -450,8 +460,8 @@ func TestS10ExitWithoutSaving(t *testing.T) {
 	p.addAccount(w)
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
-	tm.Press("7", `every 15m · every day · all day`, 5*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
+	openSection(tm, 2, `every 15m · every day · all day`)
 	tm.Press("Enter", `▌ Name`, 5*time.Second)
 	tm.Press("Tab", `▌ Send every`, 5*time.Second)
 	tm.Replace("45m")
@@ -525,46 +535,46 @@ func TestS13ScheduleHours(t *testing.T) {
 	}
 }
 
-// S20: the TUI is a dashboard: it fills the window, shows the model in the
-// tab bar and a definition under it, opens on the Spaces tab with the
-// sentence of Unsorted, closes a dialog with Esc without a change, and gives
-// the shell screen back on exit.
+// S20: the TUI is a dashboard: it fills the window, shows the three areas,
+// the next send and R in the header, opens on the Spaces area with
+// Everything else, closes a dialog with Esc without a change, and gives the
+// shell screen back on exit.
 func TestS20FullScreenTUI(t *testing.T) {
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S20")
 	p.addAccount(w, w.Selected)
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
-	s := tm.WaitFor(`Unsorted reads`, 30*time.Second)
+	s := tm.WaitFor(`Everything else · conversations in no space`, 30*time.Second)
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if !strings.Contains(lines[0], "i2a") || !strings.Contains(lines[0], "service") {
-		t.Errorf("the first line is not the header with the service state:\n%s", s)
+	head := strings.Join(strings.Fields(lines[0]), " ")
+	if !regexp.MustCompile(`^◆ i2a 1 Feed 2 Spaces( \d+ new)? 3 Setup .*R run now$`).MatchString(head) {
+		t.Errorf("the header = %q", head)
 	}
-	tabBar := strings.Join(strings.Fields(lines[1]), " ")
-	if !regexp.MustCompile(`^1 Feed 2 Activity │ 3 Accounts → 4 Conversations( \d+ unsorted)? → 5 Spaces → 6 Agents \+ 7 Schedules │ 8 Settings$`).MatchString(tabBar) {
-		t.Errorf("the tab bar = %q", tabBar)
+	if !strings.Contains(lines[1], "No run yet. R reads all accounts") {
+		t.Errorf("the line under the header = %q", lines[1])
 	}
-	for _, want := range []string{"Space: your own group of conversations", "□ Unsorted", "+ New space", "→ sends to triage · always"} {
+	for _, want := range []string{"● Everything else", "New conversations", "Ignored", "+ New space", "Sends to   triage", "# selected"} {
 		if !strings.Contains(s, want) {
-			t.Errorf("the Spaces tab does not show %q:\n%s", want, s)
+			t.Errorf("the Spaces area does not show %q:\n%s", want, s)
 		}
 	}
 	if len(lines) < 38 {
 		t.Errorf("the TUI uses %d of 40 lines, want the full window", len(lines))
 	}
-	tm.Press("8", `Lookback\s+1d`, 5*time.Second)
+	openSection(tm, 3, `Lookback\s+1d`)
 	tm.Press("Enter", `▌ Lookback`, 5*time.Second)
 	tm.Replace("45m")
 	s = tm.Press("Escape", `\[d\] Discard`, 5*time.Second)
 	if !strings.Contains(s, "unsaved changes") {
-		t.Errorf("the tab bar does not show the unsaved change:\n%s", s)
+		t.Errorf("the screen does not show the unsaved change:\n%s", s)
 	}
 	s = tm.Press("d", `Changes discarded`, 5*time.Second)
 	if !regexp.MustCompile(`Lookback\s+1d`).MatchString(s) || strings.Contains(s, "● unsaved changes") {
 		t.Fatalf("discard kept the change of the lookback:\n%s", s)
 	}
 	s = tm.Press("q", `did not change`, 5*time.Second)
-	if strings.Contains(s, "5 Spaces") {
+	if strings.Contains(s, "2 Spaces") {
 		t.Fatalf("the TUI is still on the screen after exit:\n%s", s)
 	}
 	after, _ := os.ReadFile(p.configFile())
@@ -574,30 +584,32 @@ func TestS20FullScreenTUI(t *testing.T) {
 }
 
 // S22: the user reads one direct conversation only. In the TUI, the user
-// moves the direct conversation with bob to the space Bob, and sets the read
-// level of Unsorted to off. Only the posts of that conversation arrive.
+// finds the direct conversation with bob, puts it in a new space Bob, and
+// sets the read level of Everything else to Ignored. Only the posts of that
+// conversation arrive.
 func TestS22ReadOneDirectConversation(t *testing.T) {
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S22")
 	p.addAccount(w)
 	tm := p.term("config")
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
-	tm.Press("4", `@`+regexp.QuoteMeta(w.Bob.Name), 30*time.Second)
-	tm.Press("/", `/ `, 5*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
+	tm.WaitFor(`@ @`+regexp.QuoteMeta(w.Bob.Name), 30*time.Second) // the listing of the account
+	tm.Press("/", `Find a conversation`, 5*time.Second)
 	tm.Type(w.Bob.Name)
-	s := tm.Press("Enter", `▌|direct`, 5*time.Second)
-	if !strings.Contains(s, "direct") {
-		t.Fatalf("the search does not show the direct conversation:\n%s", s)
+	s := tm.Press("Enter", `@ @`+regexp.QuoteMeta(w.Bob.Name)+` · work`, 5*time.Second)
+	if !strings.Contains(s, "Ignore: never read this conversation") {
+		t.Fatalf("the spaces dialog of the direct conversation:\n%s", s)
 	}
-	tm.Press("m", `Move to a space`, 5*time.Second)
 	tm.Press("Down", `▌ \+ New space`, 5*time.Second)
 	tm.Press("Enter", `The name of the new space`, 5*time.Second)
 	tm.Type("Bob")
-	tm.Press("Enter", `Created the space Bob`, 5*time.Second)
-	tm.Press("5", `Unsorted reads`, 5*time.Second)
-	tm.Press("Enter", `▌ Read level`, 5*time.Second)
-	tm.Keys("Right") // mentions → off
-	tm.Press("C-s", `Saved Unsorted`, 5*time.Second)
+	tm.Press("Enter", `▌ \[x\] Bob`, 5*time.Second)
+	tm.Press("Enter", `is in Bob\. Saved`, 5*time.Second)
+	// Everything else is the second row; its first row is its read level.
+	tm.Press("Down", `▌● Everything else`, 5*time.Second)
+	tm.Press("Enter", `←→ level`, 5*time.Second) // the panel, on the first conversation
+	tm.Keys("Up", "Up", "Up")
+	tm.Press("Right", `New and other conversations: Ignored\. Saved`, 5*time.Second) // Only for me → Ignored
 	tm.Press("q", `Saved /`, 5*time.Second)
 
 	c := p.config()

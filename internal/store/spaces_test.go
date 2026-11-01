@@ -366,3 +366,42 @@ func TestMigrateV6AddsTheDeliveries(t *testing.T) {
 		t.Errorf("backup version = %d, %v, want 6", v, err)
 	}
 }
+
+func TestRequeueKeepsTheDeliveries(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	old, mine, other := msg("r0", now.Add(-48*time.Hour)), msg("r1", now.Add(-time.Hour)), msg("r2", now.Add(-time.Hour))
+	other.ForMe = false
+	mine.ForMe = true
+	if _, err := s.SavePoll(ctx, "work", []inbox.Message{old, mine, other}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Pending(ctx)
+	var ids []int64
+	for _, m := range p {
+		ids = append(ids, m.ID)
+	}
+	id, _ := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 3})
+	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, ids); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), true); err != nil || n != 1 {
+		t.Fatalf("requeue of the messages for me = %d, %v, want 1", n, err)
+	}
+	if n, _ := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), false); n != 1 {
+		t.Fatalf("requeue of all messages = %d, want 1 more (the message for me is pending already)", n)
+	}
+	if n, _ := s.Requeue(ctx, "work", "other", now.Add(-24*time.Hour), false); n != 0 {
+		t.Fatalf("requeue of another conversation = %d", n)
+	}
+	got, _ := s.Pending(ctx)
+	if len(got) != 2 {
+		t.Fatalf("pending = %d, want the 2 messages after since", len(got))
+	}
+	for _, m := range got {
+		if m.ExternalID == "r0" || m.Delivered["triage"] != inbox.StateSent {
+			t.Errorf("message %s: deliveries %v, want the sent delivery of triage", m.ExternalID, m.Delivered)
+		}
+	}
+}

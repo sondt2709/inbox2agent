@@ -540,6 +540,23 @@ func (s *Store) SetStates(ctx context.Context, states map[int64]string) error {
 	return tx.Commit()
 }
 
+// Requeue sets the sent and previewed messages of a conversation that were
+// created at since or later back to pending, and returns their number. With
+// forMeOnly it changes only the messages for the user. The deliveries stay, so
+// a space that has a sent delivery does not get a message again.
+func (s *Store) Requeue(ctx context.Context, account, conversation string, since time.Time, forMeOnly bool) (int64, error) {
+	q := `UPDATE messages SET state = 'pending' WHERE source_id = ? AND channel_id = ? AND created_at >= ?
+	  AND state IN ('sent', 'previewed')`
+	if forMeOnly {
+		q += ` AND for_me = 1`
+	}
+	res, err := s.db.ExecContext(ctx, q, account, conversation, since.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // Messages returns the messages of a dispatch, oldest first.
 func (s *Store) Messages(ctx context.Context, dispatchID int64) ([]inbox.Message, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+messageCols+` FROM messages WHERE dispatch_id = ? ORDER BY created_at, id`, dispatchID)

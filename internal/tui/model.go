@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -23,42 +22,46 @@ import (
 
 type tabID int
 
+// The tabs. The header groups them in three areas: Feed, Spaces, and Setup
+// with the sections Accounts, Agents, Schedules, Settings and Send log.
 const (
 	tabFeed tabID = iota
-	tabActivity
-	tabAccounts
-	tabConversations
 	tabSpaces
+	tabAccounts
 	tabAgents
 	tabSchedules
 	tabSettings
+	tabActivity
+	numTabs
 )
 
-var tabNames = []string{"Feed", "Activity", "Accounts", "Conversations", "Spaces", "Agents", "Schedules", "Settings"}
+var tabNames = []string{"Feed", "Spaces", "Accounts", "Agents", "Schedules", "Settings", "Send log"}
 
-// tabBefore is the mark before each tab in the tab bar. The setup tabs show
-// the model: Accounts → Conversations → Spaces → Agents + Schedules.
-var tabBefore = []string{"", "", "│", "→", "→", "→", "+", "│"}
+// The areas of the header.
+const (
+	areaFeed = iota
+	areaSpaces
+	areaSetup
+)
 
-// tabDefs defines the item of each tab in one sentence, under the tab bar.
-var tabDefs = []string{
-	"Feed: the cards that your agents send back. r replies, t asks the agent.",
-	"Activity: each send of a space to its agent, and the result.",
-	"Account: one login to a chat tool. It only connects; i2a finds its conversations.",
-	"Conversation: one DM, group or channel. Each is in one space, with a read level.",
-	"Space: your own group of conversations from any account. It sends to one agent on one schedule.",
-	"Agent: how i2a sends a batch to an AI agent. Each space has its own session.",
-	"Schedule: when a space sends. Outside it, i2a still reads, and the messages wait.",
-	"Settings: how long i2a keeps messages, notifications, and the background service.",
+var areaNames = []string{"Feed", "Spaces", "Setup"}
+
+func areaOf(t tabID) int {
+	switch t {
+	case tabFeed:
+		return areaFeed
+	case tabSpaces:
+		return areaSpaces
+	}
+	return areaSetup
 }
 
 // refreshEvery is the time between two reads of the store and the service state.
 const refreshEvery = 2 * time.Second
 
-// Layout rows: the header bar is row 0, the tab bar is row 1, the definition
-// of the tab is row 2, the content starts at row 3, and the footer is the
-// last row.
-const contentTop = 3
+// Layout rows: the header with the areas is row 0, the Setup sections or the
+// last run is row 1, the content starts at row 2, and the footer is the last row.
+const contentTop = 2
 
 type (
 	asyncMsg struct {
@@ -114,13 +117,16 @@ type model struct {
 	svcErr     error
 	loaded     bool
 
-	acc, conv, spc, agt, sch, act                      int // cursors of the lists
-	accOff, convOff, spcOff, agtOff, schOff, actOffset int // first visible rows
+	acc, spc, agt, sch, act                   int   // cursors of the lists
+	accOff, spcOff, agtOff, schOff, actOffset int   // first visible rows
+	setupTab                                  tabID // the last section of Setup
 
-	convFilter  string              // "", "unsorted", "space:<id>", "account:<id>" or "kind:<kind>"
+	spcFocus    bool                // the panel of the Spaces area has the keyboard
+	row, rowOff int                 // the cursor and the first visible row of that panel
 	convSel     map[string]bool     // the selected conversations (convKey)
-	search      textinput.Model     // the search of the Conversations tab
-	searching   bool                // the search has the keyboard
+	seen        seenSet             // the conversations that the dashboard showed
+	lastRun     string              // the result of the last run of R
+	lastRunErr  bool                // the last run failed
 	spaceFilter string              // the space of the Feed and Activity filter (F); "" is all spaces
 	running     bool                // a run of the R key is busy
 	events      <-chan daemon.Event // the events of the daemon, or nil
@@ -163,7 +169,7 @@ func newModel(ctx context.Context, u *ui) *model {
 		ctx: ctx, u: u, now: time.Now, tab: u.d.Tab, feedSort: sortUrgency, refs: map[int64]inbox.Message{},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		chs:  map[string][]mattermost.ChannelInfo{}, chsErr: map[string]string{}, chsBusy: map[string]bool{},
-		convSel: map[string]bool{}, mmUsers: map[string]string{}, search: newSearch(),
+		convSel: map[string]bool{}, mmUsers: map[string]string{}, seen: readSeen(u.d.Paths.DataDir), setupTab: tabAccounts,
 	}
 }
 
@@ -293,14 +299,6 @@ func (m *model) formTarget() (string, func() *form) {
 			return "acc:+pair", m.pairForm
 		}
 		return "acc:+", m.newAccountForm
-	case tabSpaces:
-		if id, ok := m.selectedSpace(); ok {
-			if id == config.UnsortedID {
-				return "spc:" + id, m.unsortedForm
-			}
-			return "spc:" + id, func() *form { return m.spaceForm(id) }
-		}
-		return "spc:+", func() *form { return m.spaceForm("") }
 	case tabAgents:
 		if m.agt < len(m.u.cfg.Agents) {
 			id := m.u.cfg.Agents[m.agt].ID
@@ -453,9 +451,6 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			}
 			return m.form.key(msg)
 		}
-		if m.searching {
-			return m.searchKey(msg)
-		}
 		return m.key(msg.String())
 	case tea.MouseClickMsg:
 		return m.click(msg.Mouse())
@@ -491,12 +486,16 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 // then the keys of the tab.
 func (m *model) key(k string) tea.Cmd {
 	switch k {
-	case "1", "2", "3", "4", "5", "6", "7", "8":
-		return m.setTab(tabID(k[0] - '1'))
+	case "1":
+		return m.setTab(tabFeed)
+	case "2":
+		return m.setTab(tabSpaces)
+	case "3":
+		return m.setTab(m.setupTab)
 	case "tab", "]":
-		return m.setTab((m.tab + 1) % tabID(len(tabNames)))
+		return m.setTab((m.tab + 1) % numTabs)
 	case "shift+tab", "[":
-		return m.setTab((m.tab + tabID(len(tabNames)) - 1) % tabID(len(tabNames)))
+		return m.setTab((m.tab + numTabs - 1) % numTabs)
 	case "q", "ctrl+c":
 		return m.quit()
 	case "?":
@@ -504,6 +503,13 @@ func (m *model) key(k string) tea.Cmd {
 		return nil
 	case "ctrl+r":
 		return m.load()
+	case "/":
+		m.openDialog(m.newSearchDialog(""))
+		return m.loadConversations()
+	case "R":
+		if m.tab != tabSpaces {
+			return m.runNow(nil, "all spaces")
+		}
 	case "enter", "right", "l", "e":
 		if m.form != nil {
 			return m.focusForm()
@@ -521,8 +527,6 @@ func (m *model) tabKey(k string) tea.Cmd {
 		cmd = m.keyActivity(k)
 	case tabAccounts:
 		cmd = m.keyAccounts(k)
-	case tabConversations:
-		cmd = m.keyConversations(k)
 	case tabSpaces:
 		cmd = m.keySpaces(k)
 	case tabAgents:
@@ -538,10 +542,12 @@ func (m *model) tabKey(k string) tea.Cmd {
 
 func (m *model) setTab(t tabID) tea.Cmd {
 	m.tab = t
-	m.searching = false
+	if areaOf(t) == areaSetup {
+		m.setupTab = t
+	}
 	m.buildForm(true)
 	switch t {
-	case tabAccounts, tabConversations, tabSpaces:
+	case tabAccounts, tabSpaces:
 		return m.loadConversations()
 	}
 	return nil
@@ -567,7 +573,7 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 		switch m.tab {
 		case tabSettings:
 		case tabFeed:
-			ox += feedListWidth(m.w)
+			ox += feedRailWidth(m.w) + feedListWidth(m.w-feedRailWidth(m.w))
 			oy++ // the filter bar
 		default:
 			ox += listWidth(m.w)
@@ -586,13 +592,11 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 	case tabAccounts:
 		return m.clickList(y, &m.acc, m.accOff, len(m.u.cfg.Accounts)+1)
 	case tabSpaces:
-		return m.clickList(y, &m.spc, m.spcOff, len(m.u.cfg.Spaces)+2)
+		return m.clickSpaces(x, y)
 	case tabAgents:
 		return m.clickList(y, &m.agt, m.agtOff, len(m.u.cfg.Agents)+1)
 	case tabSchedules:
 		return m.clickList(y, &m.sch, m.schOff, len(m.u.cfg.Schedules)+1)
-	case tabConversations:
-		return m.clickConversations(y)
 	case tabActivity:
 		// The table has a header row under the panel title.
 		row := y - 3 + m.actOffset
@@ -636,31 +640,30 @@ func (m *model) quit() tea.Cmd {
 }
 
 const helpText = `The model   Account → Conversation → Space → Agent + Schedule
-            An account only connects. Each DM, group or channel is
-            in one space or more, each with a read level: all,
-            mentions (messages for you) or off. A space sends to one
-            agent on one schedule. Unsorted holds the others.
+            An account only connects. Each DM, group or channel
+            is in no space, one space or more, with a read level
+            in each: All messages, or Only for me (mentions and
+            direct messages). Everything else reads the others.
+            A space sends to one agent on one schedule.
 
-Tabs        1-8, tab, shift+tab or a click · q quit · ctrl+r reload
-Move        ↑ ↓ or j k in a list, or the mouse wheel
-Edit        enter or → opens the form at the right; or click it
+Areas       1 Feed · 2 Spaces · 3 Setup · tab next section
+Everywhere  R run now · / find a conversation · ? keys · q quit
+Move        ↑ ↓ or j k, or the mouse wheel · enter opens
 Form        tab / shift+tab or ↑ ↓ move between the fields
-            ←/→ or space change a choice or a switch
-            ctrl+s saves the form · esc goes back to the list
+            ←/→ or space change a choice · ctrl+s save · esc back
 
-Feed           r reply · t ask the agent · c copy the reply
-               o open the thread · d done · u unread · s sort
-               f category · F space · a done cards · R run now
-Activity       enter show the digest file · F space (as the Feed)
-Accounts       enter edit · x remove
-Conversations  m move to a space · L add to a space, keep the others
-               l read level · space select · a select all · n rename
-               / search · f filter
-Spaces         enter edit · a add conversations · x delete
-               c show its conversations · R run this space now
-Agents         enter edit · x delete (choose a replacement)
-Schedules      enter edit · x delete (choose a replacement)
-Settings       enter edit · i install the service · u uninstall it`
+Feed        ←/→ space · r reply · t ask the agent · c copy reply
+            o open the thread · d done · u unread · s sort
+            f category · F space · a done cards
+Spaces      enter open · a add conversations · x delete space
+            u undo the last change · esc back to the list
+  a row     enter its spaces · ←/→ read level · x remove
+            space select · n rename · i ignore · k keep (new)
+Spaces of   space check · ←/→ read level · enter save
+a conversation
+Setup       Accounts · Agents · Schedules: enter edit · x delete
+            Settings: i install the service · u uninstall it
+            Send log: enter show the digest · F space`
 
 // helpDialog shows the key help as wide as its longest line.
 func helpDialog() *viewerDialog {
@@ -688,13 +691,13 @@ func (m *model) render() string {
 	if m.formFor == "" {
 		m.buildForm(false)
 	}
+	m.tabZones = m.tabZones[:0]
 	header := m.renderHeader()
-	tabs := m.renderTabs()
-	def := m.renderDef()
-	contentH := m.h - 4
+	sub := m.renderSub()
+	contentH := m.h - 3
 	content := lipgloss.NewStyle().Width(m.w).Height(contentH).MaxHeight(contentH).Render(m.renderTab(m.w, contentH))
 	footer := m.renderFooter()
-	base := lipgloss.JoinVertical(lipgloss.Left, header, tabs, def, content, footer)
+	base := lipgloss.JoinVertical(lipgloss.Left, header, sub, content, footer)
 
 	d := m.topDialog()
 	if d == nil {
@@ -718,11 +721,53 @@ func (m *model) render() string {
 	).Render()
 }
 
+// renderHeader draws the brand, the areas with their counts, and at the
+// right the service, the next send and R. A narrow window drops the next
+// send, then the service text.
 func (m *model) renderHeader() string {
-	left := brandStyle.Render("◆ i2a") + faint.Render("  inbox2agent")
-	right := m.serviceBadge() + " "
-	gap := max(1, m.w-lipgloss.Width(left)-lipgloss.Width(right))
-	return headerStyle.Width(m.w).Render(left + strings.Repeat(" ", gap) + right)
+	var b strings.Builder
+	brand := brandStyle.Render("◆ i2a") + " "
+	b.WriteString(brand)
+	x := lipgloss.Width(brand)
+	fresh, _, _ := m.feedCounts()
+	badges := []string{"", "", ""}
+	if fresh > 0 {
+		badges[areaFeed] = infoStyle.Render(fmt.Sprint(fresh)) + " "
+	}
+	if n := m.newCount(); n > 0 {
+		badges[areaSpaces] = warnStyle.Render(fmt.Sprintf("%d new", n)) + " "
+	}
+	first := []tabID{tabFeed, tabSpaces, m.setupTab}
+	for i, name := range areaNames {
+		var s string
+		if areaOf(m.tab) == i {
+			s = tabActive.Render(fmt.Sprintf("%d %s", i+1, name))
+		} else {
+			s = tabInactive.Render(tabKey.Render(fmt.Sprint(i+1)) + faint.Render(" "+name))
+		}
+		s += badges[i]
+		w := lipgloss.Width(s)
+		m.tabZones = append(m.tabZones, zone{x0: x, x1: x + w, y: 0, tab: first[i]})
+		b.WriteString(s + " ")
+		x += w + 1
+	}
+	left := b.String()
+	run := keyStyle.Render("R") + faint.Render(" run now")
+	if m.running {
+		run = warnStyle.Render(m.spin.View() + " running")
+	}
+	next := ""
+	if t := m.nextSend(); !t.IsZero() {
+		next = faint.Render("next send " + m.whenText(t) + " · ")
+	}
+	for _, right := range []string{m.serviceBadge() + faint.Render(" · ") + next + run, m.serviceBadge() + faint.Render(" · ") + run,
+		m.serviceDot() + " " + run, run} {
+		right += " "
+		if gap := m.w - lipgloss.Width(left) - lipgloss.Width(right); gap >= 1 {
+			return headerStyle.Width(m.w).Render(left + strings.Repeat(" ", gap) + right)
+		}
+	}
+	return headerStyle.Width(m.w).Render(truncateStyled(left, m.w))
 }
 
 func (m *model) serviceBadge() string {
@@ -730,7 +775,7 @@ func (m *model) serviceBadge() string {
 	case m.svcErr != nil:
 		return faint.Render("○ service not supported here")
 	case m.svc.State == "running":
-		return okStyle.Render("●") + textStyle.Render(" service running · pid "+m.svc.PID)
+		return okStyle.Render("●") + textStyle.Render(" running")
 	case m.svc.Loaded:
 		return warnStyle.Render("●") + textStyle.Render(" service "+orStr(m.svc.State, "loaded"))
 	case !m.loaded:
@@ -739,71 +784,62 @@ func (m *model) serviceBadge() string {
 	return faint.Render("○ service not installed")
 }
 
-func (m *model) renderTabs() string {
-	if bar := m.tabBar(false); lipgloss.Width(bar) <= m.w {
-		return bar
+func (m *model) serviceDot() string {
+	switch {
+	case m.svc.State == "running":
+		return okStyle.Render("●")
+	case m.svc.Loaded:
+		return warnStyle.Render("●")
 	}
-	return m.tabBar(true) // a narrow window: less padding, the unsorted count only
+	return faint.Render("○")
 }
 
-// tabBar draws the tab bar and records the mouse zone of each tab.
-func (m *model) tabBar(compact bool) string {
-	m.tabZones = m.tabZones[:0]
-	x := 0
-	var b strings.Builder
-	active, inactive := tabActive, tabInactive
-	if compact {
-		active, inactive = tabActive.Padding(0, 0), tabInactive.Padding(0, 0)
-	}
-	for i, name := range tabNames {
-		if mark := tabBefore[i]; mark != "" {
-			if compact {
-				mark = " " + mark + " "
-			}
-			b.WriteString(faint.Render(mark))
-			x += lipgloss.Width(mark)
-		} else if compact && i > 0 {
-			b.WriteString("  ")
-			x += 2
-		}
-		badge := ""
-		if tabID(i) == tabConversations {
-			if n := m.unsortedCount(); n > 0 {
-				badge = warnStyle.Render(fmt.Sprintf("%d unsorted", n)) + " "
-				if compact {
-					badge = " " + warnStyle.Render(fmt.Sprint(n))
-				}
-			}
-		}
-		var s string
-		if tabID(i) == m.tab {
-			s = active.Render(fmt.Sprintf("%d %s", i+1, name)) + badge
-		} else {
-			s = inactive.Render(tabKey.Render(fmt.Sprint(i+1))+faint.Render(" "+name)) + badge
-		}
-		w := lipgloss.Width(s)
-		m.tabZones = append(m.tabZones, zone{x0: x, x1: x + w, y: 1, tab: tabID(i)})
-		b.WriteString(s)
-		x += w
-	}
-	return b.String()
-}
-
-// renderDef is the definition of the current tab, with the unsaved mark of a
-// form at the right.
-func (m *model) renderDef() string {
+// renderSub is row 1: the sections of Setup, or the result of the last run,
+// with the unsaved mark of a form at the right.
+func (m *model) renderSub() string {
 	right := ""
 	if m.form != nil && m.form.dirty() && m.replyCard == 0 && m.askCard == 0 {
 		right = dirtyStyle.Render("● unsaved changes") + faint.Render(" · ctrl+s save · esc discard ")
 	}
-	left := " " + faint.Render(truncate(tabDefs[m.tab], max(10, m.w-2-lipgloss.Width(right))))
+	var b strings.Builder
+	b.WriteString(" ")
+	if areaOf(m.tab) == areaSetup {
+		x := 1
+		for t := tabAccounts; t < numTabs; t++ {
+			var s string
+			if t == m.tab {
+				s = boldStyle.Render(tabNames[t])
+			} else {
+				s = faint.Render(tabNames[t])
+			}
+			w := lipgloss.Width(s)
+			m.tabZones = append(m.tabZones, zone{x0: x, x1: x + w, y: 1, tab: t})
+			b.WriteString(s)
+			x += w
+			if t < numTabs-1 {
+				b.WriteString(faint.Render(" · "))
+				x += 3
+			}
+		}
+		b.WriteString(faint.Render("   tab next"))
+	} else {
+		text := m.lastRun
+		st := faint
+		if text == "" {
+			text = "No run yet. R reads all accounts and sends the waiting messages now."
+		} else if m.lastRunErr {
+			st = errStyle
+		}
+		b.WriteString(st.Render(truncate(text, max(10, m.w-2-lipgloss.Width(right)))))
+	}
+	left := b.String()
 	gap := max(1, m.w-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", gap) + right
 }
 
 func (m *model) renderFooter() string {
 	formActive := m.form != nil && m.form.active
-	right := renderHints([]hint{{"tab", "next tab"}, {"?", "keys"}, {"q", "quit"}})
+	right := renderHints([]hint{{"?", "keys"}, {"q", "quit"}})
 	if m.topDialog() != nil || formActive {
 		right = ""
 	}
@@ -837,8 +873,6 @@ func (m *model) renderTab(w, h int) string {
 		return m.viewActivity(w, h)
 	case tabAccounts:
 		return m.viewAccounts(w, h)
-	case tabConversations:
-		return m.viewConversations(w, h)
 	case tabSpaces:
 		return m.viewSpaces(w, h)
 	case tabAgents:
@@ -854,19 +888,17 @@ func (m *model) renderTab(w, h int) string {
 func (m *model) tabHints() []hint {
 	switch m.tab {
 	case tabActivity:
-		return []hint{{"↑↓", "move"}, {"enter", "show digest"}, {"F", "space"}}
+		return []hint{{"enter", "show digest"}, {"F", "space"}, {"R", "run now"}, {"tab", "next section"}, {"↑↓", "move"}}
 	case tabAccounts:
-		return m.hintsAccounts()
-	case tabConversations:
-		return m.hintsConversations()
+		return append(m.hintsAccounts(), hint{"tab", "next section"})
 	case tabSpaces:
 		return m.hintsSpaces()
 	case tabAgents:
-		return m.hintsAgents()
+		return append(m.hintsAgents(), hint{"tab", "next section"})
 	case tabSchedules:
-		return m.hintsSchedules()
+		return append(m.hintsSchedules(), hint{"tab", "next section"})
 	case tabSettings:
-		return []hint{{"enter", "edit"}, {"i", "install service"}, {"u", "uninstall"}}
+		return []hint{{"enter", "edit"}, {"i", "install service"}, {"u", "uninstall"}, {"tab", "next section"}}
 	}
 	return feedHints()
 }

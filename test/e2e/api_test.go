@@ -54,7 +54,7 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S41 second message")
 	tui.Keys("R")
 	// The daemon holds its lock, so a success means that the daemon did the run.
-	tui.WaitFor(`Read 1 new messages · Unsorted: \w+ \(1\)`, 30*time.Second)
+	last := waitRun(t, tui, "")
 
 	// R in the Feed without the daemon: the dashboard runs the engine.
 	d.Keys("C-c")
@@ -64,13 +64,13 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	}
 	w.Post(t, w.Bob, w.Selected, "S41 third message")
 	tui.Keys("R")
-	tui.WaitFor(`Read 1 new messages · Unsorted: \w+ \(1\)`, 30*time.Second)
-	// R in the Spaces tab without the daemon: the selected space is Unsorted.
+	last = waitRun(t, tui, last)
+	// R in the Spaces area without the daemon: the selected item is Everything else.
 	w.Post(t, w.Bob, w.Selected, "S41 fourth message")
-	tui.Press("5", `5 Spaces`, 5*time.Second)
+	tui.Press("2", `\+ New space`, 5*time.Second)
 	tui.WaitFor(`R run now`, 10*time.Second) // after the status line of the last run
 	tui.Keys("R")
-	tui.WaitFor(`Read 1 new messages · Unsorted: \w+ \(1\)`, 30*time.Second)
+	waitRun(t, tui, last)
 	tui.Keys("q")
 	var all []string
 	for _, f := range p.digests() {
@@ -79,4 +79,22 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	if got := strings.Join(all, " | "); !regexp.MustCompile(`S41 first message.*S41 second message.*S41 third message.*S41 fourth message`).MatchString(got) {
 		t.Errorf("digest texts = %q", got)
 	}
+}
+
+// lastRunRe is the line under the header after a run of R.
+var lastRunRe = regexp.MustCompile(`Last run \d\d:\d\d:\d\d · Read 1 new messages · Everything else: \w+ \(1\)`)
+
+// waitRun waits for the line of a run that is not the line prev, and returns it.
+func waitRun(t *testing.T, tui *harness.Term, prev string) string {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		s := tui.WaitFor(lastRunRe.String(), time.Until(deadline))
+		if got := lastRunRe.FindString(s); got != prev {
+			return got
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("no new run after %q", prev)
+	return ""
 }

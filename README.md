@@ -46,11 +46,11 @@ The read level is the same choice for each kind of conversation:
 - `mentions`: the messages for you: a mention, a reply to you, or each message of a direct conversation.
 - `off`: no message.
 
-The built-in space **Unsorted** holds each conversation that no space lists, for example a new direct conversation. It has its own read level for these conversations. It sends to an agent, or holds the messages until you move their conversations to a space.
+The built-in space **Unsorted** holds each conversation that no space lists, for example a new direct conversation. The dashboard calls it **Everything else**. It has its own read level for these conversations. It sends to an agent, or holds the messages until you add their conversations to a space. A conversation with the read level `off` in Unsorted is ignored.
 
 One account can feed many spaces. For example, one WhatsApp account can send the group of a client to the space Company A, a project group to Project B, and the family chat to Personal.
 
-One conversation can also be in many spaces. For example, the channel `release` is in the space Review with the read level `all`, so the agent `reviewer` checks each release note, and in the space Team with `mentions`, so the agent `triage` sees only the release posts for you. Each space gets its own copy of each message that its read level allows, in its own batch, for its own agent. `i2a` reads the conversation one time, at the widest level. In the Conversations tab, `L` adds a conversation to one more space and asks for its read level there; `m` moves it to one space; `l` sets the level of each of its spaces. A space that gets a conversation receives only the messages that arrive after that; a message that already went to an agent does not go again.
+One conversation can also be in many spaces. For example, the channel `release` is in the space Review with the read level `all`, so the agent `reviewer` checks each release note, and in the space Team with `mentions`, so the agent `triage` sees only the release posts for you. Each space gets its own copy of each message that its read level allows, in its own batch, for its own agent. `i2a` reads the conversation one time, at the widest level. In the dashboard, `/` finds a conversation and its spaces dialog checks each space with its own read level. A space that gets a conversation receives the messages that arrive after that; the dialog can also send the messages of the last `lookback` to the new space.
 
 A card goes to the space of the agent that wrote it (the space of its terminal), so `t` asks that agent.
 
@@ -116,75 +116,83 @@ Each change that is merged into `main` makes a new release. The PR title gives t
 ## Quick start
 
 1. Create a personal access token in Mattermost: **Profile > Security > Personal Access Tokens**. If you do not see this section, ask your administrator to turn on personal access tokens.
-2. Run `i2a config`. Press `3` (Accounts), then `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Unsorted.
-3. Press `4` (Conversations). The table has your channels, groups and direct conversations. Press `/` to search, `space` to select rows, and `m` to move them to a space. In the move dialog, "+ New space" makes a space, for example "Company A". `l` changes the read level; `n` gives a conversation a name.
-4. Press `5` (Spaces). Each space starts with one sentence, for example "Company A reads 4 conversations from work → sends to triage · always". Select Unsorted to choose its read level for new conversations, and whether it sends or holds.
+2. Run `i2a config`. Press `3` (Setup › Accounts), then `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Everything else.
+3. Press `2` (Spaces), select "+ New space" and press `enter` to make a space, for example "Company A". Press `a` in the space: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` to add or remove a conversation.
+4. Select Everything else. It reads each conversation that no space has, at the level "New and other conversations read" (default: only the messages for you), and sends them to its agent, or holds them.
 5. Run `i2a run --once`. The default agent `triage` uses the `dry-run` driver, so `i2a` writes a digest file and starts no agent. Read the digest to see what an agent would get.
-6. Run `i2a config` again. Press `6` (Agents) and `enter` to edit `triage`. Set the driver to `orca` (`→`), the CLI (for example `claude`) and the workspace folder, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. Press `7` (Schedules) to change when the spaces send.
+6. Run `i2a config` again. Press `3` and `tab` (Setup › Agents), and `enter` to edit `triage`. Set the driver to `orca` (`→`), the CLI (for example `claude`) and the workspace folder, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. Press `tab` (Schedules) to change when the spaces send.
 7. Allow the agent to run `i2a card`. For Claude Code, add a rule to `.claude/settings.json` (or `settings.local.json`) in the workspace folder, with the path that `command -v i2a` shows:
 
    ```json
    { "permissions": { "allow": ["Bash(/Users/you/.local/bin/i2a card:*)"] } }
    ```
 
-8. Press `8` (Settings), `esc`, then `i` to install the background service. Or run `i2a service install`. `i2a` now runs in the background at login.
+8. Press `3` and `tab` three times (Setup › Settings), then `i` to install the background service. Or run `i2a service install`. `i2a` now runs in the background at login.
 9. Run `i2a`. The Feed shows the cards of the agent.
 
 Run `i2a status` to see the accounts, the spaces with their next send, the agents, the schedules, the message counts and the service state.
 
 ### The dashboard
 
-`i2a` opens the dashboard on the Feed tab. `i2a config` opens it on the Spaces tab. Press `1` to `8` or `tab` to change the tab, or click a tab. The tab bar shows the model, and the line under it says what the item of the tab is:
+`i2a` opens the dashboard on the Feed. `i2a config` opens it on Spaces. The header has three areas, and at the right the service, the next send and `R run now`:
 
 ```
-1 Feed  2 Activity │ 3 Accounts → 4 Conversations 3 unsorted → 5 Spaces → 6 Agents + 7 Schedules │ 8 Settings
+◆ i2a   1 Feed 3   2 Spaces 2 new   3 Setup              ● running · next send today 11:45 · R run now
+ Last run 11:40:12 · Read 1 new messages · Review: sent (1).
 ```
 
-| Tab | Shows |
+| Area | Shows |
 |---|---|
-| 1 Feed | the cards of the agents at the left; the selected card at the right: space, summary (Markdown), suggested reply and source messages |
-| 2 Activity | the message counts and the last 50 sends, with the space and the agent (`enter` shows the digest file, `F` shows the sends of one space) |
-| 3 Accounts | your accounts at the left; at the right the server and username (Mattermost) or the phone number and name (WhatsApp), where its conversations are, the name, and the read interval |
-| 4 Conversations | one table of the conversations of all accounts: kind, account, space, read level, waiting messages |
-| 5 Spaces | Unsorted and your spaces at the left; at the right the sentence of the space, its name, agent, schedule and conversations |
-| 6 Agents | your agents at the left; at the right the spaces that use the agent and its form |
-| 7 Schedules | your schedules at the left; at the right the next send, a line of today with each send time, the spaces that use it, and its form |
-| 8 Settings | lookback, retention, notifications and the background service (`i` installs or restarts it, `u` uninstalls it) |
+| 1 Feed | the spaces with their card counts at the left, the cards, and the selected card: space, summary (Markdown), suggested reply and source messages |
+| 2 Spaces | each space, Everything else, New conversations and Ignored at the left; at the right the panel of the selected item |
+| 3 Setup | the sections Accounts, Agents, Schedules, Settings and Send log; `tab` goes to the next section |
+
+The line under the header shows the sections of Setup, or the result of the last run until the next one. These keys work in each area:
+
+| Key | Action |
+|---|---|
+| `1` `2` `3` | Feed, Spaces, Setup. `tab` / `shift+tab` go through all sections. |
+| `R` | Read all accounts and send the waiting messages now, without waiting for the schedule. In Spaces: send the selected space. |
+| `/` | Find a conversation of any account, and set its spaces |
+| `?` / `q` | All keys / quit |
 
 In the Feed:
 
 | Key | Action |
 |---|---|
 | `↑` / `↓` | Select a card. The card that you select becomes read. |
+| `←` / `→` | The previous or the next space of the list at the left (100 columns or wider). `F` opens the same list as a dialog. The Send log uses the same filter. |
 | `r` | Reply: the form at the right has the suggested reply. Edit it, then press `ctrl+s` to send, or `esc` to cancel. See [Replies](#replies). |
 | `t` | Ask the agent about the card, for example "research more". Type the text, then press `ctrl+s`. See [Asks](#asks). |
 | `c` | Copy the suggested reply |
 | `o` | Open the thread of the first source message in the browser |
-| `R` | Read all accounts and send the waiting messages of each space now, without waiting for the schedule |
 | `d` / `u` | Mark the card done / unread |
 | `s` | Sort by urgency (high first) or by newest |
 | `f` | Filter by category: all, action, question, info |
-| `F` | Show one space: a list of all spaces with the number of cards of each. Activity uses the same filter. |
 | `a` | Show or hide the done cards |
 
 The list shows the urgency of each card as bars: `▰▰▰` high (red), `▰▰▱` normal, `▰▱▱` low (grey).
 
 The Feed shows the card body as Markdown: headings, bold, lists, code and tables. A link in the body shows as text and cannot be opened. The suggested reply shows as plain text, because `c` copies it and `r` sends it as it is.
 
-In the Conversations tab:
+In Spaces, the list at the left has each space (`●` sends, `○` holds), **Everything else** (the conversations in no space), **New conversations** and **Ignored**. `enter` gives the keyboard to the panel at the right; `esc` gives it back. Each change saves at once, and the status line says what it saved. `u` undoes the last change, when no other process changed the file after it.
 
-| Key | Action |
+| In the panel | Key |
 |---|---|
-| `↑` / `↓` | Move |
-| `space` | Select or clear the row; `esc` clears all |
-| `a` | Select all shown rows (for example after `f` and `/`), or clear them |
-| `m` | Move the selected rows (or the row) to a space, or to a new space |
-| `l` | Change the read level: all → mentions → off |
-| `n` | Give the conversation a name. An empty name shows the name on the platform again. |
-| `/` | Search the name, the account or the space |
-| `f` | Filter: all, Unsorted, each account, each kind, each space |
+| Name, Sends to, When | `enter` opens a dialog that saves at once |
+| A conversation | `enter` sets its spaces · `←` / `→` changes its read level in this space · `x` removes it from this space · `n` gives it a name |
+| Many conversations | `space` selects a row, then `enter` sets the spaces of all selected rows |
+| Everything else | `←` / `→` on "New and other conversations read" · `i` ignores a conversation |
+| New conversations | `enter` sets its spaces · `k` keeps it in Everything else · `K` keeps all · `i` ignores it |
+| Ignored | `x` reads it again in Everything else |
 
-In the Spaces tab, `R` reads all accounts and sends the selected space now, `a` opens the unsorted conversations to add to the space, `c` shows the conversations of the space, and `x` deletes the space (its conversations go to Unsorted). In the Agents and Schedules tabs, `x` deletes the item; when spaces use it, you choose the item that they use instead.
+`a` in a space opens the search of all conversations for that space: `space` adds or removes the row, `←` / `→` changes its read level. `x` on a space in the list deletes it; its conversations that no other space has go to Everything else.
+
+The spaces dialog of a conversation lists each space with a check mark and the read level in that space ("All messages" or "Only for me"), then "Ignore" and "+ New space". `space` checks a space, `←` / `→` changes its level, `enter` saves. With no space checked, Everything else reads the conversation. When you add a space, the dialog offers to send the messages of the last `lookback` to the new spaces too (off by default); the spaces that have them do not get them again.
+
+A conversation is new when the account lists it, `config.toml` has no entry for it, and the dashboard did not show it before. The dashboard keeps the shown conversations in `<data>/conversations-seen.json`. The first listing of an account marks all its conversations as shown.
+
+In Setup › Agents and Schedules, `x` deletes the item; when spaces use it, you choose the item that they use instead. In Setup › Send log, `enter` shows the digest file of a send.
 
 To add or edit, select the item (or "+ Add") and press `enter`: the form at the right gets the keyboard.
 
@@ -208,7 +216,7 @@ To add a WhatsApp account:
 1. Make the terminal at least 47 rows tall. The QR code needs about 33 rows. A shorter window tells you the number of rows that it needs.
 2. Run `i2a config`. Press `3`, then `enter`. Set Platform to WhatsApp (`→`), type an account ID (for example `phone`) and a name, and press `ctrl+s`.
 3. On the phone, open WhatsApp › Settings › Linked devices › Link a device, and scan the QR code. The phone shows the device as "i2a". To type a code on the phone instead of a scan, type your phone number in international format (`+15551234567`) before you press `ctrl+s`.
-4. After the scan, the chats are in Unsorted. Press `4` and move each chat to a space, or set it to `off`.
+4. After the scan, the chats are in Everything else. Press `2`, then `a` in a space to add chats, or `/` to find one chat and set its spaces. `i` in Everything else ignores a chat.
 
 Or run `i2a account add whatsapp --id phone [--name "Personal phone"] [--phone +15551234567]`. It prints the QR code in the terminal.
 
@@ -346,7 +354,7 @@ An account needs a token or a pairing, so add it with `i2a account add`, not in 
 
 You can edit `config.toml` in a text editor, or let a script or an agent edit it, while the dashboard and the daemon run.
 
-- The dashboard reads the file again within 2 seconds and shows the change in all tabs. A form with unsaved edits stays as it is.
+- The dashboard reads the file again within 2 seconds and shows the change in all areas. A form with unsaved edits stays as it is.
 - A save in the dashboard changes only the item of the form. A change of another process to a different item stays in the file.
 - If another process changed the same item after you opened its form, the save asks you: Reload (your edits go) or Overwrite (your edits stay).
 - If the file has an error, the dashboard keeps the last valid configuration and shows the error until you correct the file. The daemon does the same.
@@ -511,7 +519,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | Command | Purpose |
 |---|---|
 | `i2a` | Open the dashboard on the Feed of cards |
-| `i2a config` | Open the dashboard on the Spaces tab: accounts, conversations, spaces, agents, schedules, settings |
+| `i2a config` | Open the dashboard on Spaces: spaces and their conversations; Setup has accounts, agents, schedules, settings and the send log |
 | `i2a config check [file]` / `schema` | Check a configuration file (exit 1 with each problem), print the JSON Schema |
 | `i2a card add` / `done --key <key>` / `list [--json] [--all]` | Add cards (JSON on stdin), close a card, list the cards |
 | `i2a reply --to <message id>` or `--card <id or key>`, `[--thread or --channel]` | Send a reply (text on stdin, or the suggested reply of the card) |

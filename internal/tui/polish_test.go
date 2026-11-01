@@ -83,7 +83,7 @@ func TestSpaceDialogShowsTheCardCounts(t *testing.T) {
 	send(h.m, "F")
 	s := screen(h.m)
 	for _, want := range []*regexp.Regexp{
-		regexp.MustCompile(`All spaces\s+4 cards`), regexp.MustCompile(`Unsorted\s+2 cards`), regexp.MustCompile(`Acme\s+1 card\b`),
+		regexp.MustCompile(`All spaces\s+4 cards`), regexp.MustCompile(`Everything else\s+2 cards`), regexp.MustCompile(`Acme\s+1 card\b`),
 	} {
 		if !want.MatchString(s) {
 			t.Errorf("the space dialog does not match %s:\n%s", want, s)
@@ -125,7 +125,7 @@ func TestSpaceFilterKeepsTheIDAndResets(t *testing.T) {
 
 func TestActivityUsesTheSpaceFilter(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "2")
+	at(m, tabActivity)
 	if s := screen(m); !strings.Contains(s, "unsorted preview") {
 		t.Fatalf("Activity does not show the send of Unsorted:\n%s", s)
 	}
@@ -196,7 +196,7 @@ func TestActivityWithASpaceThatHasNoSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	refresh(m)
-	send(m, "2")
+	at(m, tabActivity)
 	pickSpace(t, m, "Quiet")
 	if s := screen(m); !strings.Contains(s, "This space has no send") || strings.Contains(s, "No send yet") {
 		t.Errorf("Activity of a space with no send:\n%s", s)
@@ -235,5 +235,28 @@ func TestRemovedSpaceDoesNotComeBackInTheFilter(t *testing.T) {
 	refresh(h.m)
 	if got := titles(h.m); !strings.Contains(got, "Staging deployed") {
 		t.Errorf("the old filter came back: cards = %q", got)
+	}
+}
+
+func TestFeedSpaceListAndArrows(t *testing.T) {
+	h := newFeedModel(t)
+	withAcme(t, h)
+	s := screen(h.m)
+	for _, want := range []*regexp.Regexp{regexp.MustCompile(`All\s+4`), regexp.MustCompile(`Acme\s+1`), regexp.MustCompile(`Everything else\s+2`)} {
+		if !want.MatchString(s) {
+			t.Errorf("the space list does not match %s:\n%s", want, s)
+		}
+	}
+	send(h.m, "right")
+	if h.m.activeSpace() != "acme" || len(h.m.visibleCards()) != 1 {
+		t.Errorf("→: space %q with %d cards, want acme with 1", h.m.activeSpace(), len(h.m.visibleCards()))
+	}
+	send(h.m, "left", "left")
+	if h.m.activeSpace() != config.UnsortedID {
+		t.Errorf("← two times from Acme: space %q, want Everything else (the list wraps)", h.m.activeSpace())
+	}
+	h.m.Update(tea.WindowSizeMsg{Width: 90, Height: 40})
+	if feedRailWidth(90) != 0 || strings.Contains(screen(h.m), "│ Spaces ") {
+		t.Error("the space list shows below 100 columns")
 	}
 }

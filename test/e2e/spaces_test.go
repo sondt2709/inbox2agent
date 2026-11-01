@@ -163,7 +163,7 @@ func TestS40EditFromAnotherProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	tm := p.term("config")
-	tm.WaitFor(`5 Spaces`, 30*time.Second)
+	tm.WaitFor(`\+ New space`, 30*time.Second)
 	f, err := os.OpenFile(p.configFile(), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestS40EditFromAnotherProcess(t *testing.T) {
 	if !strings.Contains(s, "changed in another process") {
 		t.Errorf("the status line does not say that the file changed:\n%s", s)
 	}
-	tm.Press("8", `Lookback\s+1d`, 5*time.Second)
+	openSection(tm, 3, `Lookback\s+1d`)
 	tm.Press("Enter", `▌ Lookback`, 5*time.Second)
 	tm.Replace("2d")
 	tm.Press("C-s", `Saved the settings`, 5*time.Second)
