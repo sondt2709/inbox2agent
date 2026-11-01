@@ -19,6 +19,10 @@ const (
 	StateExpired   = "expired"
 )
 
+// DeliverySkipped is a delivery state only: the space does not get the
+// message. A requeue for new spaces writes it for the other spaces.
+const DeliverySkipped = "skipped"
+
 // Message is one message from one source.
 type Message struct {
 	ID          int64 // row ID in the store; 0 before the store saves it

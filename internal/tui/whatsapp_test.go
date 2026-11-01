@@ -25,7 +25,8 @@ func TestValidPhone(t *testing.T) {
 
 func TestAddFormTypeWhatsApp(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "3", "a")
+	at(m, tabAccounts)
+	send(m, "a")
 	if s := screen(m); !strings.Contains(s, "Server URL") || strings.Contains(s, "Phone number") {
 		t.Fatalf("the Mattermost add form is wrong:\n%s", s)
 	}
@@ -47,7 +48,8 @@ func TestAddFormTypeWhatsApp(t *testing.T) {
 // goroutine does after a real connection. The chats land in Unsorted.
 func TestPairingPanelThenAccount(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "3", "a", "right")
+	at(m, tabAccounts)
+	send(m, "a", "right")
 	p := &pairing{id: "phone", events: make(chan tea.Msg, 8), cancel: func() {}}
 	m.pair = p
 	m.buildForm(true)
@@ -76,7 +78,7 @@ func TestPairingPanelThenAccount(t *testing.T) {
 		{JID: "15550000001@s.whatsapp.net", Kind: "direct"},
 	}})
 	run(m, cmd, 0)
-	if s := screen(m); !strings.Contains(s, "Paired phone: 2 chats are in Unsorted. Sort them in tab 4.") {
+	if s := screen(m); !strings.Contains(s, "Paired phone: 2 chats are in Everything else. Add them to spaces in 2 Spaces") {
 		t.Errorf("no paired status:\n%s", s)
 	}
 	if m.pair != nil {
@@ -88,11 +90,12 @@ func TestPairingPanelThenAccount(t *testing.T) {
 			t.Errorf("the file has no %q:\n%s", want, f)
 		}
 	}
-	send(m, "4", "f") // the filter Unsorted
+	at(m, tabSpaces)
+	m.spc = len(m.u.cfg.Spaces) // Everything else
 	s := screen(m)
-	for _, want := range []string{"⧉ Team chat (new)", "@ +15550000001 (new)", "Unsorted"} {
+	for _, want := range []string{"⧉ Team chat", "@ +15550000001", "Everything else"} {
 		if !strings.Contains(s, want) {
-			t.Errorf("the Conversations tab has no %q:\n%s", want, s)
+			t.Errorf("Everything else has no %q:\n%s", want, s)
 		}
 	}
 }
@@ -108,7 +111,8 @@ func TestPairingErrorsSaveNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := newTestModel(t)
 			before := fileText(t, m)
-			send(m, "3", "a", "right")
+			at(m, tabAccounts)
+			send(m, "a", "right")
 			p := &pairing{id: "phone", events: make(chan tea.Msg, 8), cancel: func() {}}
 			m.pair = p
 			m.Update(pairDoneMsg{p: p, err: tc.err})

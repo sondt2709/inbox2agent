@@ -101,7 +101,7 @@ The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `n
 - **THEN** the row of the high card shows `▰▰▰`, the row of the low card shows `▰▱▱`, and the detail panel of the high card shows `▰▰▰ high`
 
 ### Requirement: Feed sort and filter
-The key `s` SHALL switch the sort between `urgency` (high first, then the newest update) and `newest` (the newest update first). The key `f` SHALL change the category filter in the order all, action, question, info. The key `F` SHALL open a dialog with "All spaces" and each space in the order of the configuration, Unsorted first, each with the number of its cards that the other filters show. Enter SHALL set the space filter to the selected row. The filter SHALL keep the ID of the space; when that space does not exist any more, the filter SHALL be all spaces. The filter bar SHALL show the name of the space of the filter. The header SHALL show the number of `new` cards, of actions and of questions. The key `a` SHALL show or hide the `done` cards.
+The key `s` SHALL switch the sort between `urgency` (high first, then the newest update) and `newest` (the newest update first). The key `f` SHALL change the category filter in the order all, action, question, info. When the window is 100 columns or wider, the Feed SHALL show at the left a list with "All" and each space, Everything else last, each with the number of its cards that the other filters show. `←` and `→` SHALL select the previous and the next row of that list, and the Feed SHALL show the cards of the selected space. The key `F` SHALL open a dialog with the same rows. The filter SHALL keep the ID of the space; when that space does not exist any more, the filter SHALL be all spaces. The filter bar SHALL show the name of the space of the filter. The header SHALL show the number of `new` cards, of actions and of questions. The key `a` SHALL show or hide the `done` cards.
 
 #### Scenario: Sort by urgency
 - **WHEN** the Feed has a `low` info card from 17:57 and a `high` action card from 17:55, and the sort is `urgency`
@@ -111,13 +111,13 @@ The key `s` SHALL switch the sort between `urgency` (high first, then the newest
 - **WHEN** the user presses `f` two times
 - **THEN** the list shows only `question` cards and the filter bar marks "Question"
 
-#### Scenario: Filter a space
-- **WHEN** the spaces are Acme and Personal, and the user presses `F`, moves to "Personal" and presses enter
-- **THEN** the list shows only cards of Personal and the filter bar shows "space: Personal"
+#### Scenario: Filter a space with the list
+- **WHEN** the spaces are Acme and Personal, the window is 120 columns, and the user presses `→` two times
+- **THEN** the list shows only cards of Personal, and the space list marks Personal
 
-#### Scenario: Card counts in the space dialog
-- **WHEN** Unsorted has 2 cards and Acme has 1 card, and the user presses `F`
-- **THEN** the dialog shows "All spaces" with 3, "Unsorted" with 2 and "Acme" with 1
+#### Scenario: Card counts in the space list
+- **WHEN** Everything else has 2 cards and Acme has 1 card
+- **THEN** the space list shows "All" with 3, "Acme" with 1 and "Everything else" with 2
 
 #### Scenario: The space of the filter is removed
 - **WHEN** the filter is Acme and another process removes the space Acme from `config.toml`
@@ -177,25 +177,25 @@ The Feed SHALL render the body of the selected card as Markdown (CommonMark and 
 - **THEN** the reply panel shows `**yes**, ship it`, and `c` copies the same text
 
 ### Requirement: Space filter in Activity
-The Activity tab SHALL use the space filter of the Feed. The key `F` in Activity SHALL open the same dialog, with the number of sends of each space. When the filter is a space, the Activity tab SHALL show only the sends of that space and SHALL show the name of the space in its title.
+The Send log section of Setup SHALL show the sends of the spaces, and SHALL use the space filter of the Feed. The key `F` in the Send log SHALL open the dialog of the Feed, with the number of sends of each space. When the filter is a space, the Send log SHALL show only the sends of that space and SHALL show the name of the space in its title. The panel of a space in the Spaces area SHALL show its recent sends.
 
 #### Scenario: Filter the sends of a space
-- **WHEN** Activity has sends of Acme and of Unsorted, and the user selects Acme in the `F` dialog
+- **WHEN** the Send log has sends of Acme and of Everything else, and the user selects Acme in the `F` dialog
 - **THEN** the table shows only the sends of Acme and the title shows "space Acme"
 
-#### Scenario: One filter for both tabs
-- **WHEN** the user selects Acme with `F` in the Feed and then opens Activity
-- **THEN** Activity shows only the sends of Acme
+#### Scenario: One filter for the Feed and the Send log
+- **WHEN** the user selects Acme in the Feed and then opens the Send log
+- **THEN** the Send log shows only the sends of Acme
 
 ### Requirement: Read and send now from the dashboard
-The key `R` in the Feed tab SHALL read all accounts and send the waiting messages of each space that has an agent. The key `R` in the Spaces tab SHALL read all accounts and send the selected space. When the daemon runs, the dashboard SHALL ask the daemon (`POST /v1/run`); when no daemon runs, the dashboard SHALL run the same work in its own process and SHALL hold the daemon lock while it runs. While a run is busy, a second `R` SHALL show that a run is busy and SHALL NOT start a run. The status line SHALL show the result: the number of new messages and each batch with its space and status. While the daemon runs, the status line SHALL show the `send`, `reload` and `error` events of the daemon.
+The header SHALL always show `R run now` and the next send of the spaces. The key `R` SHALL read all accounts and send the waiting messages of each space that has an agent, except in the Spaces area, where it SHALL send the selected space. When the daemon runs, the dashboard SHALL ask the daemon (`POST /v1/run`); when no daemon runs, the dashboard SHALL run the same work in its own process and SHALL hold the daemon lock while it runs. While a run is busy, a second `R` SHALL show that a run is busy and SHALL NOT start a run. The line under the header SHALL show the result of the last run until the next run: the time, the number of new messages and each batch with its space and status, or "nothing waits". While the daemon runs, the status line SHALL show the `send`, `reload` and `error` events of the daemon.
 
 #### Scenario: R in the Feed with the daemon
 - **WHEN** the daemon runs, a new message waits, and the user presses `R` in the Feed
-- **THEN** the daemon sends the batch, and the status line names the space and the status of the batch
+- **THEN** the daemon sends the batch, and the line under the header names the space and the status of the batch
 
-#### Scenario: R in the Spaces tab without a daemon
-- **WHEN** no daemon runs, the selected space is Acme with a waiting message, and the user presses `R` in the Spaces tab
+#### Scenario: R in the Spaces area without a daemon
+- **WHEN** no daemon runs, the selected space is Acme with a waiting message, and the user presses `R` in the Spaces area
 - **THEN** the dashboard sends one batch of Acme, and the batches of other spaces stay pending
 
 #### Scenario: Event of the daemon
@@ -212,3 +212,4 @@ When `i2a card add` records the terminal handle of a card and a session of a spa
 #### Scenario: Card from an unknown terminal
 - **WHEN** an agent adds a card from a terminal that no session has
 - **THEN** the card gets the space of its newest ref message, as before
+

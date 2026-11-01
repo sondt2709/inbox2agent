@@ -7,113 +7,223 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
 )
 
-// selectedSpace returns the ID of the selected space: Unsorted is row 0. It
-// returns false on "+ New space".
-func (m *model) selectedSpace() (string, bool) {
-	switch {
-	case m.spc == 0:
-		return config.UnsortedID, true
-	case m.spc <= len(m.u.cfg.Spaces):
-		return m.u.cfg.Spaces[m.spc-1].ID, true
-	}
-	return "", false
+// The items of the list at the left of the Spaces area, after the spaces.
+const (
+	railElse    = "else"
+	railNew     = "new"
+	railIgnored = "ignored"
+	railAdd     = "add"
+)
+
+// railItem is one row of the list at the left: a space, or one of the rail* kinds.
+type railItem struct {
+	kind  string // "space" or a rail* kind
+	space string // the space ID; UnsortedID for railElse
 }
 
-func (m *model) hintsSpaces() []hint {
-	id, ok := m.selectedSpace()
-	switch {
-	case !ok:
-		return []hint{{"↑↓", "move"}, {"enter", "add a space"}}
-	case id == config.UnsortedID:
-		return []hint{{"enter", "edit"}, {"R", "run now"}, {"c", "sort its conversations"}, {"↑↓", "move"}}
+func (m *model) railItems() []railItem {
+	var out []railItem
+	for _, s := range m.u.cfg.Spaces {
+		out = append(out, railItem{kind: "space", space: s.ID})
 	}
-	return []hint{{"enter", "edit"}, {"R", "run now"}, {"a", "add conversations"}, {"c", "its conversations"}, {"x", "delete"}, {"↑↓", "move"}}
+	return append(out, railItem{kind: railElse, space: config.UnsortedID}, railItem{kind: railNew},
+		railItem{kind: railIgnored}, railItem{kind: railAdd})
 }
 
-func (m *model) keySpaces(k string) tea.Cmd {
-	n := len(m.u.cfg.Spaces) + 2
-	id, ok := m.selectedSpace()
-	switch k {
-	case "up", "k":
-		m.spc = max(0, m.spc-1)
-	case "down", "j":
-		m.spc = min(n-1, m.spc+1)
-	case "c":
-		if ok {
-			return m.showConversations(id, false)
-		}
-	case "a":
-		if ok && id != config.UnsortedID {
-			return m.showConversations(id, true)
-		}
-	case "x":
-		if ok && id != config.UnsortedID {
-			m.deleteSpace(id)
-		}
-	case "R":
-		if !ok {
-			m.setStatus("Select a space, then press R.", true)
-			return nil
-		}
-		return m.runNow([]string{id}, m.spaceNames()[id])
-	}
-	return nil
+func (m *model) selectedRail() railItem {
+	items := m.railItems()
+	m.spc = min(max(0, m.spc), len(items)-1)
+	return items[m.spc]
 }
 
-// spaceKeys tells the keys of the Spaces tab that the footer can drop on a
-// narrow terminal.
-const spaceKeys = "R reads all accounts and sends this space now. a adds conversations: m moves a conversation here, L adds it here and keeps its other spaces."
-
-// showConversations opens the Conversations tab with the conversations of a
-// space, or, to add, with the unsorted conversations and the space as the
-// target of m.
-func (m *model) showConversations(id string, add bool) tea.Cmd {
-	s, _ := m.u.cfg.Space(id)
-	m.convFilter, m.conv = "space:"+id, 0
-	if id == config.UnsortedID {
-		m.convFilter = "unsorted"
+// selectSpace moves the cursor of the list to a space.
+func (m *model) selectSpace(id string) {
+	for i, it := range m.railItems() {
+		if it.space == id {
+			m.spc = i
+		}
 	}
-	if add {
-		m.convFilter = "unsorted"
-		m.setStatus("Select the conversations for "+s.Title()+" with space. Press m to move them to "+s.Title()+", or L to add them and keep their other spaces. Press f to see the conversations of other spaces.", false)
-	}
-	return m.setTab(tabConversations)
 }
 
-func (m *model) deleteSpace(id string) {
-	s, _ := m.u.cfg.Space(id)
-	name := s.Title()
-	n := len(s.Conversations)
-	m.openDialog(&confirmDialog{name: "Delete space " + name,
-		text: fmt.Sprintf("Delete the space %s? Its %s go to Unsorted, except the ones that another space also lists. Its cards stay in the Feed.",
-			name, plural(n, "conversation", "conversations")),
-		choices: []choice{{"y", "Delete", func() tea.Cmd {
-			if err := m.u.commit(func(c *config.Config) error {
-				cur, ok := c.Space(id)
-				if !ok {
-					return config.MissingError{Kind: config.KindSpace, ID: id}
-				}
-				gone := cur.Conversations
-				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
-				for _, cv := range gone {
-					// A conversation that another space lists stays in that space only.
-					if _, _, listed := c.Conversation(cv.Account, cv.ID); !listed {
-						c.Unsorted.Conversations = append(c.Unsorted.Conversations, cv)
-					}
-				}
-				return nil
-			}, nil); err != nil {
-				m.setStatus("Cannot delete: "+err.Error(), true)
-				return nil
+// pRow is one row of the panel at the right. A row with an empty kind is text.
+type pRow struct {
+	kind string // "set" (a setting), "conv", or "" (text)
+	key  string // the setting: "name", "agent", "schedule", "read"
+	conv convRow
+	text string // the rendered text of a text row
+}
+
+func (r pRow) selectable() bool { return r.kind != "" }
+
+// panelRows returns the rows of the panel of the selected item.
+func (m *model) panelRows(w int) []pRow {
+	it := m.selectedRail()
+	text := func(s string) pRow { return pRow{text: s} }
+	var out []pRow
+	switch it.kind {
+	case "space", railElse:
+		s, _ := m.u.cfg.Space(it.space)
+		if it.kind == "space" {
+			out = append(out, pRow{kind: "set", key: "name"})
+		} else {
+			out = append(out, pRow{kind: "set", key: "read"})
+		}
+		out = append(out, pRow{kind: "set", key: "agent"})
+		if s.Agent != "" {
+			out = append(out, pRow{kind: "set", key: "schedule"})
+		}
+		out = append(out, text(m.settingLine("Last send", m.lastSendText(it.space), w)), text(""))
+		rows := m.rowsOfSpace(it.space)
+		head := fmt.Sprintf("Conversations · %d", len(rows))
+		empty := "No conversation yet. Press a to add conversations from any account."
+		if it.kind == railElse {
+			rows = m.elseRows()
+			head = fmt.Sprintf("Conversations in no space · %d · newest first", len(rows))
+			empty = "Each conversation is in a space or ignored."
+		}
+		out = append(out, text(boldStyle.Render(head)))
+		if len(rows) == 0 {
+			out = append(out, text(faint.Render(empty)))
+		}
+		for _, r := range rows {
+			out = append(out, pRow{kind: "conv", conv: r})
+		}
+		if sends := m.recentSends(it.space, 5); sends != "" {
+			out = append(out, text(""), text(boldStyle.Render("Recent sends")))
+			for l := range strings.SplitSeq(sends, "\n") {
+				out = append(out, text(l))
 			}
-			m.spc = min(m.spc, len(m.u.cfg.Spaces))
-			m.saved("Deleted the space " + name + ". Its conversations are in Unsorted.")
-			return nil
-		}}}})
+		}
+	case railNew:
+		out = append(out, text(textStyle.Render("The accounts found these conversations after the dashboard showed them last.")),
+			text(textStyle.Render("Until you decide, Everything else reads them.")), text(""))
+		rows := m.newRows()
+		if len(rows) == 0 {
+			out = append(out, text(faint.Render("No new conversation.")))
+		}
+		for _, r := range rows {
+			out = append(out, pRow{kind: "conv", conv: r})
+		}
+	case railIgnored:
+		out = append(out, text(textStyle.Render("i2a does not read these conversations.")), text(""))
+		rows := m.ignoredRows()
+		if len(rows) == 0 {
+			out = append(out, text(faint.Render("No ignored conversation.")))
+		}
+		for _, r := range rows {
+			out = append(out, pRow{kind: "conv", conv: r})
+		}
+	case railAdd:
+		out = append(out, text(textStyle.Render("A space is your own group of conversations from any account:")),
+			text(textStyle.Render("a client, a project, personal. It sends them to one agent on one schedule.")),
+			text(""), text(faint.Render("Press enter to add a space.")))
+	}
+	return out
+}
+
+// settingLine is a label and a value in two columns.
+func (m *model) settingLine(label, value string, w int) string {
+	return faint.Render(fmt.Sprintf("%-11s", label)) + truncateStyled(textStyle.Render(value), max(5, w-11))
+}
+
+// settingText renders a setting row of the selected item.
+func (m *model) settingText(key string, w int) string {
+	it := m.selectedRail()
+	s, _ := m.u.cfg.Space(it.space)
+	switch key {
+	case "name":
+		return m.settingLine("Name", s.Title(), w)
+	case "read":
+		return m.settingLine("New and other conversations read", "", 0) + " " + textStyle.Render(levelText(m.u.cfg.Unsorted.Read))
+	case "agent":
+		if s.Agent == "" {
+			return m.settingLine("Sends to", "hold: does not send", w)
+		}
+		v := s.Agent
+		if a, ok := m.u.cfg.Agent(s.Agent); ok {
+			v = a.Title() + faint.Render(" · "+a.Driver)
+			if a.Driver == config.DriverOrca && a.CLI != "" {
+				v += faint.Render(" · " + a.CLI)
+			}
+		}
+		return m.settingLine("Sends to", v, w)
+	case "schedule":
+		v := s.Schedule
+		if sc, ok := m.u.cfg.Schedule(s.Schedule); ok {
+			v = sc.Title() + faint.Render(" · "+sc.Text()+" · next "+m.whenText(sc.Next(m.now())))
+		}
+		return m.settingLine("When", v, w)
+	}
+	return ""
+}
+
+// convLine renders a conversation row of the panel.
+func (m *model) convLine(r convRow, w int) string {
+	it := m.selectedRail()
+	mark := "  "
+	if m.convSel[convKey(r.Account.ID, r.ID)] {
+		mark = "■ "
+	}
+	level := levelText(r.Read)
+	if lv, ok := levelIn(r, it.space); ok && it.kind == "space" {
+		level = levelText(lv)
+	}
+	var notes []string
+	if it.kind == "space" && len(r.Spaces) > 1 {
+		var others []string
+		for _, id := range r.Spaces {
+			if id != it.space {
+				others = append(others, m.spaceNames()[id])
+			}
+		}
+		notes = append(notes, "also in "+strings.Join(others, ", "))
+	}
+	if it.kind == railElse && m.isNew(r) {
+		notes = append(notes, "new")
+	}
+	if n := m.waitingIn(r.Account.ID, r.ID); n > 0 && r.Read != config.ReadOff {
+		notes = append(notes, fmt.Sprintf("%d waiting", n))
+	}
+	if t := m.lastText(r.Last); t != "" {
+		notes = append(notes, t)
+	}
+	nameW := max(12, w/3)
+	accW := max(8, w/7)
+	return fmt.Sprintf("%s%s %-*s %-*s %-13s %s", mark, kindMark(r.Kind), nameW, truncate(r.Title(), nameW),
+		accW, truncate(r.Account.Title(), accW), level, strings.Join(notes, " · "))
+}
+
+// lastSendText describes the newest send of a space.
+func (m *model) lastSendText(space string) string {
+	for _, d := range m.dispatches {
+		if d.Space == space {
+			return fmt.Sprintf("%s · %s %d · %s", d.CreatedAt.Local().Format("01-02 15:04"), d.Status, d.MessageCount,
+				plural(m.spaceWaiting(space), "message waits", "messages wait"))
+		}
+	}
+	return "none yet · " + plural(m.spaceWaiting(space), "message waits", "messages wait")
+}
+
+// recentSends lists the newest sends of a space, one line each.
+func (m *model) recentSends(space string, n int) string {
+	var lines []string
+	for _, d := range m.dispatches {
+		if d.Space != space {
+			continue
+		}
+		lines = append(lines, faint.Render(fmt.Sprintf("%s  %-8s %3d  %s", d.CreatedAt.Local().Format("01-02 15:04"), d.Status,
+			d.MessageCount, d.Detail)))
+		if len(lines) == n {
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // spaceWaiting returns the number of pending messages that route to a space.
@@ -127,71 +237,585 @@ func (m *model) spaceWaiting(id string) int {
 	return n
 }
 
-// spaceRows returns the conversations of a space; for Unsorted, also the
-// listed conversations that no space has.
-func (m *model) spaceRows(id string) []convRow {
-	var out []convRow
-	for _, r := range m.convRows() {
-		if slices.Contains(r.Spaces, id) {
-			out = append(out, r)
+// ---- keys ----
+
+func (m *model) hintsSpaces() []hint {
+	it := m.selectedRail()
+	if !m.spcFocus {
+		switch it.kind {
+		case railAdd:
+			return []hint{{"enter", "add a space"}, {"↑↓", "move"}}
+		case railNew, railIgnored:
+			return []hint{{"enter", "open"}, {"R", "run now"}, {"↑↓", "move"}, {"u", "undo"}}
+		case railElse:
+			return []hint{{"enter", "open"}, {"R", "run now"}, {"↑↓", "move"}, {"u", "undo"}}
+		}
+		return []hint{{"enter", "open"}, {"R", "run now"}, {"a", "add conversations"}, {"x", "delete"}, {"↑↓", "move"}, {"u", "undo"}}
+	}
+	if r, ok := m.panelSelected(); ok && r.kind == "set" {
+		if r.key == "read" {
+			return []hint{{"←→", "change"}, {"enter", "choose"}, {"esc", "back"}, {"R", "run now"}}
+		}
+		return []hint{{"enter", "change"}, {"esc", "back"}, {"R", "run now"}, {"a", "add conversations"}}
+	}
+	sel := ""
+	if n := len(m.convSel); n > 0 {
+		sel = fmt.Sprintf(" %d", n)
+	}
+	switch it.kind {
+	case railNew:
+		return []hint{{"enter", "spaces" + sel}, {"k", "keep"}, {"i", "ignore"}, {"K", "keep all"}, {"space", "select"}, {"esc", "back"}}
+	case railIgnored:
+		return []hint{{"enter", "spaces" + sel}, {"x", "read again"}, {"space", "select"}, {"esc", "back"}}
+	case railElse:
+		return []hint{{"enter", "spaces" + sel}, {"←→", "level"}, {"i", "ignore"}, {"space", "select"}, {"n", "rename"}, {"esc", "back"}}
+	}
+	return []hint{{"enter", "spaces" + sel}, {"←→", "level"}, {"x", "remove"}, {"a", "add"}, {"space", "select"}, {"n", "rename"}, {"esc", "back"}}
+}
+
+// panelSelected returns the row under the cursor of the panel.
+func (m *model) panelSelected() (pRow, bool) {
+	rows := m.panelRows(m.panelWidth())
+	sel := selectableIndexes(rows)
+	if len(sel) == 0 {
+		return pRow{}, false
+	}
+	m.row = min(max(0, m.row), len(sel)-1)
+	return rows[sel[m.row]], true
+}
+
+func selectableIndexes(rows []pRow) []int {
+	var out []int
+	for i, r := range rows {
+		if r.selectable() {
+			out = append(out, i)
 		}
 	}
 	return out
 }
 
-func (m *model) viewSpaces(w, h int) string {
-	cfg := m.u.cfg
-	lw := listWidth(w) - 6
-	items := []string{listLabel("□ Unsorted", fmt.Sprintf("%d to sort", m.unsortedCount()), lw)}
-	for _, s := range cfg.Spaces {
-		items = append(items, listLabel("■ "+s.Title(), fmt.Sprintf("%d · %d wait", len(s.Conversations), m.spaceWaiting(s.ID)), lw))
-	}
-	items = append(items, "+ New space")
-	m.spc = min(m.spc, len(items)-1)
-	title := "New space"
-	if id, ok := m.selectedSpace(); ok {
-		s, _ := cfg.Space(id)
-		title = s.Title() + " · space"
-		if id == config.UnsortedID {
-			title = "Unsorted · built-in space"
+func (m *model) panelWidth() int { return max(20, m.w-listWidth(m.w)-4) }
+
+// targetsOf returns the selected rows of the panel, or the row r when no
+// selected row exists any more.
+func (m *model) targetsOf(r convRow) []convRow {
+	var out []convRow
+	for _, x := range m.convRows() {
+		if m.convSel[convKey(x.Account.ID, x.ID)] {
+			out = append(out, x)
 		}
 	}
-	return m.masterDetail("Spaces", items, m.spc, &m.spcOff, title, w, h)
+	if len(out) == 0 {
+		clear(m.convSel)
+		return []convRow{r}
+	}
+	return out
 }
 
-// sentence describes what a space does, in one sentence.
-func (m *model) sentence(s config.Space) string {
-	cfg := m.u.cfg
-	rows := m.spaceRows(s.ID)
-	reading, accounts := 0, []string{}
-	for _, r := range rows {
-		if r.Read != config.ReadOff {
-			reading++
-			if !slices.Contains(accounts, r.Account.Title()) {
-				accounts = append(accounts, r.Account.Title())
+func (m *model) keySpaces(k string) tea.Cmd {
+	it := m.selectedRail()
+	switch k {
+	case "R":
+		if it.space != "" {
+			return m.runNow([]string{it.space}, m.spaceNames()[it.space])
+		}
+		return m.runNow(nil, "all spaces")
+	case "u":
+		m.undo()
+		return nil
+	case "a":
+		if it.kind == "space" {
+			m.openDialog(m.newSearchDialog(it.space))
+		}
+		return nil
+	}
+	if !m.spcFocus {
+		return m.keyRail(k, it)
+	}
+	return m.keyPanel(k, it)
+}
+
+func (m *model) keyRail(k string, it railItem) tea.Cmd {
+	switch k {
+	case "up", "k":
+		m.spc = max(0, m.spc-1)
+		m.row, m.rowOff = 0, 0
+		clear(m.convSel)
+	case "down", "j":
+		m.spc = min(len(m.railItems())-1, m.spc+1)
+		m.row, m.rowOff = 0, 0
+		clear(m.convSel)
+	case "enter", "right", "l":
+		if it.kind == railAdd {
+			m.addSpaceDialog(nil)
+			return nil
+		}
+		m.spcFocus, m.row, m.rowOff = true, 0, 0
+		if it.kind != "space" && it.kind != railElse {
+			return nil
+		}
+		// Start on the first conversation when the space has one.
+		for i, idx := range selectableIndexes(m.panelRows(m.panelWidth())) {
+			if m.panelRows(m.panelWidth())[idx].kind == "conv" {
+				m.row = i
+				break
 			}
 		}
+	case "x":
+		if it.kind == "space" {
+			m.deleteSpace(it.space)
+		}
 	}
-	from := ""
-	if len(accounts) > 0 {
-		from = " from " + strings.Join(accounts, ", ")
+	return nil
+}
+
+func (m *model) keyPanel(k string, it railItem) tea.Cmd {
+	rows := m.panelRows(m.panelWidth())
+	sel := selectableIndexes(rows)
+	r, ok := m.panelSelected()
+	if it.kind == railNew && (k == "k" || k == "K") {
+		k = "keep:" + k // in New conversations k keeps a row; ↑ moves
 	}
-	wait := plural(m.spaceWaiting(s.ID), "message", "messages")
-	if s.Agent == "" {
-		return fmt.Sprintf("%s holds %s%s. It does not send to an agent: %s wait until you move their conversations to a space, or until they expire after %s.",
-			s.Title(), plural(len(rows), "conversation", "conversations"), from, wait, cfg.Settings.Lookback)
+	switch k {
+	case "up", "k":
+		m.row = max(0, m.row-1)
+		return nil
+	case "down", "j":
+		m.row = min(max(0, len(sel)-1), m.row+1)
+		return nil
+	case "esc":
+		if len(m.convSel) > 0 {
+			clear(m.convSel)
+			return nil
+		}
+		m.spcFocus = false
+		return nil
 	}
-	agent, schedule := s.Agent, s.Schedule
-	text, next := "", "never"
-	if a, ok := cfg.Agent(s.Agent); ok {
-		agent = a.Title()
+	if !ok {
+		if k == "left" || k == "h" {
+			m.spcFocus = false
+		}
+		return nil
 	}
-	if sc, ok := cfg.Schedule(s.Schedule); ok {
-		schedule, text = sc.Title(), " ("+sc.Text()+")"
-		next = m.whenText(sc.Next(m.now()))
+	if r.kind == "set" {
+		switch k {
+		case "left", "h":
+			if r.key == "read" {
+				return m.setElseRead(-1)
+			}
+			m.spcFocus = false
+		case "right", "l":
+			if r.key == "read" {
+				return m.setElseRead(1)
+			}
+		case "enter":
+			m.settingDialog(it, r.key)
+		}
+		return nil
 	}
-	return fmt.Sprintf("%s reads %s%s → sends to %s · %s%s. Next send: %s with %s now waiting.",
-		s.Title(), plural(reading, "conversation", "conversations"), from, agent, schedule, text, next, wait)
+	c := r.conv
+	switch k {
+	case "space":
+		key := convKey(c.Account.ID, c.ID)
+		if m.convSel[key] {
+			delete(m.convSel, key)
+		} else {
+			m.convSel[key] = true
+		}
+		m.row = min(len(sel)-1, m.row+1)
+	case "enter":
+		m.openDialog(m.newSpacesDialog(m.targetsOf(c)))
+	case "left", "right", "h", "l":
+		switch it.kind {
+		case "space":
+			m.toggleLevel(m.targetsOf(c), it.space)
+		case railElse:
+			m.toggleElseLevel(m.targetsOf(c))
+		}
+	case "x":
+		switch it.kind {
+		case "space":
+			s, _ := m.u.cfg.Space(it.space)
+			t := m.targetsOf(c)
+			m.editLinks(t, func(cf *config.Config, x convRow) []config.Link {
+				return orNoSpace(cf, x, slices.DeleteFunc(realLinks(cf, x.Account.ID, x.ID), func(l config.Link) bool { return l.Space == it.space }))
+			}, fmt.Sprintf("Removed %s from %s.", what(t), s.Title()))
+		case railIgnored:
+			t := m.targetsOf(c)
+			m.editLinks(t, noSpace, what(t)+": Everything else reads it again.")
+		}
+	case "i":
+		if it.kind == railElse || it.kind == railNew {
+			t := m.targetsOf(c)
+			m.editLinks(t, func(*config.Config, convRow) []config.Link {
+				return []config.Link{{Space: config.UnsortedID, Read: config.ReadOff}}
+			}, "Ignored "+what(t)+".")
+		}
+	case "keep:k":
+		if it.kind == railNew {
+			t := m.targetsOf(c)
+			m.markSeen(t...)
+			clear(m.convSel)
+			m.setStatus("Kept "+what(t)+" in Everything else.", false)
+		}
+	case "keep:K":
+		if it.kind == railNew {
+			t := m.newRows()
+			m.markSeen(t...)
+			clear(m.convSel)
+			m.setStatus("Kept "+what(t)+" in Everything else.", false)
+		}
+	case "n":
+		m.renameDialog(c)
+	}
+	return nil
+}
+
+// toggleLevel switches the level of the rows in a space between all and mentions.
+func (m *model) toggleLevel(rows []convRow, space string) {
+	cur, _ := levelIn(rows[0], space)
+	next := map[string]string{config.ReadAll: config.ReadMentions}[cur]
+	if next == "" {
+		next = config.ReadAll
+	}
+	s, _ := m.u.cfg.Space(space)
+	m.editLinks(rows, func(c *config.Config, r convRow) []config.Link {
+		ls := realLinks(c, r.Account.ID, r.ID)
+		for i := range ls {
+			if ls[i].Space == space {
+				ls[i].Read = next
+			}
+		}
+		return ls
+	}, fmt.Sprintf("%s in %s: %s.", what(rows), s.Title(), levelText(next)))
+}
+
+// toggleElseLevel switches the level of rows in Everything else between all and mentions.
+func (m *model) toggleElseLevel(rows []convRow) {
+	next := config.ReadAll
+	if rows[0].Read == config.ReadAll {
+		next = config.ReadMentions
+	}
+	m.editLinks(rows, func(*config.Config, convRow) []config.Link {
+		return []config.Link{{Space: config.UnsortedID, Read: next}}
+	}, fmt.Sprintf("%s in Everything else: %s.", what(rows), levelText(next)))
+}
+
+// setElseRead changes the read level of the conversations that no entry lists.
+func (m *model) setElseRead(step int) tea.Cmd {
+	lv := config.ReadLevels
+	i := slices.Index(lv, m.u.cfg.Unsorted.Read)
+	next := lv[(i+step+len(lv))%len(lv)]
+	m.commitSpaces(func(c *config.Config) error { c.Unsorted.Read = next; return nil },
+		"New and other conversations: "+levelText(next)+".")
+	return nil
+}
+
+// commitSpaces saves a change of the Spaces area and shows the result.
+func (m *model) commitSpaces(change func(c *config.Config) error, done string) bool {
+	if err := m.u.commitUndoable(change); err != nil {
+		m.setStatus("Cannot save: "+err.Error(), true)
+		return false
+	}
+	m.saved(done + " Saved · u undo")
+	return true
+}
+
+// settingDialog opens the dialog of a setting row.
+func (m *model) settingDialog(it railItem, key string) {
+	s, _ := m.u.cfg.Space(it.space)
+	id := it.space
+	switch key {
+	case "name":
+		m.openDialog(newInputDialog("Rename "+s.Title(), "The name that i2a shows. The ID "+id+" stays.", s.Name, "Company B",
+			func(name string) (string, tea.Cmd) {
+				if name == "" {
+					return "Type a name.", nil
+				}
+				for _, x := range m.u.cfg.AllSpaces() {
+					if x.ID != id && strings.EqualFold(x.Title(), name) {
+						return "The name " + name + " is used.", nil
+					}
+				}
+				m.commitSpaces(func(c *config.Config) error {
+					cur, ok := c.Space(id)
+					if !ok {
+						return config.MissingError{Kind: config.KindSpace, ID: id}
+					}
+					cur.Name = name
+					return nil
+				}, "Renamed the space to "+name+".")
+				return "", nil
+			}))
+	case "read":
+		var opts []pickOption
+		for _, lv := range config.ReadLevels {
+			opts = append(opts, pickOption{label: levelText(lv), note: lv, run: func() tea.Cmd {
+				m.commitSpaces(func(c *config.Config) error { c.Unsorted.Read = lv; return nil },
+					"New and other conversations: "+levelText(lv)+".")
+				return nil
+			}})
+		}
+		m.openDialog(&pickDialog{name: "New and other conversations read",
+			text: "The read level of each conversation that no space lists and that you did not set.", options: opts,
+			cursor: slices.Index(config.ReadLevels, m.u.cfg.Unsorted.Read)})
+	case "agent":
+		var opts []pickOption
+		cursor := 0
+		if id == config.UnsortedID {
+			opts = append(opts, pickOption{label: "hold", note: "do not send; the messages wait until they expire", run: func() tea.Cmd {
+				m.commitSpaces(func(c *config.Config) error { c.Unsorted.Agent = ""; return nil }, "Everything else holds its messages.")
+				return nil
+			}})
+		}
+		for _, a := range m.u.cfg.Agents {
+			if a.ID == s.Agent {
+				cursor = len(opts)
+			}
+			opts = append(opts, pickOption{label: a.Title(), note: a.Driver, run: func() tea.Cmd {
+				m.commitSpaces(func(c *config.Config) error {
+					if id == config.UnsortedID {
+						c.Unsorted.Agent = a.ID
+						if c.Unsorted.Schedule == "" {
+							c.Unsorted.Schedule = c.Schedules[0].ID
+						}
+						return nil
+					}
+					cur, ok := c.Space(id)
+					if !ok {
+						return config.MissingError{Kind: config.KindSpace, ID: id}
+					}
+					cur.Agent = a.ID
+					return nil
+				}, s.Title()+" sends to "+a.Title()+".")
+				return nil
+			}})
+		}
+		m.openDialog(&pickDialog{name: "Agent of " + s.Title(), text: "Each space has its own session of the agent. Add or change agents in Setup.",
+			options: opts, cursor: cursor})
+	case "schedule":
+		var opts []pickOption
+		cursor := 0
+		for i, sc := range m.u.cfg.Schedules {
+			if sc.ID == s.Schedule {
+				cursor = i
+			}
+			opts = append(opts, pickOption{label: sc.Title(), note: sc.Text(), run: func() tea.Cmd {
+				m.commitSpaces(func(c *config.Config) error {
+					if id == config.UnsortedID {
+						c.Unsorted.Schedule = sc.ID
+						return nil
+					}
+					cur, ok := c.Space(id)
+					if !ok {
+						return config.MissingError{Kind: config.KindSpace, ID: id}
+					}
+					cur.Schedule = sc.ID
+					return nil
+				}, s.Title()+" sends "+sc.Text()+".")
+				return nil
+			}})
+		}
+		m.openDialog(&pickDialog{name: "Schedule of " + s.Title(), text: "When this space sends. Change the times in Setup.",
+			options: opts, cursor: cursor})
+	}
+}
+
+// addSpaceDialog asks for the name of a new space. then gets its ID.
+func (m *model) addSpaceDialog(then func(id string)) {
+	m.openDialog(newInputDialog("New space", "The name of the new space, for example Company B. It sends to the agent "+
+		m.u.cfg.Agents[0].Title()+" on the schedule "+m.u.cfg.Schedules[0].Title()+"; change them in its panel.",
+		"", "Company B", func(name string) (string, tea.Cmd) {
+			id, errText := m.newSpace(name)
+			if errText != "" {
+				return errText, nil
+			}
+			if then != nil {
+				then(id)
+				return "", nil
+			}
+			m.selectSpace(id)
+			m.spcFocus, m.row = true, 0
+			m.saved("Created the space " + name + ". Press a to add conversations. Saved · u undo")
+			return "", nil
+		}))
+}
+
+func (m *model) deleteSpace(id string) {
+	s, _ := m.u.cfg.Space(id)
+	name := s.Title()
+	n := len(s.Conversations)
+	m.openDialog(&confirmDialog{name: "Delete space " + name,
+		text: fmt.Sprintf("Delete the space %s? Its %s go to Everything else, except the ones that another space also lists. Its cards stay in the Feed.",
+			name, plural(n, "conversation", "conversations")),
+		choices: []choice{{"y", "Delete", func() tea.Cmd {
+			if m.commitSpaces(func(c *config.Config) error {
+				cur, ok := c.Space(id)
+				if !ok {
+					return config.MissingError{Kind: config.KindSpace, ID: id}
+				}
+				gone := slices.Clone(cur.Conversations)
+				// SetSpaces keeps the label: a conversation that another space
+				// lists stays there, the others keep their level in Everything else.
+				for _, cv := range gone {
+					rest := slices.DeleteFunc(realLinks(c, cv.Account, cv.ID), func(l config.Link) bool { return l.Space == id })
+					if len(rest) == 0 {
+						rest = []config.Link{{Space: config.UnsortedID, Read: cv.Read}}
+					}
+					if err := c.SetSpaces(cv.Account, cv.ID, cv.Name, rest); err != nil {
+						return err
+					}
+				}
+				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
+				return nil
+			}, "Deleted the space "+name+". Its conversations are in Everything else.") {
+				m.spc = min(m.spc, len(m.railItems())-1)
+				m.spcFocus = false
+			}
+			return nil
+		}}}})
+}
+
+// undo writes back the configuration from before the last save.
+func (m *model) undo() {
+	switch err := m.u.undo(); {
+	case err == errNoUndo:
+		m.setStatus("Nothing to undo.", true)
+	case err != nil:
+		m.setStatus("Cannot undo: "+err.Error(), true)
+	default:
+		m.saved("Undone. Saved · u again to redo")
+	}
+}
+
+// ---- view ----
+
+func (m *model) viewSpaces(w, h int) string {
+	cfg := m.u.cfg
+	lw := listWidth(w)
+	inner := lw - 8 // the panel border and padding, the bar, the dot and its space
+	var items []string
+	newN, ignN := m.newCount(), len(m.ignoredRows())
+	for _, it := range m.railItems() {
+		switch it.kind {
+		case "space":
+			s, _ := cfg.Space(it.space)
+			dot := okStyle.Render("●")
+			if s.Agent == "" {
+				dot = faint.Render("○")
+			}
+			items = append(items, dot+" "+listLabel(s.Title(), countText(len(m.rowsOfSpace(s.ID)), m.spaceWaiting(s.ID)), inner))
+		case railElse:
+			dot := okStyle.Render("●")
+			if cfg.Unsorted.Agent == "" {
+				dot = faint.Render("○")
+			}
+			items = append(items, dot+" "+listLabel("Everything else", countText(len(m.elseRows()), m.spaceWaiting(config.UnsortedID)), inner))
+		case railNew:
+			label := listLabel("New conversations", fmt.Sprint(newN), inner)
+			if newN > 0 {
+				label = warnStyle.Render(label)
+			}
+			items = append(items, "  "+label)
+		case railIgnored:
+			items = append(items, "  "+listLabel("Ignored", fmt.Sprint(ignN), inner))
+		case railAdd:
+			items = append(items, "  + New space")
+		}
+	}
+	rows := h - 3
+	m.spcOff = scrollTo(m.spc, m.spcOff, rows)
+	list := railRows(items, m.spc, m.spcOff, lw-4, rows, !m.spcFocus)
+	left := panel("Spaces", list, lw, h)
+
+	pw := w - lw
+	body, title := m.renderPanel(pw-4, h-3)
+	var right string
+	if m.spcFocus {
+		right = detailPanel(title, body, pw, h, true)
+	} else {
+		right = panel(title, body, pw, h)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+}
+
+// countText is the number of conversations, and the waiting messages when
+// some wait: "5", "5 · 3⧗".
+func countText(convs, waiting int) string {
+	if waiting > 0 {
+		return fmt.Sprintf("%d · %d⧗", convs, waiting)
+	}
+	return fmt.Sprint(convs)
+}
+
+// railRows draws the list at the left. The selected row has the bar; it is
+// grey when the panel has the keyboard.
+func railRows(items []string, cursor, offset, w, h int, focus bool) string {
+	var b strings.Builder
+	end := min(len(items), offset+h)
+	for i := offset; i < end; i++ {
+		text := truncateStyled(items[i], w-1)
+		switch {
+		case i == cursor && focus:
+			b.WriteString(selectedRow.Width(w).Render("▌" + ansi.Strip(text)))
+		case i == cursor:
+			b.WriteString(boldStyle.Render("▌" + ansi.Strip(text)))
+		default:
+			b.WriteString(" " + text)
+		}
+		if i < end-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// renderPanel renders the rows of the panel, scrolled to the cursor.
+func (m *model) renderPanel(w, h int) (string, string) {
+	it := m.selectedRail()
+	title := map[string]string{railElse: "Everything else", railNew: "New conversations", railIgnored: "Ignored", railAdd: "New space"}[it.kind]
+	if it.kind == "space" {
+		s, _ := m.u.cfg.Space(it.space)
+		title = s.Title()
+	}
+	if it.kind == railElse {
+		title = "Everything else · conversations in no space"
+	}
+	rows := m.panelRows(w)
+	sel := selectableIndexes(rows)
+	cur := -1
+	if len(sel) > 0 {
+		m.row = min(max(0, m.row), len(sel)-1)
+		cur = sel[m.row]
+	}
+	lines := make([]string, len(rows))
+	for i, r := range rows {
+		var s string
+		switch r.kind {
+		case "set":
+			s = m.settingText(r.key, w-2)
+		case "conv":
+			s = m.convLine(r.conv, w-2)
+			if r.conv.Read == config.ReadOff && it.kind != railIgnored {
+				s = faint.Render(s)
+			}
+		default:
+			s = r.text
+		}
+		if i == cur && m.spcFocus {
+			s = selectedRow.Width(w).Render(truncate("▌"+ansi.Strip(s), w))
+		} else {
+			s = " " + s
+		}
+		lines[i] = s
+	}
+	if cur >= 0 {
+		m.rowOff = scrollTo(cur, m.rowOff, h)
+	} else {
+		m.rowOff = 0
+	}
+	end := min(len(lines), m.rowOff+h)
+	return strings.Join(lines[min(m.rowOff, end):end], "\n"), title
 }
 
 // whenText is "today 14:45" or "Mon 08:00"; "never" for the zero time.
@@ -206,160 +830,60 @@ func (m *model) whenText(t time.Time) string {
 	return t.Format("Mon 15:04")
 }
 
-func (m *model) agentChoice(current string, hold bool) *formField {
-	var ids, labels []string
-	if hold {
-		ids, labels = append(ids, ""), append(labels, "hold")
-	}
-	for _, a := range m.u.cfg.Agents {
-		ids, labels = append(ids, a.ID), append(labels, a.Title())
-	}
-	help := "The agent that gets the messages of this space. Each space has its own session."
-	if hold {
-		help = "hold: do not send; the messages wait until you sort their conversations, or until they expire."
-	}
-	return choiceField("agent", "Agent", help, ids, labels, current)
-}
-
-func (m *model) scheduleChoice(current string) *formField {
-	var ids, labels []string
-	for _, s := range m.u.cfg.Schedules {
-		ids, labels = append(ids, s.ID), append(labels, s.Title())
-	}
-	return choiceField("schedule", "Schedule", "When this space sends. Change the times in tab 7.", ids, labels, current)
-}
-
-// convTable is the list of the conversations of a space, for a note field.
-func (m *model) convTable(rows []convRow, limit int) string {
-	if len(rows) == 0 {
-		return "No conversation yet."
-	}
-	var lines []string
-	for i, r := range rows {
-		if i == limit {
-			lines = append(lines, fmt.Sprintf("… and %d more: press esc, then c", len(rows)-limit))
-			break
+// nextSend returns the next send time of all spaces that have an agent.
+func (m *model) nextSend() time.Time {
+	var next time.Time
+	for _, s := range m.u.cfg.AllSpaces() {
+		if s.Agent == "" {
+			continue
 		}
-		lines = append(lines, fmt.Sprintf("%-9s %s %-28s %-14s %d waiting", r.Read, kindMark(r.Kind), truncate(r.Title(), 28),
-			truncate(r.Account.Title(), 14), m.waitingIn(r.Account.ID, r.ID)))
+		if sc, ok := m.u.cfg.Schedule(s.Schedule); ok {
+			if t := sc.Next(m.now()); !t.IsZero() && (next.IsZero() || t.Before(next)) {
+				next = t
+			}
+		}
 	}
-	return strings.Join(lines, "\n")
+	return next
 }
 
-// spaceForm edits a space, or a new space when id is "".
-func (m *model) spaceForm(id string) *form {
-	cfg := m.u.cfg
-	s := config.Space{Agent: cfg.Agents[0].ID, Schedule: cfg.Schedules[0].ID}
-	if id != "" {
-		cur, _ := cfg.Space(id)
-		s = *cur
+// cardsOf counts the shown cards of a space ("" for all).
+func (m *model) cardsOf(space string) int {
+	n := 0
+	for _, c := range m.cards {
+		if m.cardShown(c) && (space == "" || m.cardSpace(c) == space) {
+			n++
+		}
 	}
-	fm := &form{}
-	if id != "" {
-		fm.fields = append(fm.fields, noteField(m.sentence(s), textStyle), noteField(spaceKeys, faint))
-	} else {
-		fm.fields = append(fm.fields, noteField("A space is your own group: a company, a project, personal. After you create it, add conversations from any account with a.", faint))
+	return n
+}
+
+// clickSpaces selects the clicked row of the list or of the panel. A click
+// on the selected row opens it.
+func (m *model) clickSpaces(x, y int) tea.Cmd {
+	line := y - 2 // the panel border and the panel title
+	if line < 0 {
+		return nil
 	}
-	fm.fields = append(fm.fields,
-		textField("name", "Name", s.Name, "Company B", "The name that i2a shows. The ID stays the same after a rename.", func(v string) error {
-			if strings.TrimSpace(v) == "" {
-				return fmt.Errorf("type a name")
-			}
-			for _, x := range cfg.AllSpaces() {
-				if x.ID != id && strings.EqualFold(x.Title(), strings.TrimSpace(v)) {
-					return fmt.Errorf("the name %q is used", x.Title())
-				}
-			}
+	if x < listWidth(m.w) {
+		i := line + m.spcOff
+		if i >= len(m.railItems()) {
 			return nil
-		}),
-		m.agentChoice(s.Agent, false),
-		m.scheduleChoice(s.Schedule),
-	)
-	if id != "" {
-		fm.fields = append(fm.fields,
-			noteField("Conversations · a DM, a group and a channel have the same read levels: all · mentions (messages for you) · off", boldStyle),
-			noteField(m.convTable(m.spaceRows(id), 12), faint))
-		fm.buttons = []button{
-			{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveSpace(id) }},
-			{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
-			{label: "Delete space", danger: true, run: func() tea.Cmd { m.form.deactivate(); m.deleteSpace(id); return nil }},
 		}
-		return fm
-	}
-	fm.buttons = []button{{label: "Create space", primary: true, run: func() tea.Cmd { return m.saveSpace("") }}}
-	return fm
-}
-
-func (m *model) saveSpace(id string) tea.Cmd {
-	fm := m.form
-	if !fm.validate() {
+		if i == m.spc && !m.spcFocus {
+			return m.keyRail("enter", m.selectedRail())
+		}
+		m.spc, m.spcFocus, m.row, m.rowOff = i, false, 0, 0
+		clear(m.convSel)
 		return nil
 	}
-	name := strings.TrimSpace(fm.field("name").value())
-	agent, sched := fm.field("agent").value(), fm.field("schedule").value()
-	if err := m.commitForm(fm, func(c *config.Config) error {
-		if id == "" {
-			id = config.NewID(name, func(x string) bool { _, ok := c.Space(x); return ok })
-			c.Spaces = append(c.Spaces, config.Space{ID: id, Name: name})
-		}
-		s, ok := c.Space(id)
-		if !ok {
-			return config.MissingError{Kind: config.KindSpace, ID: id}
-		}
-		s.Name, s.Agent, s.Schedule = name, agent, sched
-		return nil
-	}, nil); err != nil {
-		saveError(fm, err)
-		return nil
-	}
-	for i, x := range m.u.cfg.Spaces {
-		if x.ID == id {
-			m.spc = i + 1
+	idx := line + m.rowOff
+	for i, at := range selectableIndexes(m.panelRows(m.panelWidth())) {
+		if at == idx {
+			if i == m.row && m.spcFocus {
+				return m.keyPanel("enter", m.selectedRail())
+			}
+			m.row, m.spcFocus = i, true
 		}
 	}
-	m.saved("Saved the space " + name + ".")
-	return nil
-}
-
-// unsortedForm edits the built-in space.
-func (m *model) unsortedForm() *form {
-	u := m.u.cfg.Unsorted
-	s := m.u.cfg.UnsortedSpace()
-	agent := m.agentChoice(u.Agent, true)
-	sched := m.scheduleChoice(u.Schedule)
-	sched.hidden = func() bool { return agent.value() == "" }
-	fm := &form{}
-	fm.fields = []*formField{
-		noteField(m.sentence(s), textStyle),
-		noteField("New conversations land here. Move each one to a space in tab 4 (m), or set it to off (l).", warnStyle),
-		noteField(spaceKeys, faint),
-		choiceField("read", "Read level", "For each conversation that no space lists: all · mentions (messages for you) · off.",
-			config.ReadLevels, nil, u.Read),
-		agent,
-		sched,
-		noteField("Conversations to sort", boldStyle),
-		noteField(m.convTable(m.spaceRows(config.UnsortedID), 12), faint),
-	}
-	fm.buttons = []button{
-		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveUnsorted() }},
-		{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
-	}
-	return fm
-}
-
-func (m *model) saveUnsorted() tea.Cmd {
-	fm := m.form
-	read, agent, sched := fm.field("read").value(), fm.field("agent").value(), fm.field("schedule").value()
-	if err := m.commitForm(fm, func(c *config.Config) error {
-		c.Unsorted.Read, c.Unsorted.Agent = read, agent
-		if agent != "" {
-			c.Unsorted.Schedule = sched
-		}
-		return nil
-	}, nil); err != nil {
-		saveError(fm, err)
-		return nil
-	}
-	m.saved("Saved Unsorted.")
 	return nil
 }

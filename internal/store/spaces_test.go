@@ -366,3 +366,99 @@ func TestMigrateV6AddsTheDeliveries(t *testing.T) {
 		t.Errorf("backup version = %d, %v, want 6", v, err)
 	}
 }
+
+func TestRequeueKeepsTheDeliveries(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	old, mine, other := msg("r0", now.Add(-48*time.Hour)), msg("r1", now.Add(-time.Hour)), msg("r2", now.Add(-time.Hour))
+	other.ForMe = false
+	mine.ForMe = true
+	if _, err := s.SavePoll(ctx, "work", []inbox.Message{old, mine, other}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Pending(ctx)
+	var ids []int64
+	for _, m := range p {
+		ids = append(ids, m.ID)
+	}
+	id, _ := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 3})
+	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, ids); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), true, nil); err != nil || n != 1 {
+		t.Fatalf("requeue of the messages for me = %d, %v, want 1", n, err)
+	}
+	if n, _ := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), false, nil); n != 1 {
+		t.Fatalf("requeue of all messages = %d, want 1 more (the message for me is pending already)", n)
+	}
+	if n, _ := s.Requeue(ctx, "work", "other", now.Add(-24*time.Hour), false, nil); n != 0 {
+		t.Fatalf("requeue of another conversation = %d", n)
+	}
+	got, _ := s.Pending(ctx)
+	if len(got) != 2 {
+		t.Fatalf("pending = %d, want the 2 messages after since", len(got))
+	}
+	for _, m := range got {
+		if m.ExternalID == "r0" || m.Delivered["triage"] != inbox.StateSent {
+			t.Errorf("message %s: deliveries %v, want the sent delivery of triage", m.ExternalID, m.Delivered)
+		}
+	}
+}
+
+// An old pending message that a space got stays sent; the others expire.
+func TestExpireKeepsAMessageThatASpaceGot(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	if _, err := s.SavePoll(ctx, "work", []inbox.Message{msg("got", now.Add(-time.Hour)), msg("lost", now.Add(-time.Hour))}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Pending(ctx)
+	id, _ := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 1})
+	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, []int64{p[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Requeue(ctx, "work", "c1", now.Add(-2*time.Hour), false, []string{"other"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.ExpirePending(ctx, now); err != nil || n != 1 {
+		t.Fatalf("expired = %d, %v, want 1", n, err)
+	}
+	c, _ := s.Counts(ctx)
+	if c[inbox.StateSent] != 1 || c[inbox.StateExpired] != 1 {
+		t.Errorf("counts = %v, want 1 sent and 1 expired", c)
+	}
+	var skipped int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM deliveries WHERE state = 'skipped' AND space = 'other'`).Scan(&skipped); err != nil || skipped != 1 {
+		t.Errorf("skipped deliveries = %d, %v, want 1: the requeued message", skipped, err)
+	}
+}
+
+// A space that a requeue skipped gets the message in a later requeue that
+// does not skip it.
+func TestRequeueRemovesAnOldSkip(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	if _, err := s.SavePoll(ctx, "work", []inbox.Message{msg("m", now.Add(-time.Hour))}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Pending(ctx)
+	id, _ := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 1})
+	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, []int64{p[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	for _, skip := range [][]string{{"review"}, {"team"}} {
+		if err := s.SetStates(ctx, map[int64]string{p[0].ID: inbox.StateSent}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Requeue(ctx, "work", "c1", now.Add(-2*time.Hour), false, skip); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := s.Pending(ctx)
+	if len(got) != 1 || got[0].Delivered["review"] != "" || got[0].Delivered["team"] != inbox.DeliverySkipped || got[0].Delivered["triage"] != inbox.StateSent {
+		t.Errorf("deliveries = %+v, want review free, team skipped, triage sent", got)
+	}
+}

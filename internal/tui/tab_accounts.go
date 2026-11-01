@@ -168,7 +168,7 @@ func (m *model) accountForm(id string) *form {
 	}
 	fm.fields = append(fm.fields,
 		noteField(m.accountSpaces(id), textStyle),
-		noteField("This account does not choose a space or an agent. Move its conversations to spaces in tab 4.", faint),
+		noteField("This account does not choose a space or an agent. Add its conversations to spaces in 2 Spaces.", faint),
 		textField("name", "Name", a.Title(), a.ID, "The name that i2a shows, for example Company A or Personal phone.", required),
 		mmOnly(textField("url", "Server URL", a.URL, "https://chat.example.com", "The address of the Mattermost server.", validURL)),
 		mmOnly(secretField("token", "Token", "stored in the "+m.u.d.Secrets.Backend()+" · type a new token to replace it",
@@ -311,7 +311,7 @@ func (m *model) newAccountForm() *form {
 	warn.hidden = phone.hidden
 	used := func(s string) bool { _, ok := u.cfg.Account(s); return ok }
 	fm.fields = []*formField{
-		noteField("An account only connects. After the connection, its conversations are in Unsorted; sort them in tab 4. GitHub and Linear come later.", faint),
+		noteField("An account only connects. After the connection, its conversations are in Everything else; add them to spaces in 2 Spaces. GitHub and Linear come later.", faint),
 		kind,
 		textField("id", "Account ID", newID("work", used), "work", "A short ID that does not change, for example work or phone.", func(s string) error {
 			if used(s) {
@@ -359,7 +359,7 @@ func (m *model) connectAccount() tea.Cmd {
 				return nil
 			}
 			a.User = user
-			return m.addAccount(a, tok, "Connected as "+user+". Its conversations are in Unsorted: sort them in tab 4.")
+			return m.addAccount(a, tok, "Connected as "+user+". Its conversations are in Everything else: add them to spaces in 2 Spaces.")
 		}
 	})
 }
@@ -438,6 +438,16 @@ func (m *model) gotChannels(msg channelsMsg) tea.Cmd {
 	}
 	m.chs[msg.account] = msg.chs
 	delete(m.chsErr, msg.account)
+	if _, ok := m.seen[msg.account]; !ok {
+		// The first listing of an account: its conversations are not new.
+		ids := make([]string, 0, len(msg.chs))
+		for _, ch := range msg.chs {
+			ids = append(ids, ch.ID)
+		}
+		if s, err := addSeen(m.u.d.Paths.DataDir, msg.account, ids, true); err == nil {
+			m.seen = s
+		}
+	}
 	if msg.user == "" {
 		return nil
 	}

@@ -63,7 +63,7 @@ func (m *model) settingsForm() *form {
 			[]string{"high", "normal", "low"}, []string{"High", "Normal", "Low"}, m.u.cfg.Notify.MinUrgency),
 		noteField("Service", boldStyle),
 		noteField(m.serviceText(), faint),
-		noteField("When a space sends is in its schedule (tab 7). How often i2a reads an account is in the account (tab 3).", faint),
+		noteField("When a space sends is in its schedule (Setup › Schedules). How often i2a reads an account is in the account (Setup › Accounts).", faint),
 	}
 	fm.buttons = []button{
 		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveSettings() }},

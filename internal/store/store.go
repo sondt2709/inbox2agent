@@ -540,6 +540,57 @@ func (s *Store) SetStates(ctx context.Context, states map[int64]string) error {
 	return tx.Commit()
 }
 
+// Requeue sets the sent and previewed messages of a conversation that were
+// created at since or later back to pending, and returns their number. With
+// forMeOnly it changes only the messages for the user. The deliveries stay, so
+// a space that has a sent delivery does not get a message again. Each space
+// in skip that has no delivery of a message gets a skipped delivery, so only
+// the other spaces get it. One transaction does all of it.
+func (s *Store) Requeue(ctx context.Context, account, conversation string, since time.Time, forMeOnly bool, skip []string) (int64, error) {
+	q := `SELECT id FROM messages WHERE source_id = ? AND channel_id = ? AND created_at >= ? AND state IN ('sent', 'previewed')`
+	if forMeOnly {
+		q += ` AND for_me = 1`
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	rows, err := tx.QueryContext(ctx, q, account, conversation, since.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'pending' WHERE id = ?`, id); err != nil {
+			return 0, err
+		}
+		// A space that was skipped before and is not skipped now gets the message.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM deliveries WHERE message_id = ? AND state = ?`, id, inbox.DeliverySkipped); err != nil {
+			return 0, err
+		}
+		for _, sp := range skip {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deliveries (message_id, space, state) VALUES (?, ?, ?)`,
+				id, sp, inbox.DeliverySkipped); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return int64(len(ids)), tx.Commit()
+}
+
 // Messages returns the messages of a dispatch, oldest first.
 func (s *Store) Messages(ctx context.Context, dispatchID int64) ([]inbox.Message, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+messageCols+` FROM messages WHERE dispatch_id = ? ORDER BY created_at, id`, dispatchID)
@@ -551,6 +602,11 @@ func (s *Store) Messages(ctx context.Context, dispatchID int64) ([]inbox.Message
 
 // ExpirePending marks pending and previewed messages created before the time as expired.
 func (s *Store) ExpirePending(ctx context.Context, before time.Time) (int64, error) {
+	// A message that a space got (for example a requeued one) stays sent.
+	if _, err := s.db.ExecContext(ctx, `UPDATE messages SET state = 'sent' WHERE state IN ('pending', 'previewed') AND created_at < ?
+	  AND EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = messages.id AND d.state = 'sent')`, before.UnixMilli()); err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE messages SET state = 'expired' WHERE state IN ('pending', 'previewed') AND created_at < ?`, before.UnixMilli())
 	if err != nil {
 		return 0, err

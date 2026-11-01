@@ -244,8 +244,20 @@ func (m *model) keyFeed(k string) tea.Cmd {
 			}
 			return n
 		})
-	case "R":
-		return m.runNow(nil, "all spaces")
+	case "left", "h", "right", "l":
+		if m.replyCard != 0 || m.askCard != 0 {
+			m.setStatus("Send or cancel the open form first (esc).", true)
+			return nil
+		}
+		sp := m.feedSpaces()
+		i := slices.Index(sp, m.activeSpace())
+		step := 1
+		if k == "left" || k == "h" {
+			step = len(sp) - 1
+		}
+		m.spaceFilter, m.feedSel = sp[(i+step)%len(sp)], 0
+		m.setStatus("Space: "+orStr(m.spaceNames()[m.spaceFilter], "all")+".", false)
+		return nil
 	case "a":
 		m.feedAll = !m.feedAll
 		m.setStatus(map[bool]string{true: "Done cards are shown.", false: "Done cards are hidden."}[m.feedAll], false)
@@ -304,9 +316,17 @@ func (m *model) keyFeed(k string) tea.Cmd {
 	return nil
 }
 
-// clickFeed selects the clicked card. Each card has two rows.
+// clickFeed selects the clicked space or card. Each card has two rows.
 func (m *model) clickFeed(x, y int) tea.Cmd {
-	if x >= feedListWidth(m.w) {
+	rw := feedRailWidth(m.w)
+	if x < rw {
+		if i := y - 2; i >= 0 && i < len(m.feedSpaces()) {
+			m.spaceFilter, m.feedSel = m.feedSpaces()[i], 0
+		}
+		return nil
+	}
+	x -= rw
+	if x >= feedListWidth(m.w-rw) {
 		return nil
 	}
 	row := (y-2)/2 + m.feedOff // the panel border and the panel title
@@ -319,7 +339,37 @@ func (m *model) clickFeed(x, y int) tea.Cmd {
 	return m.moveFeed(row)
 }
 
-func feedListWidth(w int) int { return max(40, w*9/20) }
+func feedListWidth(w int) int { return max(40, w*2/5) }
+
+// feedRailWidth is the width of the space list of the Feed; 0 below 100 columns.
+func feedRailWidth(w int) int {
+	if w < 100 {
+		return 0
+	}
+	return 24
+}
+
+// feedSpaces are the rows of the space list: all, each space, Everything else.
+func (m *model) feedSpaces() []string {
+	out := []string{""}
+	for _, s := range m.u.cfg.Spaces {
+		out = append(out, s.ID)
+	}
+	return append(out, config.UnsortedID)
+}
+
+// feedRail draws the space list of the Feed with the card count of each row.
+func (m *model) feedRail(w, h int) string {
+	var items []string
+	cur := 0
+	for i, id := range m.feedSpaces() {
+		if id == m.activeSpace() {
+			cur = i
+		}
+		items = append(items, listLabel(orStr(m.spaceNames()[id], "All"), fmt.Sprint(m.cardsOf(id)), w-6))
+	}
+	return panel("Spaces", railRows(items, cur, 0, w-4, h-3, true), w, h)
+}
 
 var (
 	unreadMark = lipgloss.NewStyle().Foreground(lipgloss.Color("#F778BA")).Bold(true)
@@ -405,6 +455,8 @@ func (m *model) viewFeed(w, h int) string {
 	top := bar.String() + strings.Repeat(" ", gap) + right
 	h--
 
+	rw := feedRailWidth(w)
+	w -= rw
 	lw := feedListWidth(w)
 	v := m.visibleCards()
 	rowsPerCard := 2
@@ -428,7 +480,11 @@ func (m *model) viewFeed(w, h int) string {
 		if m.waiting(c) {
 			asked = "↪ asked"
 		}
-		meta := truncate(strings.Join(nonEmpty(m.spaceNames()[m.cardSpace(c)], c.Group, when(c.UpdatedAt, m.now()), stateNote(c), replied, asked), " · "), inner-2)
+		space := m.spaceNames()[m.cardSpace(c)]
+		if m.activeSpace() != "" {
+			space = "" // the space list shows it
+		}
+		meta := truncate(strings.Join(nonEmpty(asked, replied, stateNote(c), space, c.Group, when(c.UpdatedAt, m.now())), " · "), inner-6)
 		if i == m.feedSel {
 			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %s ", strings.ToUpper(c.Category), urgBar(c.Urgency))+title))
 			list = append(list, selectedRow.Width(inner).Render("▌     "+meta))
@@ -466,6 +522,9 @@ func (m *model) viewFeed(w, h int) string {
 	}
 	if ok && m.form != nil && m.askCard == c.ID {
 		right2 = detailPanel(fmt.Sprintf("Ask the agent · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active)
+	}
+	if rw > 0 {
+		return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, m.feedRail(rw, h), left, right2)
 	}
 	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, right2)
 }
@@ -743,7 +802,7 @@ func (m *model) openAsk(c inbox.Card) tea.Cmd {
 
 func (m *model) askForm(c inbox.Card) *form {
 	t, err := ask.TargetOf(m.u.cfg, c, m.refMessages(c))
-	agentLine, sessionLine := "Agent      "+t.AgentText(), "Session    "+t.Session()
+	agentLine, sessionLine := "Agent      "+t.Agent.Title()+" · "+t.Agent.Driver+" · space "+orStr(m.spaceNames()[t.Space.ID], t.Space.Title()), "Session    "+t.Session()
 	if err != nil {
 		agentLine, sessionLine = "Agent      "+err.Error(), ""
 	}
@@ -833,8 +892,8 @@ func (m *model) askDone(msg askDoneMsg) tea.Cmd {
 }
 
 func feedHints() []hint {
-	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"R", "run now"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
-		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"F", "space"}, {"a", "done cards"}}
+	return []hint{{"r", "reply"}, {"t", "ask agent"}, {"←→", "space"}, {"d", "done"}, {"o", "open thread"}, {"c", "copy reply"},
+		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"a", "done cards"}, {"↑↓", "move"}}
 }
 
 // activeSpace returns the space of the filter of the Feed and Activity, or ""
@@ -862,13 +921,14 @@ func (m *model) pickSpaceFilter(unit string, count func(space string) int) {
 			return nil
 		}
 	}
-	d := &pickDialog{name: "Show a space", text: "The Feed and Activity show the " + unit + "s of this space."}
+	d := &pickDialog{name: "Show a space", text: "The Feed and the Send log show the " + unit + "s of this space."}
 	d.options = append(d.options, pickOption{label: "All spaces", note: items(count("")), run: set("", "all")})
-	for _, s := range m.u.cfg.AllSpaces() {
-		if s.ID == m.activeSpace() {
+	names := m.spaceNames()
+	for _, id := range m.feedSpaces()[1:] {
+		if id == m.activeSpace() {
 			d.cursor = len(d.options)
 		}
-		d.options = append(d.options, pickOption{label: s.Title(), note: items(count(s.ID)), run: set(s.ID, s.Title())})
+		d.options = append(d.options, pickOption{label: names[id], note: items(count(id)), run: set(id, names[id])})
 	}
 	m.openDialog(d)
 }

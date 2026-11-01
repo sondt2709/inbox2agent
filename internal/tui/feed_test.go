@@ -225,17 +225,17 @@ func TestFeedMouseClickSelectsCard(t *testing.T) {
 	lines := strings.Split(screen(h.m), "\n")
 	y := -1
 	for i, l := range lines {
-		if strings.Contains(l, "Staging deployed 2.14.0") {
+		if strings.Contains(l, "Staging deployed") {
 			y = i + 1 // the second line of the card
 		}
 	}
 	if y < 0 {
 		t.Fatal("the screen has no third card")
 	}
-	_, cmd := h.m.Update(tea.MouseClickMsg{X: 10, Y: y, Button: tea.MouseLeft})
+	_, cmd := h.m.Update(tea.MouseClickMsg{X: feedRailWidth(140) + 10, Y: y, Button: tea.MouseLeft})
 	run(h.m, cmd, 0)
 	if c, _ := h.m.selectedCard(); c.Title != "Staging deployed 2.14.0" {
-		t.Fatalf("click selected %q", c.Title)
+		t.Fatalf("click at y %d selected %q:\n%s", y, c.Title, screen(h.m))
 	}
 	if st := h.state(t, "Staging deployed 2.14.0"); st != inbox.CardRead {
 		t.Errorf("state after the click = %s, want read", st)
@@ -246,14 +246,14 @@ func TestFeedMouseClickSelectsCard(t *testing.T) {
 // space is the space of their conversation, Unsorted. F filters by space.
 func TestFeedShowsAndFiltersTheSpace(t *testing.T) {
 	h := newFeedModel(t)
-	if s := screen(h.m); !strings.Contains(s, "space Unsorted") || !strings.Contains(s, "Unsorted · Harbor Portal") {
+	if s := screen(h.m); !strings.Contains(s, "space Everything else") || !strings.Contains(s, "Everything else · Harbor Portal") {
 		t.Fatalf("the Feed does not show the space:\n%s", s)
 	}
-	pickSpace(t, h.m, "Unsorted")
+	pickSpace(t, h.m, "Everything else")
 	if got := titles(h.m); got != "Correct your reply to Lena | Review PR #57" {
 		t.Errorf("cards of Unsorted = %q; the info card has no message", got)
 	}
-	if !strings.Contains(screen(h.m), "space: Unsorted") {
+	if !strings.Contains(screen(h.m), "space: Everything else") {
 		t.Error("the filter bar does not show the space filter")
 	}
 	pickSpace(t, h.m, "All spaces")

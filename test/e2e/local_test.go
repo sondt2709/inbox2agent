@@ -442,7 +442,7 @@ func TestS32AgentAnswersAnAsk(t *testing.T) {
 	}
 	tm.Type("S32 add the effort in hours to the card body.")
 	tm.WaitFor(`card body\.`, 5*time.Second)
-	tm.Press("C-s", `Sent to the agent of Unsorted\. It answers in this card\.`, 4*time.Minute)
+	tm.Press("C-s", `Sent to the agent of Everything else\. It answers in this card\.`, 4*time.Minute)
 	tm.Shot("S32-feed-after-ask")
 
 	deadline = time.Now().Add(4 * time.Minute)

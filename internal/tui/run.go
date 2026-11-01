@@ -48,10 +48,13 @@ func (m *model) runNow(spaces []string, what string) tea.Cmd {
 	}
 }
 
-// runDone shows the result of a run: the new messages and each batch.
+// runDone shows the result of a run: the new messages and each batch. The
+// result stays under the header until the next run.
 func (m *model) runDone(msg runDoneMsg) {
 	m.running = false
+	at := m.now().Format("15:04:05")
 	if msg.err != nil {
+		m.lastRun, m.lastRunErr = "Last run "+at+" failed: "+msg.err.Error(), true
 		m.setStatus("The run failed: "+msg.err.Error(), true)
 		return
 	}
@@ -71,7 +74,9 @@ func (m *model) runDone(msg runDoneMsg) {
 		}
 		parts = append(parts, fmt.Sprintf("%s: %s (%d)", orStr(names[b.Space], b.Space), st, b.Count))
 	}
-	m.setStatus(strings.Join(parts, " · ")+".", msg.res.Failed)
+	text := strings.Join(parts, " · ") + "."
+	m.lastRun, m.lastRunErr = "Last run "+at+" · "+text, msg.res.Failed
+	m.setStatus(text, msg.res.Failed)
 }
 
 // subscribe tries to read the events of the daemon, outside the UI loop.

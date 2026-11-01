@@ -753,6 +753,47 @@ func (c *Config) SetLevel(account, id, read string) error {
 	return nil
 }
 
+// SetSpaces sets all links of a conversation in one step. Each link names a
+// space and its read level. A link to Unsorted keeps the conversation in
+// Unsorted with its own level (ReadOff ignores it); it must be the only link.
+// No link removes all entries, so the conversation follows unsorted.read. The
+// first label of the old entries stays on the first new entry, and name is the
+// platform name of the new entries ("" keeps the old name).
+func (c *Config) SetSpaces(account, id, name string, links []Link) error {
+	if _, ok := c.Account(account); !ok {
+		return fmt.Errorf("the account %q does not exist", account)
+	}
+	for _, l := range links {
+		if l.Space == UnsortedID && len(links) > 1 {
+			return errors.New("a conversation cannot be in Unsorted and in a space")
+		}
+		if c.conversations(l.Space) == nil {
+			return fmt.Errorf("the space %q does not exist", l.Space)
+		}
+		if !contains(ReadLevels, l.Read) {
+			return fmt.Errorf("the read level %q is not valid", l.Read)
+		}
+	}
+	old, _ := c.removeEntries(account, id)
+	if name == "" {
+		name = old.Name
+	}
+	seen := map[string]bool{}
+	for i, l := range links {
+		if seen[l.Space] {
+			continue
+		}
+		seen[l.Space] = true
+		cv := Conversation{Account: account, ID: id, Name: name, Read: l.Read}
+		if i == 0 {
+			cv.Label = old.Label
+		}
+		dst := c.conversations(l.Space)
+		*dst = append(*dst, cv)
+	}
+	return nil
+}
+
 // SetLabel sets the label of each link of a conversation. An empty label
 // shows the platform name again. A conversation that has no entry gets an
 // entry in Unsorted with the level Unsorted.Read.
