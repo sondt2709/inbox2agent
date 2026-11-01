@@ -65,8 +65,8 @@ The Spaces area SHALL list at the left each space, then Everything else (the Uns
 - **THEN** the file has `read = "mentions"` for `# release` in Review only, and the row shows "Only for me"
 
 #### Scenario: Remove the last space
-- **WHEN** `# pr-reviews` is only in code-review, and the user presses `x` on its row in code-review
-- **THEN** the file lists `# pr-reviews` in no space, and the row shows in Everything else
+- **WHEN** `# release` is only in Review, and the user presses `x` on its row in Review
+- **THEN** the file lists `# release` in no space, and the row shows in Everything else
 
 #### Scenario: Agent of a space
 - **WHEN** the user presses `enter` on the row "Sends to" of Review and chooses the agent `reviewer`
@@ -91,21 +91,21 @@ The dialog SHALL list each space with a check mark and the read level of the con
 - **THEN** the file lists `# release` only in Team
 
 #### Scenario: Send the old messages
-- **WHEN** a message of `# pr-reviews` from today was sent to triage, and the user adds code-review with the option on
-- **THEN** the next send of code-review contains the message, and triage does not get it again
+- **WHEN** a message of `# release` from today was sent to triage, and the user adds Review with the option on
+- **THEN** the next send of Review contains the message, and triage does not get it again
 
 ### Requirement: Search of conversations
 `/` SHALL open a search of the conversations of all accounts from each area, except in a form. The rows SHALL show the kind mark, the name, the account and the spaces, with the newest activity first. Typing SHALL filter the rows by the name, the label, the account or a space; the search SHALL ignore case. `enter` SHALL open the spaces dialog of the row. `a` in the Spaces area SHALL open the same search for the selected space: each row SHALL show a check mark when the space has it, `space` SHALL add or remove it at once, and `←`/`→` SHALL change its level in that space.
 
 #### Scenario: Find and add
-- **WHEN** the user presses `a` in code-review, types `pr`, moves to `# pr-reviews` and presses `space`
-- **THEN** the file lists `# pr-reviews` in code-review with `all`, and the row shows a check mark
+- **WHEN** the user presses `a` in Review, types `rel`, moves to `# release` and presses `space`
+- **THEN** the file lists `# release` in Review with `all`, and the row shows a check mark
 
 ### Requirement: New conversations
 A conversation SHALL be new when an account lists it, the configuration has no entry for it, and the dashboard did not show it before. The dashboard SHALL keep the conversations that it showed in `<data>/conversations-seen.json` (mode 0600), by account. The first listing of an account SHALL mark all its conversations as shown. New conversations SHALL show in the item New conversations, with the time of their last message. `enter` SHALL open the spaces dialog, `k` SHALL keep the row in Everything else and mark it as shown, `K` SHALL do this for all rows, and `i` SHALL ignore it. Until the user decides, Everything else SHALL read a new conversation.
 
 #### Scenario: Upgrade
-- **WHEN** the dashboard starts for the first time with an account that lists 475 conversations
+- **WHEN** the dashboard starts for the first time with an account that lists 400 conversations
 - **THEN** New conversations shows 0
 
 #### Scenario: A new channel

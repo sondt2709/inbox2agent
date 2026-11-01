@@ -3,10 +3,10 @@
 The dashboard has 8 tabs that copy the data model: Feed, Activity, Accounts, Conversations, Spaces, Agents, Schedules and Settings. The user does two jobs in it: read the cards, and decide where each conversation goes. A test on a real configuration showed these problems:
 
 - `m` (move) and `L` (add to a space) both set the spaces of a conversation, and the `SPACE` column reads as one space. A conversation in many spaces looks like an exception.
-- The tab bar shows "475 unsorted" as a warning. These conversations are not lost: Unsorted reads them and sends them to its agent. The user cannot see which conversations are really new.
+- The tab bar shows "hundreds of unsorted conversations" as a warning. These conversations are not lost: Unsorted reads them and sends them to its agent. The user cannot see which conversations are really new.
 - Setup items that the user sets one time (accounts, agents, schedules, settings) have the same weight as the Feed.
 - On 100 to 120 columns the footer drops `R` and `L`, and "run now" has no fixed place.
-- The conversation list has 481 rows sorted by name, so busy and dead channels look the same.
+- The conversation list has hundreds of rows sorted by name, so busy and dead channels look the same.
 
 ## What Changes
 
