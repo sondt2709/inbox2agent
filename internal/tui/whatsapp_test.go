@@ -78,7 +78,7 @@ func TestPairingPanelThenAccount(t *testing.T) {
 		{JID: "15550000001@s.whatsapp.net", Kind: "direct"},
 	}})
 	run(m, cmd, 0)
-	if s := screen(m); !strings.Contains(s, "Paired phone: 2 chats are in Everything else. Add them to spaces in 2 Spaces") {
+	if s := screen(m); !strings.Contains(s, "Paired phone: 2 chats are in Everything else. Add them to spaces in Spaces") {
 		t.Errorf("no paired status:\n%s", s)
 	}
 	if m.pair != nil {

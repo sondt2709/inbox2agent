@@ -53,7 +53,7 @@ Hide
 Type "rm -rf /tmp/i2a-demo && clear" Enter
 Show
 Type "i2a config" Sleep 400ms Enter Sleep 2.5s
-Type "3" Sleep 1.5s
+Tab Sleep 1.5s
 Enter Sleep 800ms
 Tab Sleep 300ms Tab Sleep 300ms Type "Acme" Sleep 300ms
 Tab Sleep 300ms Type "$URL" Sleep 300ms Tab Sleep 300ms
@@ -61,12 +61,11 @@ Hide
 Type "$TOKEN"
 Show
 Sleep 500ms Enter Sleep 3s
-Type "4" Sleep 2s
-Type "/" Sleep 300ms Type "rel" Sleep 600ms Enter Sleep 1s
-Type "m" Sleep 1s Down Sleep 600ms Enter Sleep 800ms
-Type "Releases" Sleep 500ms Enter Sleep 2s
-Type "5" Sleep 1s Down Sleep 3s
-Type "7" Sleep 2.5s
+Shift+Tab Sleep 2s
+Type "/" Sleep 300ms Type "release" Sleep 600ms Enter Sleep 1.5s
+Down Sleep 600ms Enter Sleep 800ms
+Type "Releases" Sleep 500ms Enter Sleep 1.5s
+Enter Sleep 2.5s
 Type "q" Sleep 1s
 Type "i2a run --once" Sleep 400ms Enter Sleep 2.5s
 Type "head -12 /tmp/i2a-demo/digests/*.md" Sleep 400ms Enter Sleep 4s

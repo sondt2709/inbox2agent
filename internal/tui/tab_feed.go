@@ -123,7 +123,7 @@ func (m *model) setFeed(f feedMsg) {
 	}
 }
 
-// cardShown reports whether the done and category filters show the card.
+// cardShown reports whether the done filter shows the card.
 func (m *model) cardShown(c inbox.Card) bool {
 	if c.State == inbox.CardDone && !m.feedAll {
 		return false
@@ -228,6 +228,9 @@ func (m *model) keyFeed(k string) tea.Cmd {
 		return nil
 	case "right", "l":
 		m.feedFocus = min(focusCard, m.feedFocus+1)
+		if m.feedFocus == focusCard && m.form != nil {
+			return m.focusForm() // the open reply or ask form takes the keyboard
+		}
 		return nil
 	case "up", "k", "down", "j":
 		step := 1
@@ -238,7 +241,7 @@ func (m *model) keyFeed(k string) tea.Cmd {
 		case focusSpaces:
 			sp := m.feedSpaces()
 			i := max(0, min(len(sp)-1, slices.Index(sp, m.activeSpace())+step))
-			m.spaceFilter, m.feedSel = sp[i], 0
+			m.setFeedSpace(sp[i])
 			return nil
 		case focusCard:
 			m.cardOff = max(0, m.cardOff+step)
@@ -328,8 +331,8 @@ func (m *model) clickFeed(x, y int) tea.Cmd {
 	rw := feedRailWidth(m.w)
 	if x < rw {
 		m.feedFocus = focusSpaces
-		if i := y - 2; i >= 0 && i < len(m.feedSpaces()) {
-			m.spaceFilter, m.feedSel = m.feedSpaces()[i], 0
+		if i := y - 2 + m.railOff; y >= 2 && i < len(m.feedSpaces()) {
+			m.setFeedSpace(m.feedSpaces()[i])
 		}
 		return nil
 	}
@@ -378,7 +381,8 @@ func (m *model) feedRail(w, h int) string {
 		}
 		items = append(items, listLabel(orStr(m.spaceNames()[id], "All"), fmt.Sprint(m.cardsOf(id)), w-6))
 	}
-	off := scrollTo(cur, 0, h-3)
+	m.railOff = scrollTo(cur, m.railOff, h-3)
+	off := m.railOff
 	return detailPanel("Spaces", railRows(items, cur, off, w-4, h-3, true), w, h, m.feedFocus == focusSpaces)
 }
 
@@ -419,22 +423,29 @@ func when(t, now time.Time) string {
 	return t.Format("02 Jan")
 }
 
-func (m *model) feedCounts() (fresh, actions, questions int) {
+// feedCounts returns the number of new cards.
+func (m *model) feedCounts() (fresh int) {
 	for _, c := range m.cards {
-		if c.State == inbox.CardDone {
-			continue
-		}
 		if c.State == inbox.CardNew {
 			fresh++
 		}
-		switch c.Category {
-		case inbox.CategoryAction:
-			actions++
-		case inbox.CategoryQuestion:
-			questions++
-		}
 	}
-	return
+	return fresh
+}
+
+// setFeedSpace shows the cards of a space ("" for all) and selects its first
+// card. With an open reply or ask form it keeps the space, so a typed text
+// is not lost.
+func (m *model) setFeedSpace(id string) bool {
+	if (m.replyCard != 0 || m.askCard != 0) && id != m.activeSpace() {
+		m.setStatus("Send or cancel the open form first (esc).", true)
+		return false
+	}
+	m.spaceFilter, m.feedSel, m.act = id, 0, 0
+	if v := m.visibleCards(); len(v) > 0 {
+		m.feedSelID = v[0].ID
+	}
+	return true
 }
 
 // The panels of the Feed that can have the keyboard.
@@ -543,12 +554,13 @@ func (m *model) cardRow(c inbox.Card, selected bool, w int) []string {
 // cardText returns the title and the visible lines of the card panel,
 // scrolled by m.cardOff. Another card starts at its first line.
 func (m *model) cardText(c inbox.Card, w, h int) (string, string) {
+	h = max(1, h) // a very short window
 	if c.ID != m.cardFor {
 		m.cardFor, m.cardOff = c.ID, 0
 	}
 	lines := strings.Split(m.cardDetail(c, w), "\n")
 	m.cardOff = max(0, min(m.cardOff, len(lines)-h))
-	end := min(len(lines), m.cardOff+h)
+	end := max(m.cardOff, min(len(lines), m.cardOff+h))
 	title := "Card " + fmt.Sprint(c.ID)
 	if m.cardOff > 0 {
 		title += " · ↑"
@@ -953,8 +965,9 @@ func (m *model) pickSpaceFilter(unit string, count func(space string) int) {
 	}
 	set := func(id, name string) func() tea.Cmd {
 		return func() tea.Cmd {
-			m.spaceFilter, m.feedSel, m.act = id, 0, 0
-			m.setStatus("Space: "+name+".", false)
+			if m.setFeedSpace(id) {
+				m.setStatus("Space: "+name+".", false)
+			}
 			return nil
 		}
 	}

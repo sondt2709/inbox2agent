@@ -205,3 +205,81 @@ func TestCtrlRRunsAndRDoesNot(t *testing.T) {
 		t.Errorf("the header has no ctrl+r: %q", lines(h.m)[0])
 	}
 }
+
+func TestAVeryShortWindowDoesNotCrash(t *testing.T) {
+	h := newFeedModel(t)
+	for _, rows := range []int{1, 2, 3, 4, 5, 6} {
+		h.m.Update(tea.WindowSizeMsg{Width: 120, Height: rows})
+		screen(h.m) // no panic
+	}
+}
+
+func TestAnOpenFormKeepsTheSpaceAndTheFocus(t *testing.T) {
+	h := newFeedModel(t)
+	withAcme(t, h)
+	send(h.m, "r")
+	if h.m.replyCard == 0 || !h.m.form.active {
+		t.Fatal("r did not open the reply form")
+	}
+	if got := accentBorders(h.m); len(got) != 3 || got[0] || got[1] || !got[2] {
+		t.Errorf("accent borders with the reply form = %v, want only Card", got)
+	}
+	// The form gives back the keyboard (a click on the list), then ← ↓ in Spaces.
+	h.m.form.deactivate()
+	h.m.feedFocus = focusSpaces
+	before := h.m.activeSpace()
+	send(h.m, "down")
+	if h.m.activeSpace() != before || h.m.replyCard == 0 || !strings.Contains(h.m.status, "Send or cancel the open form first") {
+		t.Errorf("↓ in Spaces with an open reply: space %q→%q, reply %d, status %q", before, h.m.activeSpace(), h.m.replyCard, h.m.status)
+	}
+	// → to the Card panel gives the keyboard back to the form.
+	send(h.m, "right", "right")
+	if !h.m.form.active || h.m.feedFocus != focusCard {
+		t.Errorf("→ to Card with an open form: active %v, focus %d", h.m.form.active, h.m.feedFocus)
+	}
+}
+
+func TestTheWheelBuildsTheFormOfTheNewCard(t *testing.T) {
+	h := newFeedModel(t)
+	withAcme(t, h)
+	send(h.m, "r")
+	if h.m.form == nil {
+		t.Fatalf("r did not open the reply form: %q", h.m.status)
+	}
+	h.m.form.deactivate()
+	h.m.feedFocus = focusCards
+	screen(h.m)
+	h.m.Update(tea.MouseWheelMsg{X: feedRailWidth(140) + 5, Y: 10, Button: tea.MouseWheelDown})
+	if c, _ := h.m.selectedCard(); c.ID == h.m.replyCard || (h.m.form != nil && h.m.replyCard != 0) {
+		t.Errorf("after the wheel the reply form of the old card stays: selected %d, reply %d, form %v", c.ID, h.m.replyCard, h.m.form != nil)
+	}
+	h.m.Update(tea.MouseWheelMsg{X: feedRailWidth(140) + 5, Y: 0, Button: tea.MouseWheelDown})
+	h.m.Update(tea.MouseWheelMsg{X: feedRailWidth(140) + 5, Y: 39, Button: tea.MouseWheelDown})
+	if h.m.feedSel != 1 {
+		t.Errorf("the wheel over the header or the footer moved the selection to %d", h.m.feedSel)
+	}
+}
+
+func TestASpaceChangeSelectsItsFirstCardAndStays(t *testing.T) {
+	h := newFeedModel(t)
+	withAcme(t, h)
+	send(h.m, "left", "down") // Acme
+	h.m.Update(readFeed(context.Background(), h.st, false))
+	if c, _ := h.m.selectedCard(); c.Title != "Acme deploy" {
+		t.Errorf("after a refresh the selection is %q, want the first card of Acme", c.Title)
+	}
+	send(h.m, "up") // All: its first card, also after a refresh
+	first := h.m.visibleCards()[0].Title
+	h.m.Update(readFeed(context.Background(), h.st, false))
+	if c, _ := h.m.selectedCard(); c.Title != first {
+		t.Errorf("after a refresh in All the selection is %q, want the first card %q", c.Title, first)
+	}
+	// A click on a row of the space list, also after the list scrolled.
+	h.m.railOff = 1
+	screen(h.m)
+	h.m.railOff = 1
+	h.m.clickFeed(3, 2) // the first visible row: the second space row (Acme)
+	if got := h.m.activeSpace(); got != h.m.feedSpaces()[h.m.railOff] {
+		t.Errorf("a click on the first visible row picked %q", got)
+	}
+}

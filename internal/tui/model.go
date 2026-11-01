@@ -143,6 +143,7 @@ type model struct {
 	feedFocus int                     // the panel of the Feed with the keyboard: focusSpaces, focusCards, focusCard
 	cardOff   int                     // the first visible line of the card panel
 	cardFor   int64                   // the card that cardOff belongs to
+	railOff   int                     // the first visible row of the space list of the Feed
 	replies   map[int64][]inbox.Reply // the sent replies of the cards, by card ID
 	replyCard int64                   // the card of the open reply form; 0 when no reply form is open
 	asks      map[int64][]inbox.Ask   // the asks of the cards, by card ID
@@ -332,6 +333,9 @@ func (m *model) focusForm() tea.Cmd {
 	if m.form == nil {
 		return nil
 	}
+	if m.tab == tabFeed {
+		m.feedFocus = focusCard // the reply and ask forms are in the Card panel
+	}
 	return m.form.activate()
 }
 
@@ -460,6 +464,9 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 	case tea.MouseWheelMsg:
 		if m.form != nil && m.form.active {
 			return nil
+		}
+		if y := msg.Mouse().Y; y < contentTop || y >= m.h-1 {
+			return nil // the header, the line under it and the footer
 		}
 		switch msg.Mouse().Button {
 		case tea.MouseWheelUp:
@@ -643,7 +650,7 @@ const helpText = `The model   Account → Conversation → Space → Agent + Sch
             A space sends to one agent on one schedule.
 
 Areas       click Feed, Spaces or Setup · tab next section
-Everywhere  ctrl+r run now · / find a conversation · ? · q quit
+Everywhere  ctrl+r run now · / find a conversation · q quit
 Move        ↑ ↓ or j k, the mouse wheel or the trackpad · enter
 Form        tab / shift+tab or ↑ ↓ move between the fields
             ←/→ or space change a choice · ctrl+s save · esc back
@@ -728,7 +735,7 @@ func (m *model) renderHeader() string {
 	brand := brandStyle.Render("◆ i2a") + " "
 	b.WriteString(brand)
 	x := lipgloss.Width(brand)
-	fresh, _, _ := m.feedCounts()
+	fresh := m.feedCounts()
 	badges := []string{"", "", ""}
 	if fresh > 0 {
 		badges[areaFeed] = infoStyle.Render(fmt.Sprint(fresh)) + " "

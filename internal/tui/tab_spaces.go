@@ -871,15 +871,9 @@ func (m *model) wheel(x int, k string) tea.Cmd {
 		default:
 			m.feedFocus = focusCard
 		}
-		return m.keyFeed(k)
 	case tabSpaces:
-		it := m.selectedRail()
-		if x < listWidth(m.w) || (it.kind == railAdd) {
-			m.spcFocus = false
-			return m.keyRail(k, it)
-		}
-		m.spcFocus = true
-		return m.keyPanel(k, it)
+		// The list, or the panel when the item has rows.
+		m.spcFocus = x >= listWidth(m.w) && m.selectedRail().kind != railAdd
 	}
 	return m.tabKey(k)
 }
