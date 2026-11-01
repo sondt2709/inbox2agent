@@ -65,7 +65,7 @@ func (fakeStore) FinishAsk(context.Context, int64, string, string, string, time.
 	return nil
 }
 func (fakeStore) Asks(context.Context, []int64) (map[int64][]inbox.Ask, error) { return nil, nil }
-func (fakeStore) Requeue(context.Context, string, string, time.Time, bool) (int64, error) {
+func (fakeStore) Requeue(context.Context, string, string, time.Time, bool, []string) (int64, error) {
 	return 0, nil
 }
 

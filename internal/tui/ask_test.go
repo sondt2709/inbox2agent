@@ -64,7 +64,7 @@ func TestFeedAskTheAgent(t *testing.T) {
 	h, a := newAskFeed(t)
 	send(h.m, "t")
 	s := screen(h.m)
-	for _, want := range []string{"Ask the agent · card", "Agent      triage · orca · space Unsorted", "Session    the session of the space",
+	for _, want := range []string{"Ask the agent · card", "Agent      triage · orca · space Everything else", "Session    the session of the space",
 		"The agent answers in this card.", "ctrl+s send", "esc cancel"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the ask form does not show %q:\n%s", want, s)

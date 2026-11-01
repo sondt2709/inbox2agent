@@ -111,7 +111,11 @@ func (d *spacesDialog) update(m *model, msg tea.Msg) tea.Cmd {
 	case "left", "right", "h", "l":
 		if d.cursor < len(d.opts) {
 			o := &d.opts[d.cursor]
-			o.level = map[string]string{config.ReadAll: config.ReadMentions, config.ReadMentions: config.ReadAll}[o.level]
+			if o.level == config.ReadAll {
+				o.level = config.ReadMentions
+			} else {
+				o.level = config.ReadAll // also from off, which a file can have
+			}
 			o.on, d.ignore = true, false
 		}
 	case "enter":
@@ -150,18 +154,9 @@ func (d *spacesDialog) save(m *model) tea.Cmd {
 	case len(links) == 0:
 		done = what(d.rows) + " is in Everything else."
 	}
-	var addedSpaces []config.Link
-	for _, o := range d.opts {
-		if o.on && !o.was {
-			addedSpaces = append(addedSpaces, config.Link{Space: o.id, Read: o.level})
-		}
-	}
 	ok := m.editLinks(d.rows, func(c *config.Config, r convRow) []config.Link {
 		if len(links) == 0 {
-			// In no space: keep an own level of Everything else.
-			if cur, sp, had := c.Conversation(r.Account.ID, r.ID); had && sp == config.UnsortedID && cur.Read != config.ReadOff {
-				return []config.Link{{Space: config.UnsortedID, Read: cur.Read}}
-			}
+			return noSpace(c, r)
 		}
 		return links
 	}, done)
@@ -169,16 +164,43 @@ func (d *spacesDialog) save(m *model) tea.Cmd {
 		return nil
 	}
 	m.closeDialog()
-	if d.requeue && len(addedSpaces) > 0 {
-		return m.requeue(d.rows, addedSpaces)
+	if d.requeue && d.added() {
+		return m.requeue(d.rows)
 	}
 	return nil
+}
+
+// noSpace returns the links of a row that is in no space and not ignored: its
+// own level of Everything else, or none, so it follows unsorted.read. When
+// unsorted.read is off, no entry would ignore it, so it gets "Only for me".
+func noSpace(c *config.Config, r convRow) []config.Link {
+	if cur, sp, had := c.Conversation(r.Account.ID, r.ID); had && sp == config.UnsortedID && cur.Read != config.ReadOff {
+		return []config.Link{{Space: config.UnsortedID, Read: cur.Read}}
+	}
+	if c.Unsorted.Read == config.ReadOff {
+		return []config.Link{{Space: config.UnsortedID, Read: config.ReadMentions}}
+	}
+	return nil
+}
+
+// sameSpaces is true when each row has the spaces of the first row.
+func sameSpaces(rows []convRow) bool {
+	for _, r := range rows[1:] {
+		if !slices.Equal(r.Spaces, rows[0].Spaces) || inNoSpace(r) != inNoSpace(rows[0]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *spacesDialog) view(w, h int) string {
 	var lines []string
 	if len(d.rows) > 1 {
-		lines = append(lines, faint.Render("The same spaces for each of the "+fmt.Sprint(len(d.rows))+" conversations."), "")
+		lines = append(lines, faint.Render("The same spaces for each of the "+fmt.Sprint(len(d.rows))+" conversations."))
+		if !sameSpaces(d.rows) {
+			lines = append(lines, warnStyle.Render("They are in different spaces now. The marks show the first one; enter gives all of them these spaces."))
+		}
+		lines = append(lines, "")
 	}
 	lines = append(lines, boldStyle.Render("Spaces"))
 	row := func(i int, s string) string {
@@ -233,30 +255,48 @@ func (d *spacesDialog) hints() []hint {
 }
 
 // requeue sends the messages of the last lookback of the rows again, to the
-// added spaces only: the spaces that have a sent delivery skip them.
-func (m *model) requeue(rows []convRow, added []config.Link) tea.Cmd {
+// spaces that each row got in this save only. The spaces that a row had
+// before get a skipped delivery, so they do not get the messages.
+func (m *model) requeue(rows []convRow) tea.Cmd {
 	st := m.u.d.Store
 	if st == nil {
 		m.setStatus("No store yet: there are no old messages to send.", false)
 		return nil
 	}
-	forMe := true
-	for _, l := range added {
-		forMe = forMe && l.Read == config.ReadMentions
+	type job struct {
+		account, id string
+		forMe       bool
+		skip        []string
 	}
-	since := m.now().Add(-m.u.cfg.Settings.Lookback.D())
+	var jobs []job
+	for _, r := range rows {
+		j := job{account: r.Account.ID, id: r.ID, forMe: true}
+		added := false
+		for _, l := range realLinks(m.u.cfg, r.Account.ID, r.ID) {
+			if _, was := levelIn(r, l.Space); was && !inNoSpace(r) {
+				j.skip = append(j.skip, l.Space)
+				continue
+			}
+			added = true
+			j.forMe = j.forMe && l.Read == config.ReadMentions
+		}
+		if added {
+			jobs = append(jobs, j)
+		}
+	}
+	lookback := m.u.cfg.Settings.Lookback
+	since := m.now().Add(-lookback.D())
 	ctx := m.ctx
 	return func() tea.Msg {
 		var n int64
-		for _, r := range rows {
-			k, err := st.Requeue(ctx, r.Account.ID, r.ID, since, forMe)
+		for _, j := range jobs {
+			k, err := st.Requeue(ctx, j.account, j.id, since, j.forMe, j.skip)
 			if err != nil {
 				return statusMsg{text: "Cannot send the old messages again: " + err.Error(), isErr: true}
 			}
 			n += k
 		}
-		return statusMsg{text: fmt.Sprintf("Saved. %s of the last %s wait for the new spaces.", plural(int(n), "message", "messages"),
-			m.u.cfg.Settings.Lookback)}
+		return statusMsg{text: fmt.Sprintf("Saved. %s of the last %s wait for the new spaces.", plural(int(n), "message", "messages"), lookback)}
 	}
 }
 

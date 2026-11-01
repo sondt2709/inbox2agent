@@ -64,27 +64,37 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 	}
 	e.api.setStatus(spaceNexts(e.cfg, next), nil)
 
+	// reload loads a changed file. The loop calls it at each step, and again
+	// just before a dispatch and a run of the API: a dashboard can change the
+	// links and requeue messages for them a moment before.
+	reload := func() {
+		mt := fileModTime(configFile)
+		if mt.Equal(modTime) {
+			return
+		}
+		modTime = mt
+		cfg, err := load()
+		if err != nil {
+			log.Error("configuration not reloaded, the previous configuration stays", "err", err)
+			first, _, _ := strings.Cut(err.Error(), "\n")
+			e.api.Publish(Event{Kind: EventError, Detail: "config.toml not reloaded: " + first})
+		} else {
+			e.SetConfig(cfg)
+			next = nextSends(cfg, e.d.Now())
+			log.Info("configuration reloaded", "accounts", len(cfg.Accounts), "spaces", len(cfg.Spaces))
+			logNext(log, cfg, next)
+			e.api.Publish(Event{Kind: EventReload, Count: len(cfg.Spaces)})
+		}
+		e.api.setStatus(spaceNexts(e.cfg, next), nil)
+	}
+
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {
-		if mt := fileModTime(configFile); !mt.Equal(modTime) {
-			modTime = mt
-			cfg, err := load()
-			if err != nil {
-				log.Error("configuration not reloaded, the previous configuration stays", "err", err)
-				first, _, _ := strings.Cut(err.Error(), "\n")
-				e.api.Publish(Event{Kind: EventError, Detail: "config.toml not reloaded: " + first})
-			} else {
-				e.SetConfig(cfg)
-				next = nextSends(cfg, e.d.Now())
-				log.Info("configuration reloaded", "accounts", len(cfg.Accounts), "spaces", len(cfg.Spaces))
-				logNext(log, cfg, next)
-				e.api.Publish(Event{Kind: EventReload, Count: len(cfg.Spaces)})
-			}
-			e.api.setStatus(spaceNexts(e.cfg, next), nil)
-		}
+		reload()
 
 		e.Poll(ctx, false)
+		reload()
 
 		now := e.d.Now()
 		var due []string
@@ -131,6 +141,7 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 			// A run of the API: the loop does it, so it never runs at the
 			// same time as a scheduled send.
 			lastAsk = e.d.Now()
+			reload()
 			log.Info("run from the API", "spaces", rr.spaces)
 			res, err := e.RunNow(ctx, rr.spaces)
 			rr.reply <- runReply{res: res, err: err}

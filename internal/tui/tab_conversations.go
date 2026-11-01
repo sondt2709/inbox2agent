@@ -55,6 +55,13 @@ func kindMark(kind string) string {
 // convRows joins the conversations that the accounts list with the entries of
 // the configuration, account by account in the order of the lists.
 func (m *model) convRows() []convRow {
+	if m.rowCache != nil {
+		return m.rowCache // one frame: render computes the rows one time
+	}
+	return m.listRows()
+}
+
+func (m *model) listRows() []convRow {
 	cfg := m.u.cfg
 	var out []convRow
 	for _, a := range cfg.Accounts {
@@ -223,14 +230,14 @@ func realLinks(c *config.Config, account, id string) []config.Link {
 // the file now, and saves. It returns false and shows the error when the save
 // fails.
 func (m *model) editLinks(rows []convRow, edit func(c *config.Config, r convRow) []config.Link, done string) bool {
-	if err := m.u.commit(func(c *config.Config) error {
+	if err := m.u.commitUndoable(func(c *config.Config) error {
 		for _, r := range rows {
 			if err := c.SetSpaces(r.Account.ID, r.ID, r.Name, edit(c, r)); err != nil {
 				return err
 			}
 		}
 		return nil
-	}, nil); err != nil {
+	}); err != nil {
 		m.setStatus("Cannot save: "+err.Error(), true)
 		return false
 	}
@@ -247,9 +254,12 @@ func (m *model) markSeen(rows ...convRow) {
 		by[r.Account.ID] = append(by[r.Account.ID], r.ID)
 	}
 	for acc, ids := range by {
-		if s, err := addSeen(m.u.d.Paths.DataDir, acc, ids, false); err == nil {
-			m.seen = s
+		s, err := addSeen(m.u.d.Paths.DataDir, acc, ids, false)
+		if err != nil {
+			m.setStatus("Cannot write "+SeenFile+": "+err.Error(), true)
+			continue
 		}
+		m.seen = s
 	}
 }
 

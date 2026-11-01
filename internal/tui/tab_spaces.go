@@ -101,7 +101,8 @@ func (m *model) panelRows(w int) []pRow {
 			}
 		}
 	case railNew:
-		out = append(out, text(textStyle.Width(w).Render("The accounts found these conversations after the dashboard showed them last. Until you decide, Everything else reads them.")), text(""))
+		out = append(out, text(textStyle.Render("The accounts found these conversations after the dashboard showed them last.")),
+			text(textStyle.Render("Until you decide, Everything else reads them.")), text(""))
 		rows := m.newRows()
 		if len(rows) == 0 {
 			out = append(out, text(faint.Render("No new conversation.")))
@@ -119,7 +120,8 @@ func (m *model) panelRows(w int) []pRow {
 			out = append(out, pRow{kind: "conv", conv: r})
 		}
 	case railAdd:
-		out = append(out, text(textStyle.Width(w).Render("A space is your own group of conversations from any account: a client, a project, personal. It sends them to one agent on one schedule.")),
+		out = append(out, text(textStyle.Render("A space is your own group of conversations from any account:")),
+			text(textStyle.Render("a client, a project, personal. It sends them to one agent on one schedule.")),
 			text(""), text(faint.Render("Press enter to add a space.")))
 	}
 	return out
@@ -294,16 +296,18 @@ func selectableIndexes(rows []pRow) []int {
 
 func (m *model) panelWidth() int { return max(20, m.w-listWidth(m.w)-4) }
 
-// targetsOf returns the selected rows of the panel, or the row r.
+// targetsOf returns the selected rows of the panel, or the row r when no
+// selected row exists any more.
 func (m *model) targetsOf(r convRow) []convRow {
-	if len(m.convSel) == 0 {
-		return []convRow{r}
-	}
 	var out []convRow
 	for _, x := range m.convRows() {
 		if m.convSel[convKey(x.Account.ID, x.ID)] {
 			out = append(out, x)
 		}
+	}
+	if len(out) == 0 {
+		clear(m.convSel)
+		return []convRow{r}
 	}
 	return out
 }
@@ -438,8 +442,7 @@ func (m *model) keyPanel(k string, it railItem) tea.Cmd {
 			}, fmt.Sprintf("Removed %s from %s.", what(t), s.Title()))
 		case railIgnored:
 			t := m.targetsOf(c)
-			m.editLinks(t, func(*config.Config, convRow) []config.Link { return nil },
-				what(t)+": Everything else reads it again.")
+			m.editLinks(t, noSpace, what(t)+": Everything else reads it again.")
 		}
 	case "i":
 		if it.kind == railElse || it.kind == railNew {
@@ -510,7 +513,7 @@ func (m *model) setElseRead(step int) tea.Cmd {
 
 // commitSpaces saves a change of the Spaces area and shows the result.
 func (m *model) commitSpaces(change func(c *config.Config) error, done string) bool {
-	if err := m.u.commit(change, nil); err != nil {
+	if err := m.u.commitUndoable(change); err != nil {
 		m.setStatus("Cannot save: "+err.Error(), true)
 		return false
 	}
@@ -651,14 +654,19 @@ func (m *model) deleteSpace(id string) {
 				if !ok {
 					return config.MissingError{Kind: config.KindSpace, ID: id}
 				}
-				gone := cur.Conversations
-				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
+				gone := slices.Clone(cur.Conversations)
+				// SetSpaces keeps the label: a conversation that another space
+				// lists stays there, the others keep their level in Everything else.
 				for _, cv := range gone {
-					// A conversation that another space lists stays in that space only.
-					if _, _, listed := c.Conversation(cv.Account, cv.ID); !listed {
-						c.Unsorted.Conversations = append(c.Unsorted.Conversations, cv)
+					rest := slices.DeleteFunc(realLinks(c, cv.Account, cv.ID), func(l config.Link) bool { return l.Space == id })
+					if len(rest) == 0 {
+						rest = []config.Link{{Space: config.UnsortedID, Read: cv.Read}}
+					}
+					if err := c.SetSpaces(cv.Account, cv.ID, cv.Name, rest); err != nil {
+						return err
 					}
 				}
+				c.Spaces = slices.DeleteFunc(c.Spaces, func(x config.Space) bool { return x.ID == id })
 				return nil
 			}, "Deleted the space "+name+". Its conversations are in Everything else.") {
 				m.spc = min(m.spc, len(m.railItems())-1)

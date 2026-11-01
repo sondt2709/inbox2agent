@@ -386,13 +386,13 @@ func TestRequeueKeepsTheDeliveries(t *testing.T) {
 	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, ids); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), true); err != nil || n != 1 {
+	if n, err := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), true, nil); err != nil || n != 1 {
 		t.Fatalf("requeue of the messages for me = %d, %v, want 1", n, err)
 	}
-	if n, _ := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), false); n != 1 {
+	if n, _ := s.Requeue(ctx, "work", "c1", now.Add(-24*time.Hour), false, nil); n != 1 {
 		t.Fatalf("requeue of all messages = %d, want 1 more (the message for me is pending already)", n)
 	}
-	if n, _ := s.Requeue(ctx, "work", "other", now.Add(-24*time.Hour), false); n != 0 {
+	if n, _ := s.Requeue(ctx, "work", "other", now.Add(-24*time.Hour), false, nil); n != 0 {
 		t.Fatalf("requeue of another conversation = %d", n)
 	}
 	got, _ := s.Pending(ctx)
@@ -403,5 +403,34 @@ func TestRequeueKeepsTheDeliveries(t *testing.T) {
 		if m.ExternalID == "r0" || m.Delivered["triage"] != inbox.StateSent {
 			t.Errorf("message %s: deliveries %v, want the sent delivery of triage", m.ExternalID, m.Delivered)
 		}
+	}
+}
+
+// An old pending message that a space got stays sent; the others expire.
+func TestExpireKeepsAMessageThatASpaceGot(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	if _, err := s.SavePoll(ctx, "work", []inbox.Message{msg("got", now.Add(-time.Hour)), msg("lost", now.Add(-time.Hour))}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Pending(ctx)
+	id, _ := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 1})
+	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, []int64{p[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Requeue(ctx, "work", "c1", now.Add(-2*time.Hour), false, []string{"other"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.ExpirePending(ctx, now); err != nil || n != 1 {
+		t.Fatalf("expired = %d, %v, want 1", n, err)
+	}
+	c, _ := s.Counts(ctx)
+	if c[inbox.StateSent] != 1 || c[inbox.StateExpired] != 1 {
+		t.Errorf("counts = %v, want 1 sent and 1 expired", c)
+	}
+	var skipped int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM deliveries WHERE state = 'skipped' AND space = 'other'`).Scan(&skipped); err != nil || skipped != 1 {
+		t.Errorf("skipped deliveries = %d, %v, want 1: the requeued message", skipped, err)
 	}
 }

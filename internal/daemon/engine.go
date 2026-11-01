@@ -257,7 +257,7 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 	groups := map[string][]inbox.Message{}
 	for _, m := range pending {
 		for _, l := range e.cfg.Links(m.SourceID, m.ChannelID) {
-			if config.Wants(l.Read, m.ForMe) && m.Delivered[l.Space] != inbox.StateSent {
+			if d := m.Delivered[l.Space]; config.Wants(l.Read, m.ForMe) && d != inbox.StateSent && d != inbox.DeliverySkipped {
 				groups[l.Space] = append(groups[l.Space], m)
 			}
 		}
@@ -331,7 +331,7 @@ func (e *Engine) aggregate(m inbox.Message, round map[string]string, space, stat
 		}
 		wanted = true
 		switch have[l.Space] {
-		case inbox.StateSent:
+		case inbox.StateSent, inbox.DeliverySkipped:
 		case inbox.StatePreviewed:
 			if want == inbox.StateSent {
 				want = inbox.StatePreviewed

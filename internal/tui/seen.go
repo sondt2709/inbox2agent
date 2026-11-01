@@ -53,9 +53,18 @@ func addSeen(dataDir, account string, ids []string, seed bool) (seenSet, error) 
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return cur, err
 	}
-	tmp := filepath.Join(dataDir, SeenFile+".tmp")
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	f, err := os.CreateTemp(dataDir, SeenFile+".*.tmp") // mode 0600; a second dashboard uses another name
+	if err != nil {
 		return cur, err
 	}
-	return cur, os.Rename(tmp, filepath.Join(dataDir, SeenFile))
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return cur, err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return cur, err
+	}
+	return cur, os.Rename(f.Name(), filepath.Join(dataDir, SeenFile))
 }

@@ -158,6 +158,7 @@ func (m *model) applyFile(st fileState) tea.Cmd {
 	}
 	old := m.u.cfg
 	m.u.cfg, m.u.cfgHash = st.cfg, st.hash
+	clear(m.convSel) // a selected row can be gone
 	for _, a := range old.Accounts {
 		if n, ok := st.cfg.Account(a.ID); !ok || n.URL != a.URL || n.Platform != a.Platform {
 			delete(m.chs, a.ID) // list its conversations again

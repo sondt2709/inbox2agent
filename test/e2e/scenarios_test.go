@@ -312,7 +312,7 @@ func TestS02S04ConnectAndSortAChannel(t *testing.T) {
 	tm.Press("Enter", `The name of the new space`, 5*time.Second)
 	tm.Type("Team")
 	tm.Press("Enter", `▌ \[x\] Team`, 5*time.Second)
-	tm.Press("Enter", `# selected is in Team\. Saved · u undo`, 5*time.Second)
+	tm.Press("Enter", `selected is in Team\. Saved · u undo`, 5*time.Second)
 	tm.Press("q", `Saved /`, 5*time.Second)
 
 	c := p.config()
@@ -607,7 +607,7 @@ func TestS22ReadOneDirectConversation(t *testing.T) {
 	tm.Press("Enter", `is in Bob\. Saved`, 5*time.Second)
 	// Everything else is the second row; its first row is its read level.
 	tm.Press("Down", `▌● Everything else`, 5*time.Second)
-	tm.Press("Enter", `←→ level`, 5*time.Second) // the panel, on the first conversation
+	tm.Press("Enter", `▌  (#|@|⧉) `, 5*time.Second) // the panel, on the first conversation
 	tm.Keys("Up", "Up", "Up")
 	tm.Press("Right", `New and other conversations: Ignored\. Saved`, 5*time.Second) // Only for me → Ignored
 	tm.Press("q", `Saved /`, 5*time.Second)

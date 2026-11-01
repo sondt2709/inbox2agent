@@ -54,7 +54,7 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S41 second message")
 	tui.Keys("R")
 	// The daemon holds its lock, so a success means that the daemon did the run.
-	last := waitRun(t, tui, "")
+	waitRun(t, tui, p, 2) // the digest of run --once, then this one
 
 	// R in the Feed without the daemon: the dashboard runs the engine.
 	d.Keys("C-c")
@@ -64,13 +64,13 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	}
 	w.Post(t, w.Bob, w.Selected, "S41 third message")
 	tui.Keys("R")
-	last = waitRun(t, tui, last)
+	waitRun(t, tui, p, 3)
 	// R in the Spaces area without the daemon: the selected item is Everything else.
 	w.Post(t, w.Bob, w.Selected, "S41 fourth message")
 	tui.Press("2", `\+ New space`, 5*time.Second)
 	tui.WaitFor(`R run now`, 10*time.Second) // after the status line of the last run
 	tui.Keys("R")
-	waitRun(t, tui, last)
+	waitRun(t, tui, p, 4)
 	tui.Keys("q")
 	var all []string
 	for _, f := range p.digests() {
@@ -84,17 +84,17 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 // lastRunRe is the line under the header after a run of R.
 var lastRunRe = regexp.MustCompile(`Last run \d\d:\d\d:\d\d · Read 1 new messages · Everything else: \w+ \(1\)`)
 
-// waitRun waits for the line of a run that is not the line prev, and returns it.
-func waitRun(t *testing.T, tui *harness.Term, prev string) string {
+// waitRun waits until the person has n digest files and the line under the
+// header shows a run. Two runs can end in the same second, so the digest
+// count tells one run from the next.
+func waitRun(t *testing.T, tui *harness.Term, p *person, n int) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		s := tui.WaitFor(lastRunRe.String(), time.Until(deadline))
-		if got := lastRunRe.FindString(s); got != prev {
-			return got
+	for len(p.digests()) < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d digests after R, want %d", len(p.digests()), n)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("no new run after %q", prev)
-	return ""
+	tui.WaitFor(lastRunRe.String(), 10*time.Second)
 }

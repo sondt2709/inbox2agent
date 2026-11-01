@@ -6,6 +6,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -54,7 +55,7 @@ type Store interface {
 	Asks(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Ask, error)
 	// Requeue makes the sent messages of a conversation after since pending
 	// again, for a space that the conversation joined.
-	Requeue(ctx context.Context, account, conversation string, since time.Time, forMeOnly bool) (int64, error)
+	Requeue(ctx context.Context, account, conversation string, since time.Time, forMeOnly bool, skip []string) (int64, error)
 }
 
 // TabID names a tab that Run can open first.
@@ -107,8 +108,9 @@ type ui struct {
 	cfgHash string         // the hash of the file bytes that the dashboard read or wrote last
 	theme   huh.Theme
 
-	prev     *config.Config // the configuration of the file before the last save, for undo
-	prevHash string         // the hash of the file after the last save
+	prev      *config.Config // the configuration of the file before the last save of the Spaces area, for undo
+	prevAfter []byte         // that save as TOML, to see a change of another process
+	undoable  bool           // the commit that runs now is a change of the Spaces area
 }
 
 // errNoUndo means that the dashboard saved nothing that it can undo.
@@ -117,20 +119,28 @@ var errNoUndo = errors.New("nothing to undo")
 // errFileChanged means that another process changed the file after the last save.
 var errFileChanged = errors.New("another process changed config.toml after the last save")
 
-// undo writes back the configuration from before the last save, when the file
-// did not change after that save. The undo itself can be undone.
+// undo writes back the configuration from before the last save of the
+// Spaces area, when the file did not change after that save. It compares
+// under the lock of the file. The undo itself can be undone.
 func (u *ui) undo() error {
 	if u.prev == nil {
 		return errNoUndo
 	}
-	if fileHash(u.d.Paths.ConfigFile) != u.prevHash {
-		return errFileChanged
-	}
-	prev := clone(u.prev)
-	return u.commit(func(c *config.Config) error {
+	prev, after := clone(u.prev), u.prevAfter
+	return u.commitUndoable(func(c *config.Config) error {
+		if !bytes.Equal(marshal(c), after) {
+			return errFileChanged
+		}
 		*c = *prev
 		return nil
-	}, nil)
+	})
+}
+
+// commitUndoable is commit for a change of the Spaces area: u can undo it.
+func (u *ui) commitUndoable(change func(*config.Config) error) error {
+	u.undoable = true
+	defer func() { u.undoable = false }()
+	return u.commit(change, nil)
 }
 
 func newUI(d Deps) *ui {
@@ -229,7 +239,12 @@ func (u *ui) commit(change func(*config.Config) error, tokens map[string]string,
 		_ = u.d.Secrets.Delete(secretsKey(id))
 	}
 	u.cfg, u.cfgHash = next, hash
-	u.prev, u.prevHash = before, hash
+	// Only a change of the Spaces area can be undone. Another save ends the
+	// undo, because an undo would also take back that save.
+	u.prev, u.prevAfter = nil, nil
+	if u.undoable {
+		u.prev, u.prevAfter = before, marshal(next)
+	}
 	return nil
 }
 

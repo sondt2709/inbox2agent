@@ -95,7 +95,8 @@ func TestLevelRemoveAndUndoInASpace(t *testing.T) {
 	// Another process changes the file: undo does not write it.
 	send(m, "x")
 	b, _ := os.ReadFile(m.u.d.Paths.ConfigFile)
-	if err := os.WriteFile(m.u.d.Paths.ConfigFile, append(b, []byte("\n# edited\n")...), 0o600); err != nil {
+	side := "\n[[spaces]]\nid = 'side'\nname = 'Side'\nagent = 'triage'\nschedule = 'always'\n"
+	if err := os.WriteFile(m.u.d.Paths.ConfigFile, append(b, []byte(side)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	send(m, "u")
@@ -153,8 +154,8 @@ type requeueStore struct {
 	calls *[]string
 }
 
-func (s requeueStore) Requeue(_ context.Context, account, id string, since time.Time, forMe bool) (int64, error) {
-	*s.calls = append(*s.calls, account+"/"+id)
+func (s requeueStore) Requeue(_ context.Context, account, id string, since time.Time, forMe bool, skip []string) (int64, error) {
+	*s.calls = append(*s.calls, account+"/"+id+" skip "+strings.Join(skip, ","))
 	return 2, nil
 }
 
@@ -170,7 +171,7 @@ func TestSpacesDialogSendsTheOldMessagesWhenAsked(t *testing.T) {
 		t.Fatalf("the option is off; cursor %d of %d", d.cursor, d.n())
 	}
 	send(m, "enter")
-	if !slices.Equal(calls, []string{"work/D1"}) || !strings.Contains(m.status, "2 messages of the last") {
+	if !slices.Equal(calls, []string{"work/D1 skip "}) || !strings.Contains(m.status, "2 messages of the last") {
 		t.Errorf("requeue calls %v, status %q", calls, m.status)
 	}
 	if r := loadFile(t, m).Routes("work", "D1"); !slices.Equal(r, []string{"acme"}) {
@@ -281,5 +282,130 @@ func TestNarrowFooterKeepsTheMainKeys(t *testing.T) {
 	send(m, "enter")
 	if f := footer(); !strings.Contains(f, "enter spaces") || !strings.Contains(f, "←→ level") {
 		t.Errorf("the panel of a space at 80 columns: %q", f)
+	}
+}
+
+// A selection whose rows are gone (another process, another tab) does not
+// crash a key; the key works on the row under the cursor.
+func TestAStaleSelectionUsesTheCursorRow(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "enter")
+	m.convSel[convKey("gone", "X1")] = true
+	send(m, "right")
+	if lv := loadFile(t, m).Level("work", "C1"); lv != config.ReadMentions {
+		t.Errorf("→ with a stale selection: level %s, want mentions on # release", lv)
+	}
+	m.convSel[convKey("gone", "X1")] = true
+	send(m, "enter")
+	if d, ok := m.topDialog().(*spacesDialog); !ok || d.rows[0].ID != "C1" {
+		t.Errorf("enter with a stale selection opens %v", m.topDialog())
+	}
+	send(m, "esc")
+	m.convSel[convKey("work", "C1")] = true
+	at(m, tabFeed)
+	if len(m.convSel) != 0 {
+		t.Errorf("a tab change keeps the selection %v", m.convSel)
+	}
+}
+
+// When unsorted.read is off, "read again" writes an own level, else the
+// conversation stays off.
+func TestReadAgainWhenEverythingElseIsOff(t *testing.T) {
+	m := newTestModel(t)
+	changeFile(t, m, func(c *config.Config) error {
+		c.Unsorted.Read = config.ReadOff
+		return c.SetSpaces("work", "D1", "@bob", []config.Link{{Space: config.UnsortedID, Read: config.ReadOff}})
+	})
+	refresh(m)
+	m.spc = 3 // Ignored
+	send(m, "enter")
+	if r, ok := m.panelSelected(); !ok || r.conv.ID == "" {
+		t.Fatalf("Ignored has no row: %+v", r)
+	}
+	id := m.ignoredRows()[0].ID
+	send(m, "x")
+	if lv := loadFile(t, m).Level("work", id); lv != config.ReadMentions {
+		t.Errorf("x in Ignored with unsorted.read off: level %s, want mentions", lv)
+	}
+}
+
+func TestDeleteASpaceKeepsTheLabelAndLevel(t *testing.T) {
+	m := newTestModel(t)
+	changeFile(t, m, func(c *config.Config) error {
+		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: "claude-work", Schedule: "always"})
+		if err := c.SetSpaces("work", "C1", "release", []config.Link{{Space: "acme", Read: config.ReadMentions}, {Space: "beta", Read: config.ReadAll}}); err != nil {
+			return err
+		}
+		return c.SetLabel("work", "C1", "Releases")
+	})
+	refresh(m)
+	m.deleteSpace("acme")
+	send(m, "y")
+	c := loadFile(t, m)
+	cv, sp, _ := c.Conversation("work", "C1")
+	if sp != "beta" || cv.Label != "Releases" || cv.Read != config.ReadAll {
+		t.Errorf("after the delete of Acme: %+v in %s, want Beta with the label", cv, sp)
+	}
+	if err := c.Validate(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestDialogLevelFromOffAndTheWarningOfManyRows(t *testing.T) {
+	m := newTestModel(t)
+	changeFile(t, m, func(c *config.Config) error {
+		return c.SetSpaces("work", "C1", "release", []config.Link{{Space: "acme", Read: config.ReadOff}})
+	})
+	refresh(m)
+	rows := m.rowsWhere(func(r convRow) bool { return r.ID == "C1" || r.ID == "D1" })
+	d := m.newSpacesDialog(rows)
+	m.openDialog(d)
+	if !strings.Contains(screen(m), "They are in different spaces now") {
+		t.Errorf("no warning for rows in different spaces:\n%s", screen(m))
+	}
+	send(m, "esc")
+	one := m.newSpacesDialog(m.rowsWhere(func(r convRow) bool { return r.ID == "C1" }))
+	m.openDialog(one)
+	if one.opts[0].level != config.ReadOff {
+		t.Fatalf("the dialog of C1 starts with %q, want off", one.opts[0].level)
+	}
+	send(m, "right")
+	if one.opts[0].level != config.ReadAll {
+		t.Errorf("→ on a link with off: level %q, want all", one.opts[0].level)
+	}
+}
+
+func TestASetupSaveEndsTheUndo(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "enter", "right") // a change in Spaces
+	at(m, tabSettings)
+	send(m, "enter", "ctrl+u", "2", "d", "ctrl+s")
+	at(m, tabSpaces)
+	send(m, "u")
+	if !strings.Contains(m.status, "Nothing to undo") {
+		t.Errorf("u after a save of Settings: %q", m.status)
+	}
+	if c := loadFile(t, m); c.Settings.Lookback.String() != "2d" {
+		t.Errorf("the save of Settings is gone: %s", c.Settings.Lookback)
+	}
+}
+
+func TestRequeueSkipsTheSpacesThatTheRowHad(t *testing.T) {
+	m := newTestModel(t)
+	var calls []string
+	m.u.d.Store = requeueStore{calls: &calls}
+	if err := m.u.commit(func(c *config.Config) error {
+		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"})
+		return nil
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	d := m.newSpacesDialog(m.rowsWhere(func(r convRow) bool { return r.ID == "C1" }))
+	m.openDialog(d)
+	send(m, "down", "space")                 // check Team
+	send(m, "down", "down", "down", "space") // the option
+	send(m, "enter")
+	if !slices.Equal(calls, []string{"work/C1 skip acme"}) {
+		t.Errorf("requeue calls = %v, want C1 with Acme skipped", calls)
 	}
 }

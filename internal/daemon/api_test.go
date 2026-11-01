@@ -201,3 +201,39 @@ func TestOnlyADialErrorIsNoDaemon(t *testing.T) {
 		t.Fatalf("a closed connection: %v, want a daemon error that is not ErrNoDaemon", err)
 	}
 }
+
+// A run of the API reads a changed config.toml first: a dashboard can add a
+// space and press R a moment later, before the next step of the loop.
+func TestAPIRunReloadsAChangedFile(t *testing.T) {
+	old := tick
+	tick = time.Hour // the loop does not step again by itself
+	t.Cleanup(func() { tick = old })
+	h := newHarness(t, cfgWith("work"))
+	dir := shortDir(t)
+	cfgFile := filepath.Join(t.TempDir(), "config.toml")
+	if err := config.Save(cfgFile, fileCopy(h.e.Config())); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer("test", cfgFile, time.Now())
+	if _, err := srv.Listen(dir); err != nil {
+		t.Fatal(err)
+	}
+	h.e.SetAPI(srv)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+	go func() { _ = Run(ctx, h.e, cfgFile, func() (*config.Config, error) { return config.Load(cfgFile) }) }()
+	client := NewClient(dir)
+	waitFor(t, func() bool { _, err := client.Status(ctx); return err == nil })
+	waitFor(t, func() bool { return strings.Contains(h.logText(), "poll") })
+
+	fc := fileCopy(h.e.Config())
+	fc.Spaces = append(fc.Spaces, config.Space{ID: "fresh", Name: "Fresh", Agent: fc.Agents[0].ID, Schedule: fc.Schedules[0].ID})
+	time.Sleep(20 * time.Millisecond) // a new modification time
+	if err := config.Save(cfgFile, fc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Run(ctx, []string{"fresh"}); err != nil {
+		t.Fatalf("run of a space that the file has now: %v", err)
+	}
+}

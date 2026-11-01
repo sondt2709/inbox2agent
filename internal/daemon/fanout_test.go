@@ -223,7 +223,7 @@ func TestRequeuedMessageGoesOnlyToTheNewSpace(t *testing.T) {
 	next := fileCopy(h.e.Config())
 	next.Spaces[1].Conversations = []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}
 	h.e.SetConfig(next)
-	if n, err := h.st.Requeue(ctx, "work", "Cr", time.Now().Add(-time.Hour), false); err != nil || n != 1 {
+	if n, err := h.st.Requeue(ctx, "work", "Cr", time.Now().Add(-time.Hour), false, nil); err != nil || n != 1 {
 		t.Fatalf("requeue = %d, %v", n, err)
 	}
 	if _, err := h.e.Dispatch(ctx, nil); err != nil {
@@ -233,6 +233,42 @@ func TestRequeuedMessageGoesOnlyToTheNewSpace(t *testing.T) {
 		t.Errorf("Review got %v, want only the first batch", got)
 	}
 	if got := batchIDs(d.by["team"]); len(got) != 1 || !slices.Equal(got[0], []string{"old"}) {
+		t.Errorf("Team got %v, want the requeued message", got)
+	}
+	if p, _ := h.st.Pending(ctx); len(p) != 0 {
+		t.Errorf("pending = %+v, want none", p)
+	}
+}
+
+// A requeue goes only to the space that the conversation joined in that save.
+// A space that it joined earlier with no requeue gets a skipped delivery.
+func TestRequeueSkipsTheOtherSpaces(t *testing.T) {
+	c := twoSpaces()
+	c.Spaces[0].Conversations, c.Spaces[1].Conversations = nil, nil // Cr is in no space: Unsorted sends it
+	h := newHarness(t, c)
+	d := h.bySpace(nil)
+	ctx := context.Background()
+	h.sources["work"].addFor("old", true)
+	h.e.Poll(ctx, true)
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Moved to Review with no requeue, then Team added with a requeue.
+	next := fileCopy(h.e.Config())
+	next.Spaces = append([]config.Space(nil), next.Spaces...)
+	next.Spaces[0].Conversations = []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}
+	next.Spaces[1].Conversations = []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}
+	h.e.SetConfig(next)
+	if n, err := h.st.Requeue(ctx, "work", "Cr", time.Now().Add(-time.Hour), false, []string{"review"}); err != nil || n != 1 {
+		t.Fatalf("requeue = %d, %v", n, err)
+	}
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := batchIDs(d.by["review"]); len(got) != 0 {
+		t.Errorf("Review got %v, want nothing: it was not added in the save of the requeue", got)
+	}
+	if got := batchIDs(d.by["team"]); len(got) != 1 {
 		t.Errorf("Team got %v, want the requeued message", got)
 	}
 	if p, _ := h.st.Pending(ctx); len(p) != 0 {

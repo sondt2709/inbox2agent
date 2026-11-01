@@ -125,6 +125,7 @@ type model struct {
 	row, rowOff int                 // the cursor and the first visible row of that panel
 	convSel     map[string]bool     // the selected conversations (convKey)
 	seen        seenSet             // the conversations that the dashboard showed
+	rowCache    []convRow           // the rows of convRows while one frame renders
 	lastRun     string              // the result of the last run of R
 	lastRunErr  bool                // the last run failed
 	spaceFilter string              // the space of the Feed and Activity filter (F); "" is all spaces
@@ -542,6 +543,7 @@ func (m *model) tabKey(k string) tea.Cmd {
 
 func (m *model) setTab(t tabID) tea.Cmd {
 	m.tab = t
+	clear(m.convSel)
 	if areaOf(t) == areaSetup {
 		m.setupTab = t
 	}
@@ -692,6 +694,8 @@ func (m *model) render() string {
 		m.buildForm(false)
 	}
 	m.tabZones = m.tabZones[:0]
+	m.rowCache = m.listRows()
+	defer func() { m.rowCache = nil }()
 	header := m.renderHeader()
 	sub := m.renderSub()
 	contentH := m.h - 3
