@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: i2a daemon API
+  version: "1"
+  description: |
+    The running `i2a daemon` serves this API on a Unix socket: `<data>/i2a.sock`
+    (mode 0600). When that path is too long for a socket, the socket is in
+    `$TMPDIR` and `<data>/i2a.sock.path` holds its path.
+
+    Example: `curl --unix-socket <data>/i2a.sock http://i2a/v1/status`
+
+    The API carries no message text and no card text. To change the
+    configuration, edit `config.toml` (see `i2a config --help`).
+servers:
+  - url: http://i2a
+paths:
+  /v1/status:
+    get:
+      summary: The state of the daemon
+      responses:
+        "200":
+          description: The process, the next send of each space and the last read of each account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+  /v1/run:
+    post:
+      summary: Read all accounts now and send the given spaces
+      description: |
+        The daemon loop does the run, so it never runs at the same time as a
+        scheduled send. The request waits for the loop for at most 10 minutes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spaces:
+                  type: array
+                  items: { type: string }
+                  description: The IDs of the spaces to send. Empty or missing is all spaces.
+      responses:
+        "200":
+          description: The result of the run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunResult" }
+        "400":
+          description: A space does not exist, or the body is not valid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500":
+          description: The run failed, for example a store error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "504":
+          description: The run did not end in 10 minutes; it continues in the daemon
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: The loop did not take the run in time, or the daemon is stopping
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /v1/events:
+    get:
+      summary: Server-sent events of the daemon
+      description: |
+        Each event is `event: <kind>` and `data: <Event as JSON>`. A comment
+        line `: keep` comes every 30 seconds. A slow reader loses events.
+      responses:
+        "200":
+          description: The event stream
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/Event" }
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    AccountRead:
+      type: object
+      properties:
+        account: { type: string }
+        at: { type: string, format: date-time }
+        new: { type: integer }
+        error: { type: string }
+    SpaceNext:
+      type: object
+      properties:
+        space: { type: string }
+        name: { type: string }
+        agent: { type: string, description: Empty when the space holds its messages }
+        at: { type: string, format: date-time, description: The next send; missing when the space does not send }
+    Status:
+      type: object
+      properties:
+        pid: { type: integer }
+        version: { type: string }
+        started_at: { type: string, format: date-time }
+        config_file: { type: string }
+        spaces: { type: array, items: { $ref: "#/components/schemas/SpaceNext" } }
+        reads: { type: array, items: { $ref: "#/components/schemas/AccountRead" } }
+    Batch:
+      type: object
+      properties:
+        space: { type: string }
+        agent: { type: string }
+        driver: { type: string, enum: [orca, dry-run] }
+        count: { type: integer }
+        status: { type: string, description: "sent, previewed, held or failed" }
+        detail: { type: string, description: The result of the driver, for example the terminal and the turn state }
+        error: { type: string }
+    RunResult:
+      type: object
+      properties:
+        summary: { type: string, description: The text that `i2a run --once` prints }
+        reads: { type: array, items: { $ref: "#/components/schemas/AccountRead" } }
+        batches: { type: array, items: { $ref: "#/components/schemas/Batch" } }
+        failed: { type: boolean, description: A read or a batch failed }
+    Event:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        kind: { type: string, enum: [read, send, ask, reload, run, error] }
+        account: { type: string }
+        space: { type: string }
+        agent: { type: string }
+        count: { type: integer }
+        status: { type: string }
+        detail: { type: string, description: An error or the result of a driver; never message text }

@@ -29,9 +29,9 @@ func (m *model) hintsSpaces() []hint {
 	case !ok:
 		return []hint{{"↑↓", "move"}, {"enter", "add a space"}}
 	case id == config.UnsortedID:
-		return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"c", "sort its conversations"}}
+		return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"c", "sort its conversations"}, {"R", "send now"}}
 	}
-	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"a", "add conversations"}, {"c", "its conversations"}, {"x", "delete"}}
+	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"a", "add conversations"}, {"c", "its conversations"}, {"R", "send now"}, {"x", "delete"}}
 }
 
 func (m *model) keySpaces(k string) tea.Cmd {
@@ -54,6 +54,12 @@ func (m *model) keySpaces(k string) tea.Cmd {
 		if ok && id != config.UnsortedID {
 			m.deleteSpace(id)
 		}
+	case "R":
+		if !ok {
+			m.setStatus("Select a space, then press R.", true)
+			return nil
+		}
+		return m.runNow([]string{id}, m.spaceNames()[id])
 	}
 	return nil
 }

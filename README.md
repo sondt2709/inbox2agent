@@ -154,6 +154,7 @@ In the Feed:
 | `t` | Ask the agent about the card, for example "research more". Type the text, then press `ctrl+s`. See [Asks](#asks). |
 | `c` | Copy the suggested reply |
 | `o` | Open the thread of the first source message in the browser |
+| `R` | Read all accounts and send the waiting messages of each space now, without waiting for the schedule |
 | `d` / `u` | Mark the card done / unread |
 | `s` | Sort by urgency (high first) or by newest |
 | `f` | Filter by category: all, action, question, info |
@@ -177,7 +178,7 @@ In the Conversations tab:
 | `/` | Search the name, the account or the space |
 | `f` | Filter: all, Unsorted, each account, each kind, each space |
 
-In the Spaces tab, `a` opens the unsorted conversations to add to the space, `c` shows the conversations of the space, and `x` deletes the space (its conversations go to Unsorted). In the Agents and Schedules tabs, `x` deletes the item; when spaces use it, you choose the item that they use instead.
+In the Spaces tab, `R` reads all accounts and sends the selected space now, `a` opens the unsorted conversations to add to the space, `c` shows the conversations of the space, and `x` deletes the space (its conversations go to Unsorted). In the Agents and Schedules tabs, `x` deletes the item; when spaces use it, you choose the item that they use instead.
 
 To add or edit, select the item (or "+ Add") and press `enter`: the form at the right gets the keyboard.
 
@@ -226,6 +227,20 @@ How it works:
 4. The driver gives the batch to the agent of the space, in the session of the space. When the driver reports `sent`, the messages are done. When it fails or the agent is busy, the messages wait for the next send time.
 5. The agent reads the batch and runs `i2a card add` with one card for each topic (see [Cards](#cards)).
 6. On macOS, `i2a card add` shows a notification for new cards, and the daemon shows one after each failed send. Each minute, the daemon also sends the asks that wait for a busy agent.
+
+`R` in the dashboard and `i2a run --once` ask the running daemon to read and send now. When no daemon runs, they do the work in their own process. So only one process reads the accounts, and a WhatsApp account keeps one connection. While the daemon runs, the status line of the dashboard shows each batch that it sends.
+
+### The daemon API
+
+The daemon serves a small HTTP API on the Unix socket `i2a.sock` in the data directory (mode 0600). [`docs/daemon-api.yaml`](docs/daemon-api.yaml) (OpenAPI 3.1) describes it. The API has no message text and no card text.
+
+```sh
+curl --unix-socket ~/.local/share/i2a/i2a.sock http://i2a/v1/status     # next send of each space, last read of each account
+curl --unix-socket ~/.local/share/i2a/i2a.sock -X POST http://i2a/v1/run -d '{"spaces":["company-a"]}'
+curl --unix-socket ~/.local/share/i2a/i2a.sock -N http://i2a/v1/events  # server-sent events: read, send, ask, reload, run, error
+```
+
+When the path of the data directory is too long for a socket, the socket is in `$TMPDIR` and `i2a.sock.path` in the data directory holds its path. `i2a status` shows the path.
 
 The route is chosen when a space sends. If you move a conversation to another space, its waiting messages go with it.
 
@@ -495,7 +510,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | `i2a card add` / `done --key <key>` / `list [--json] [--all]` | Add cards (JSON on stdin), close a card, list the cards |
 | `i2a reply --to <message id>` or `--card <id or key>`, `[--thread or --channel]` | Send a reply (text on stdin, or the suggested reply of the card) |
 | `i2a ask --card <id or key>` | Ask the agent about a card (text on stdin) |
-| `i2a run --once` | Read all accounts and send the waiting messages of each space with an agent now |
+| `i2a run --once` | Read all accounts and send the waiting messages of each space with an agent now (the running daemon does it when it runs) |
 | `i2a daemon` | Run in the foreground: read the accounts and send each space on its schedule |
 | `i2a status` | Show the paths, accounts, spaces (agent, schedule, next send, waiting messages), agents, schedules, messages and service state |
 | `i2a account add mattermost --id <id> [--name <name>] --url <url> --token-stdin` | Add a Mattermost account from a script |
