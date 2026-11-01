@@ -136,9 +136,11 @@ func (d *busyDialog) hints() []hint { return []hint{{"esc", "cancel"}} }
 
 // viewerDialog shows a long text with scrolling.
 type viewerDialog struct {
-	name string
-	vp   viewport.Model
-	text string
+	name  string
+	vp    viewport.Model
+	text  string
+	width int // the outer width; 0 is the default
+	lines int // the number of text lines when width is set
 }
 
 func newViewer(name, text string) *viewerDialog {
@@ -147,7 +149,12 @@ func newViewer(name, text string) *viewerDialog {
 
 func (d *viewerDialog) title() string { return d.name }
 
-func (d *viewerDialog) size(W, H int) (int, int) { return min(W-4, 120), H - 4 }
+func (d *viewerDialog) size(W, H int) (int, int) {
+	if d.width > 0 {
+		return min(W-4, d.width), min(H-4, d.lines+4)
+	}
+	return min(W-4, 120), H - 4
+}
 
 func (d *viewerDialog) update(m *model, msg tea.Msg) tea.Cmd {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
@@ -222,13 +229,18 @@ func (d *pickDialog) update(m *model, msg tea.Msg) tea.Cmd {
 
 func (d *pickDialog) view(w, h int) string {
 	rows := make([]string, 0, len(d.options))
+	lw := 0 // the labels have one width, so the notes start in one column
+	for _, o := range d.options {
+		lw = max(lw, min(w/2, lipgloss.Width(o.label)))
+	}
 	for i, o := range d.options {
-		line := truncate(o.label, w/2) + "  " + o.note
+		label := truncate(o.label, w/2)
+		label += strings.Repeat(" ", max(0, lw-lipgloss.Width(label)))
 		if i == d.cursor {
-			rows = append(rows, selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(line), w)))
+			rows = append(rows, selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(label+"  "+o.note), w)))
 			continue
 		}
-		rows = append(rows, "  "+textStyle.Render(truncate(o.label, w/2))+"  "+faint.Render(o.note))
+		rows = append(rows, "  "+textStyle.Render(label)+"  "+faint.Render(o.note))
 	}
 	off := scrollTo(d.cursor, 0, max(1, h-3))
 	end := min(len(rows), off+max(1, h-3))
