@@ -283,3 +283,16 @@ func TestASpaceChangeSelectsItsFirstCardAndStays(t *testing.T) {
 		t.Errorf("a click on the first visible row picked %q", got)
 	}
 }
+
+func TestAClosedFormGivesTheKeyboardBackToTheCards(t *testing.T) {
+	h := newFeedModel(t)
+	withAcme(t, h)
+	send(h.m, "r")
+	if h.m.feedFocus != focusCard {
+		t.Fatalf("r: focus %d, want Card", h.m.feedFocus)
+	}
+	send(h.m, "esc")
+	if h.m.replyCard != 0 || h.m.feedFocus != focusCards {
+		t.Errorf("esc on the reply: reply %d, focus %d, want Cards", h.m.replyCard, h.m.feedFocus)
+	}
+}

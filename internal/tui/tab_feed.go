@@ -761,6 +761,7 @@ func (m *model) sendReply(c inbox.Card, target inbox.Message, fm *form) tea.Cmd 
 
 func (m *model) closeReply() {
 	m.replyCard, m.form, m.formFor = 0, nil, ""
+	m.feedFocus = focusCards // the keyboard goes back to the cards
 }
 
 // cancelReply closes the reply form. When the user changed it, it asks first.
@@ -889,6 +890,7 @@ func (m *model) sendAsk(c inbox.Card, fm *form) tea.Cmd {
 
 func (m *model) closeAsk() {
 	m.askCard, m.form, m.formFor = 0, nil, ""
+	m.feedFocus = focusCards // the keyboard goes back to the cards
 }
 
 // cancelAsk closes the ask form. When the user typed text, it asks first.

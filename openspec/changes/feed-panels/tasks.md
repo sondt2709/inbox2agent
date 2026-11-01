@@ -13,4 +13,4 @@
 - [x] 3.1 Unit tests for each requirement; each new test fails once with the code broken
 - [x] 3.2 e2e scenarios and SCENARIOS.md
 - [x] 3.3 README and CLAUDE.md
-- [ ] 3.4 `task test`, both lints, `task leakcheck`, full `task e2e`
+- [x] 3.4 `task test`, both lints, `task leakcheck`, full `task e2e`
