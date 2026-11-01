@@ -190,9 +190,13 @@ func (m *model) saveAccount(id string) tea.Cmd {
 	if !fm.validate() {
 		return nil
 	}
-	cur, _ := m.u.cfg.Account(id)
-	next := clone(m.u.cfg)
-	a, _ := next.Account(id)
+	cur, ok := m.u.cfg.Account(id)
+	if !ok {
+		fm.err = "Cannot save: " + config.MissingError{Kind: config.KindAccount, ID: id}.Error()
+		return nil
+	}
+	acc := *cur
+	a := &acc
 	a.Name = fm.field("name").value()
 	a.ReadEvery, _ = config.ParseDuration(fm.field("read").value())
 	if a.Platform == config.PlatformMattermost {
@@ -207,8 +211,15 @@ func (m *model) saveAccount(id string) tea.Cmd {
 		if user != "" {
 			a.User = user
 		}
-		if err := m.u.commit(next, tokens); err != nil {
-			fm.err = "Cannot save: " + err.Error()
+		if err := m.commitForm(fm, func(c *config.Config) error {
+			x, ok := c.Account(id)
+			if !ok {
+				return config.MissingError{Kind: config.KindAccount, ID: id}
+			}
+			*x = *a
+			return nil
+		}, tokens); err != nil {
+			saveError(fm, err)
 			return nil
 		}
 		if newToken != "" || a.URL != cur.URL {
@@ -259,20 +270,21 @@ func (m *model) removeAccount(id string) tea.Cmd {
 	}
 	m.openDialog(&confirmDialog{name: "Remove account " + title, text: text,
 		choices: []choice{{"y", "Remove", func() tea.Cmd {
-			next := clone(m.u.cfg)
-			next.Accounts = slices.DeleteFunc(next.Accounts, func(a config.Account) bool { return a.ID == id })
-			drop := func(list []config.Conversation) []config.Conversation {
-				return slices.DeleteFunc(list, func(c config.Conversation) bool { return c.Account == id })
-			}
-			next.Unsorted.Conversations = drop(next.Unsorted.Conversations)
-			for i := range next.Spaces {
-				next.Spaces[i].Conversations = drop(next.Spaces[i].Conversations)
-			}
-			if err := m.u.commit(next, nil, id); err != nil {
+			if err := m.u.commit(func(c *config.Config) error {
+				c.Accounts = slices.DeleteFunc(c.Accounts, func(a config.Account) bool { return a.ID == id })
+				drop := func(list []config.Conversation) []config.Conversation {
+					return slices.DeleteFunc(list, func(cv config.Conversation) bool { return cv.Account == id })
+				}
+				c.Unsorted.Conversations = drop(c.Unsorted.Conversations)
+				for i := range c.Spaces {
+					c.Spaces[i].Conversations = drop(c.Spaces[i].Conversations)
+				}
+				return nil
+			}, nil, id); err != nil {
 				m.setStatus("Cannot remove: "+err.Error(), true)
 				return nil
 			}
-			m.acc = min(m.acc, len(next.Accounts))
+			m.acc = min(m.acc, len(m.u.cfg.Accounts))
 			delete(m.chs, id)
 			if wa {
 				m.saved("Removed account " + title + ". Logging out the linked device ...")
@@ -354,20 +366,21 @@ func (m *model) connectAccount() tea.Cmd {
 
 // addAccount saves a new account and lists its conversations.
 func (m *model) addAccount(a config.Account, token, status string) tea.Cmd {
-	next := clone(m.u.cfg)
-	next.Accounts = append(next.Accounts, a)
 	var tokens map[string]string
 	if token != "" {
 		tokens = map[string]string{a.ID: token}
 	}
-	if err := m.u.commit(next, tokens); err != nil {
+	if err := m.u.commit(func(c *config.Config) error {
+		c.Accounts = append(c.Accounts, a)
+		return nil
+	}, tokens); err != nil {
 		if m.form != nil {
 			m.form.err = "Cannot save: " + err.Error()
 		}
 		m.setStatus("Cannot save: "+err.Error(), true)
 		return nil
 	}
-	m.acc = len(next.Accounts) - 1
+	m.acc = len(m.u.cfg.Accounts) - 1
 	m.saved(status)
 	return m.loadConversations()
 }
@@ -430,10 +443,14 @@ func (m *model) gotChannels(msg channelsMsg) tea.Cmd {
 	}
 	m.mmUsers[msg.account] = msg.user
 	if a, ok := m.u.cfg.Account(msg.account); ok && a.User != msg.user && (m.form == nil || !m.form.dirty()) {
-		next := clone(m.u.cfg)
-		na, _ := next.Account(msg.account)
-		na.User = msg.user
-		if err := m.u.commit(next, nil); err == nil {
+		if err := m.u.commit(func(c *config.Config) error {
+			na, ok := c.Account(msg.account)
+			if !ok {
+				return config.MissingError{Kind: config.KindAccount, ID: msg.account}
+			}
+			na.User = msg.user
+			return nil
+		}, nil); err == nil {
 			m.buildForm(true)
 		}
 	}

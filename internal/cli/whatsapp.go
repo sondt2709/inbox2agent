@@ -60,7 +60,7 @@ Example:
 			if err := PairWhatsApp(cmd.Context(), e.paths.DataDir, id, phone, cfg.Settings.Lookback.D(), out); err != nil {
 				return err
 			}
-			if err := config.Save(e.paths.ConfigFile, &next); err != nil {
+			if err := addAccount(e.paths.ConfigFile, a); err != nil {
 				return err
 			}
 			fmt.Fprintf(out, "Added account %s to %s. Its chats are in Unsorted.\n", id, e.paths.ConfigFile)

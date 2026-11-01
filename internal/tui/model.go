@@ -66,6 +66,7 @@ type (
 	}
 	refreshMsg struct{}
 	dataMsg    struct {
+		file       fileState
 		counts     map[string]int
 		dispatches []store.Dispatch
 		feed       feedMsg
@@ -176,8 +177,10 @@ func (m *model) load() tea.Cmd {
 		}
 	}
 	dataDir := m.u.d.Paths.DataDir
+	cfgPath, cfgHash := m.u.d.Paths.ConfigFile, m.u.cfgHash
 	return func() tea.Msg {
 		var d dataMsg
+		d.file = readConfigFile(cfgPath, cfgHash)
 		if st == nil && open != nil {
 			// The dashboard does not create the store; it opens it when the daemon did.
 			if s, err := open(); err == nil && s != nil {
@@ -266,6 +269,11 @@ func (m *model) buildForm(force bool) {
 	}
 	m.form = build()
 	m.form.setFocus(0)
+	if kind, id := formItem(key); kind != "" {
+		if base, ok := config.Item(m.u.cfg, kind, id); ok {
+			m.form.kind, m.form.id, m.form.base = kind, id, base
+		}
+	}
 }
 
 func (m *model) formTarget() (string, func() *form) {
@@ -364,10 +372,11 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		if msg.opened != nil && m.u.d.Store == nil {
 			m.u.d.Store = msg.opened
 		}
+		reload := m.applyFile(msg.file)
 		m.counts, m.dispatches, m.svc, m.svcErr, m.loaded = msg.counts, msg.dispatches, msg.svc, msg.svcErr, true
 		m.waStates, m.waDevices, m.pending = msg.waStates, msg.waDevices, msg.pending
 		m.setFeed(msg.feed)
-		return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} })
+		return tea.Batch(reload, tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} }))
 	case feedMsg:
 		m.setFeed(msg)
 		return nil

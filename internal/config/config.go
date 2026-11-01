@@ -253,19 +253,50 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if c.Migration != nil {
-		bak := path + ".v1.bak"
-		if err := os.WriteFile(bak, b, 0o600); err != nil {
-			return nil, fmt.Errorf("back up the version 1 file: %w", err)
-		}
-		if err := os.Chmod(bak, 0o600); err != nil {
-			return nil, err
-		}
-		if err := Save(path, c); err != nil {
-			return nil, fmt.Errorf("save the version 2 file: %w", err)
-		}
-		c.Migration.Backup = bak
+		return convert(path)
 	}
 	return c, nil
+}
+
+// convert writes a version 1 file as version 2 under the write lock. It reads
+// the file again in the lock, so two processes do not convert at one time.
+func convert(path string) (*Config, error) {
+	unlock, err := lock(path)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	c, err := Parse(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if c.Migration != nil {
+		if err := backupV1(path, b, c); err != nil {
+			return nil, err
+		}
+		if _, err := save(path, c); err != nil {
+			return nil, fmt.Errorf("save the version 2 file: %w", err)
+		}
+	}
+	return c, nil
+}
+
+// backupV1 writes the bytes of a version 1 file to config.toml.v1.bak with
+// mode 0600 and records the path in the report.
+func backupV1(path string, b []byte, c *Config) error {
+	bak := path + ".v1.bak"
+	if err := os.WriteFile(bak, b, 0o600); err != nil {
+		return fmt.Errorf("back up the version 1 file: %w", err)
+	}
+	if err := os.Chmod(bak, 0o600); err != nil {
+		return err
+	}
+	c.Migration.Backup = bak
+	return nil
 }
 
 // Parse decodes and validates configuration bytes. It converts a version 1
@@ -398,25 +429,46 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// Save validates the configuration and writes it with mode 0600.
+// Header is the comment at the start of each file that i2a writes.
+const Header = "# i2a configuration. Edit it with `i2a` or by hand, also while i2a runs.\n" +
+	"# i2a writes this file again on each save and removes other comments.\n" +
+	"# Tokens are not in this file. They are in the secret store.\n\n"
+
+// Save validates the configuration and writes it with mode 0600. It holds the
+// write lock of the file. Use Update to change the file that is on disk now.
 func Save(path string, c *Config) error {
-	if err := c.Validate(); err != nil {
+	unlock, err := lock(path)
+	if err != nil {
 		return err
+	}
+	defer unlock()
+	_, err = save(path, c)
+	return err
+}
+
+// save validates and writes the configuration without the lock, and returns
+// the hash of the written bytes. The caller holds the lock.
+func save(path string, c *Config) (string, error) {
+	if err := c.Validate(); err != nil {
+		return "", err
 	}
 	c.Version = Version
 	b, err := toml.Marshal(c)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return "", err
 	}
-	header := []byte("# i2a configuration. Edit with `i2a config` or by hand.\n# Tokens are not in this file. They are in the secret store.\n\n")
+	b = append([]byte(Header), b...)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(header, b...), 0o600); err != nil {
-		return err
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return "", err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return "", err
+	}
+	return Hash(b), nil
 }
 
 // Account returns the account with this ID.

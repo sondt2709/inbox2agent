@@ -98,21 +98,21 @@ func (m *model) deleteWithReplacement(kind, id string) {
 
 func (m *model) deleteItem(kind, id, replacement string) func() tea.Cmd {
 	return func() tea.Cmd {
-		next := clone(m.u.cfg)
-		if replacement != "" {
-			next.Replace(kind, id, replacement)
-		}
-		if kind == "agent" {
-			next.Agents = slices.DeleteFunc(next.Agents, func(a config.Agent) bool { return a.ID == id })
-			m.agt = min(m.agt, len(next.Agents))
-		} else {
-			next.Schedules = slices.DeleteFunc(next.Schedules, func(s config.Schedule) bool { return s.ID == id })
-			m.sch = min(m.sch, len(next.Schedules))
-		}
-		if err := m.u.commit(next, nil); err != nil {
+		if err := m.u.commit(func(c *config.Config) error {
+			if replacement != "" {
+				c.Replace(kind, id, replacement)
+			}
+			if kind == "agent" {
+				c.Agents = slices.DeleteFunc(c.Agents, func(a config.Agent) bool { return a.ID == id })
+			} else {
+				c.Schedules = slices.DeleteFunc(c.Schedules, func(s config.Schedule) bool { return s.ID == id })
+			}
+			return nil
+		}, nil); err != nil {
 			m.setStatus("Cannot delete: "+err.Error(), true)
 			return nil
 		}
+		m.agt, m.sch = min(m.agt, len(m.u.cfg.Agents)), min(m.sch, len(m.u.cfg.Schedules))
 		text := "Deleted the " + kind + " " + id + "."
 		if replacement != "" {
 			text += " Its spaces use " + replacement + "."
@@ -237,18 +237,22 @@ func (m *model) saveAgent(id string, p config.Agent) tea.Cmd {
 		}
 		p.OrcaBin = bin
 	}
-	next := clone(m.u.cfg)
-	if id == "" {
-		next.Agents = append(next.Agents, p)
-	} else {
-		a, _ := next.Agent(id)
+	if err := m.commitForm(fm, func(c *config.Config) error {
+		if id == "" {
+			c.Agents = append(c.Agents, p)
+			return nil
+		}
+		a, ok := c.Agent(id)
+		if !ok {
+			return config.MissingError{Kind: config.KindAgent, ID: id}
+		}
 		*a = p
-	}
-	if err := m.u.commit(next, nil); err != nil {
-		fm.err = "Cannot save: " + err.Error()
+		return nil
+	}, nil); err != nil {
+		saveError(fm, err)
 		return nil
 	}
-	for i, x := range next.Agents {
+	for i, x := range m.u.cfg.Agents {
 		if x.ID == p.ID {
 			m.agt = i
 		}

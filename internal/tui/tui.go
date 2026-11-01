@@ -92,9 +92,10 @@ type Deps struct {
 }
 
 type ui struct {
-	d     Deps
-	cfg   *config.Config // the saved configuration
-	theme huh.Theme
+	d       Deps
+	cfg     *config.Config // the configuration of the file
+	cfgHash string         // the hash of the file bytes that the dashboard read or wrote last
+	theme   huh.Theme
 }
 
 func newUI(d Deps) *ui {
@@ -126,7 +127,7 @@ func newUI(d Deps) *ui {
 		}
 		d.CardCommand = render.CardCommand(exe, os.Getenv("I2A_HOME"))
 	}
-	return &ui{d: d, cfg: clone(d.Config), theme: huh.ThemeFunc(huh.ThemeCharm)}
+	return &ui{d: d, cfg: clone(d.Config), cfgHash: fileHash(d.Paths.ConfigFile), theme: huh.ThemeFunc(huh.ThemeCharm)}
 }
 
 // Run shows the dashboard until the user quits.
@@ -160,29 +161,47 @@ func clone(c *config.Config) *config.Config {
 	return out
 }
 
-// commit validates next, writes the tokens, deletes the tokens of removed
-// accounts, and writes the configuration file. On success next becomes the
-// configuration of the dashboard. On error nothing changes.
-func (u *ui) commit(next *config.Config, tokens map[string]string, removed ...string) error {
-	if err := next.Validate(); err != nil {
-		return err
-	}
-	if err := render.CheckAgents(next); err != nil {
-		return err
-	}
-	for id, tok := range tokens {
-		if err := u.d.Secrets.Set(secretsKey(id), tok); err != nil {
-			return fmt.Errorf("save the token of %s in %s: %w", id, u.d.Secrets.Backend(), err)
+// commit changes the configuration file that is on disk now, so a change of
+// another process to a different item stays. change gets the configuration of
+// the file and applies one edit; it finds its item by ID. commit validates the
+// result, writes the tokens, writes the file, and deletes the tokens of removed
+// accounts. On success the result becomes the configuration of the dashboard.
+// On error the file does not change.
+func (u *ui) commit(change func(*config.Config) error, tokens map[string]string, removed ...string) error {
+	next, hash, err := config.Update(u.d.Paths.ConfigFile, func(c *config.Config) error {
+		if err := change(c); err != nil {
+			return err
 		}
-	}
-	if err := config.Save(u.d.Paths.ConfigFile, next); err != nil {
+		if err := c.Validate(); err != nil {
+			return err
+		}
+		if err := render.CheckAgents(c); err != nil {
+			return err
+		}
+		for id, tok := range tokens {
+			if err := u.d.Secrets.Set(secretsKey(id), tok); err != nil {
+				return fmt.Errorf("save the token of %s in %s: %w", id, u.d.Secrets.Backend(), err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	for _, id := range removed {
 		_ = u.d.Secrets.Delete(secretsKey(id))
 	}
-	u.cfg = next
+	u.cfg, u.cfgHash = next, hash
 	return nil
+}
+
+// fileHash returns the hash of the configuration file, or "" when it cannot be read.
+func fileHash(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return config.Hash(b)
 }
 
 func secretsKey(id string) string { return secrets.TokenKey(id) }
