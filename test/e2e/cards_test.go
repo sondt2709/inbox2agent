@@ -121,9 +121,9 @@ func TestS23CardFeed(t *testing.T) {
 
 	dir, copied, opened := shims(t)
 	tm := p.term("", "PATH", dir+":"+os.Getenv("PATH"))
-	tm.WaitFor(`1 Feed`, 30*time.Second)
+	tm.WaitFor(`Cards · `, 30*time.Second)
 	s = tm.WaitFor(`Correct your reply about the demo login`, 10*time.Second)
-	for _, want := range []string{"3 new · 1 action · 1 question", "sort: urgency", "Suggested reply", "S23 can PF get"} {
+	for _, want := range []string{"Feed 3", "Cards · 3 · urgency", "Suggested reply", "S23 can PF get"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Feed does not show %q:\n%s", want, s)
 		}
@@ -139,15 +139,8 @@ func TestS23CardFeed(t *testing.T) {
 		t.Errorf("the high action card is not first:\n%s", s)
 	}
 
-	tm.Press("s", `sort: newest`, 5*time.Second)
-	tm.Press("s", `sort: urgency`, 5*time.Second)
-	s = tm.Press("f", `Cards · 1`, 5*time.Second)
-	if !strings.Contains(s, "Correct your reply") || strings.Contains(s, "Review PR 57") {
-		t.Errorf("the action filter shows other cards:\n%s", s)
-	}
-	tm.Press("f", `Review PR 57`, 5*time.Second)
-	tm.Press("f", `Staging deployed`, 5*time.Second)
-	tm.Press("f", `Cards · 3`, 5*time.Second)
+	tm.Press("s", `Cards · 3 · newest`, 5*time.Second)
+	tm.Press("s", `Cards · 3 · urgency`, 5*time.Second)
 
 	tm.Press("c", `Copied the suggested reply`, 5*time.Second)
 	tm.Press("o", `Opening http`, 5*time.Second)
@@ -157,10 +150,10 @@ func TestS23CardFeed(t *testing.T) {
 	}
 
 	// The question has a link only in its body: o opens nothing.
-	tm.Press("Down", `▌.*QUESTION`, 5*time.Second)
+	tm.Press("Down", `QUESTION\s+▰▰▱ normal`, 5*time.Second) // the detail of the selected card
 	tm.Press("o", `This card has no message link`, 5*time.Second)
 
-	tm.Press("Up", `▌.*ACTION`, 5*time.Second)
+	tm.Press("Up", `ACTION\s+▰▰▰ high`, 5*time.Second)
 	tm.Press("d", `Done: Correct your reply`, 5*time.Second)
 	tm.WaitFor(`Cards · 2`, 5*time.Second)
 	tm.Press("q", `\[exit 0\]`, 5*time.Second)

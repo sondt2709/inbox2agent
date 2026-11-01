@@ -109,8 +109,8 @@ func titles(m *model) string {
 func TestFeedShowsCardsByUrgency(t *testing.T) {
 	h := newFeedModel(t)
 	s := screen(h.m)
-	for _, want := range []string{"1 Feed", "3 new · 1 action · 1 question", "sort: urgency", "Correct your reply to Lena",
-		"Suggested reply", "I checked the code: I was wrong.", "Can PF get their own login?", "All 3", "Action 1"} {
+	for _, want := range []string{"Feed 3", "Cards · 3 · urgency", "Correct your reply to Lena",
+		"Suggested reply", "I checked the code: I was wrong.", "Can PF get their own login?"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Feed does not show %q", want)
 		}
@@ -130,16 +130,12 @@ func TestFeedSortAndFilter(t *testing.T) {
 	if got := titles(h.m); got != "Staging deployed 2.14.0 | Review PR #57 | Correct your reply to Lena" {
 		t.Errorf("newest order = %s", got)
 	}
-	if !strings.Contains(screen(h.m), "sort: newest") {
+	if !strings.Contains(screen(h.m), "Cards · 3 · newest") {
 		t.Error("the Feed does not show the newest sort")
 	}
-	send(h.m, "s", "f", "f")
-	if got := titles(h.m); got != "Review PR #57" {
-		t.Errorf("question filter = %s", got)
-	}
-	send(h.m, "f", "f")
+	send(h.m, "f") // no category filter any more
 	if got := titles(h.m); strings.Count(got, "|") != 2 {
-		t.Errorf("all filter = %s", got)
+		t.Errorf("f changed the cards: %s", got)
 	}
 }
 
@@ -204,7 +200,7 @@ func TestFeedShowsDeletedMessageAndNewCards(t *testing.T) {
 		t.Errorf("selection moved to %q", c.Title)
 	}
 	send(h.m, "up")
-	if s := screen(h.m); !strings.Contains(s, "#999 message deleted") || !strings.Contains(s, "3 new") {
+	if s := screen(h.m); !strings.Contains(s, "#999 message deleted") || !strings.Contains(s, "Feed 3") {
 		t.Errorf("screen:\n%s", s)
 	}
 }
@@ -213,7 +209,7 @@ func TestFeedWithoutStore(t *testing.T) {
 	m := newTestModel(t)
 	m.u.d.Store = nil
 	m.Update(m.load()())
-	send(m, "1")
+	at(m, tabFeed)
 	if !strings.Contains(screen(m), "No cards yet.") {
 		t.Error("the Feed without a store does not say No cards yet")
 	}
@@ -253,8 +249,8 @@ func TestFeedShowsAndFiltersTheSpace(t *testing.T) {
 	if got := titles(h.m); got != "Correct your reply to Lena | Review PR #57" {
 		t.Errorf("cards of Unsorted = %q; the info card has no message", got)
 	}
-	if !strings.Contains(screen(h.m), "space: Everything else") {
-		t.Error("the filter bar does not show the space filter")
+	if !strings.Contains(screen(h.m), "▌Everything else") {
+		t.Error("the space list does not mark the space filter")
 	}
 	pickSpace(t, h.m, "All spaces")
 	if got := titles(h.m); !strings.Contains(got, "Staging deployed 2.14.0") {

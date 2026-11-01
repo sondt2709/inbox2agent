@@ -133,19 +133,21 @@ type model struct {
 	events      <-chan daemon.Event // the events of the daemon, or nil
 	subscribing bool                // a try to read the events is busy
 
-	cards      []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
-	refs       map[int64]inbox.Message // the source messages of the cards
-	feedSel    int                     // index in visibleCards
-	feedSelID  int64                   // the selected card, kept across reloads
-	feedOff    int
-	feedSort   string                  // sortUrgency or sortNewest
-	feedFilter int                     // index in feedFilters
-	feedAll    bool                    // show the done cards too
-	replies    map[int64][]inbox.Reply // the sent replies of the cards, by card ID
-	replyCard  int64                   // the card of the open reply form; 0 when no reply form is open
-	asks       map[int64][]inbox.Ask   // the asks of the cards, by card ID
-	askCard    int64                   // the card of the open ask form; 0 when no ask form is open
-	md         markdown                // the rendered card bodies
+	cards     []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
+	refs      map[int64]inbox.Message // the source messages of the cards
+	feedSel   int                     // index in visibleCards
+	feedSelID int64                   // the selected card, kept across reloads
+	feedOff   int
+	feedSort  string                  // sortUrgency or sortNewest
+	feedAll   bool                    // show the done cards too
+	feedFocus int                     // the panel of the Feed with the keyboard: focusSpaces, focusCards, focusCard
+	cardOff   int                     // the first visible line of the card panel
+	cardFor   int64                   // the card that cardOff belongs to
+	replies   map[int64][]inbox.Reply // the sent replies of the cards, by card ID
+	replyCard int64                   // the card of the open reply form; 0 when no reply form is open
+	asks      map[int64][]inbox.Ask   // the asks of the cards, by card ID
+	askCard   int64                   // the card of the open ask form; 0 when no ask form is open
+	md        markdown                // the rendered card bodies
 
 	// form is the form of the detail panel; formFor names what it edits.
 	form    *form
@@ -167,7 +169,7 @@ type model struct {
 
 func newModel(ctx context.Context, u *ui) *model {
 	return &model{
-		ctx: ctx, u: u, now: time.Now, tab: u.d.Tab, feedSort: sortUrgency, refs: map[int64]inbox.Message{},
+		ctx: ctx, u: u, now: time.Now, tab: u.d.Tab, feedSort: sortUrgency, feedFocus: focusCards, refs: map[int64]inbox.Message{},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		chs:  map[string][]mattermost.ChannelInfo{}, chsErr: map[string]string{}, chsBusy: map[string]bool{},
 		convSel: map[string]bool{}, mmUsers: map[string]string{}, seen: readSeen(u.d.Paths.DataDir), setupTab: tabAccounts,
@@ -461,9 +463,9 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		}
 		switch msg.Mouse().Button {
 		case tea.MouseWheelUp:
-			return m.tabKey("up")
+			return m.wheel(msg.Mouse().X, "up")
 		case tea.MouseWheelDown:
-			return m.tabKey("down")
+			return m.wheel(msg.Mouse().X, "down")
 		}
 	default:
 		// Cursor blinks and other messages of the focused input.
@@ -487,12 +489,6 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 // then the keys of the tab.
 func (m *model) key(k string) tea.Cmd {
 	switch k {
-	case "1":
-		return m.setTab(tabFeed)
-	case "2":
-		return m.setTab(tabSpaces)
-	case "3":
-		return m.setTab(m.setupTab)
 	case "tab", "]":
 		return m.setTab((m.tab + 1) % numTabs)
 	case "shift+tab", "[":
@@ -502,17 +498,16 @@ func (m *model) key(k string) tea.Cmd {
 	case "?":
 		m.openDialog(helpDialog())
 		return nil
-	case "ctrl+r":
-		return m.load()
 	case "/":
 		m.openDialog(m.newSearchDialog(""))
 		return m.loadConversations()
-	case "R":
+	case "ctrl+r":
 		if m.tab != tabSpaces {
 			return m.runNow(nil, "all spaces")
 		}
 	case "enter", "right", "l", "e":
-		if m.form != nil {
+		// In the Feed the arrows move between the panels; enter opens the form of the card.
+		if m.form != nil && (m.tab != tabFeed || k == "enter" || k == "e") {
 			return m.focusForm()
 		}
 	}
@@ -576,7 +571,6 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 		case tabSettings:
 		case tabFeed:
 			ox += feedRailWidth(m.w) + feedListWidth(m.w-feedRailWidth(m.w))
-			oy++ // the filter bar
 		default:
 			ox += listWidth(m.w)
 		}
@@ -590,7 +584,7 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 	}
 	switch m.tab {
 	case tabFeed:
-		return m.clickFeed(x, y-1) // the filter bar is above the panels
+		return m.clickFeed(x, y)
 	case tabAccounts:
 		return m.clickList(y, &m.acc, m.accOff, len(m.u.cfg.Accounts)+1)
 	case tabSpaces:
@@ -648,15 +642,16 @@ const helpText = `The model   Account → Conversation → Space → Agent + Sch
             direct messages). Everything else reads the others.
             A space sends to one agent on one schedule.
 
-Areas       1 Feed · 2 Spaces · 3 Setup · tab next section
-Everywhere  R run now · / find a conversation · ? keys · q quit
-Move        ↑ ↓ or j k, or the mouse wheel · enter opens
+Areas       click Feed, Spaces or Setup · tab next section
+Everywhere  ctrl+r run now · / find a conversation · ? · q quit
+Move        ↑ ↓ or j k, the mouse wheel or the trackpad · enter
 Form        tab / shift+tab or ↑ ↓ move between the fields
             ←/→ or space change a choice · ctrl+s save · esc back
 
-Feed        ←/→ space · r reply · t ask the agent · c copy reply
-            o open the thread · d done · u unread · s sort
-            f category · F space · a done cards
+Feed        ←/→ panel: Spaces, Cards, Card · ↑/↓ in the panel
+            pgup/pgdn scroll the card · r reply · t ask the agent
+            c copy reply · o open the thread · d done · u unread
+            s sort · F space · a done cards
 Spaces      enter open · a add conversations · x delete space
             u undo the last change · esc back to the list
   a row     enter its spaces · ←/→ read level · x remove
@@ -745,9 +740,9 @@ func (m *model) renderHeader() string {
 	for i, name := range areaNames {
 		var s string
 		if areaOf(m.tab) == i {
-			s = tabActive.Render(fmt.Sprintf("%d %s", i+1, name))
+			s = tabActive.Render(name)
 		} else {
-			s = tabInactive.Render(tabKey.Render(fmt.Sprint(i+1)) + faint.Render(" "+name))
+			s = tabInactive.Render(name)
 		}
 		s += badges[i]
 		w := lipgloss.Width(s)
@@ -756,7 +751,7 @@ func (m *model) renderHeader() string {
 		x += w + 1
 	}
 	left := b.String()
-	run := keyStyle.Render("R") + faint.Render(" run now")
+	run := keyStyle.Render("ctrl+r") + faint.Render(" run now")
 	if m.running {
 		run = warnStyle.Render(m.spin.View() + " running")
 	}
@@ -825,12 +820,11 @@ func (m *model) renderSub() string {
 				x += 3
 			}
 		}
-		b.WriteString(faint.Render("   tab next"))
 	} else {
 		text := m.lastRun
 		st := faint
 		if text == "" {
-			text = "No run yet. R reads all accounts and sends the waiting messages now."
+			text = "No run yet. ctrl+r reads all accounts and sends the waiting messages now."
 		} else if m.lastRunErr {
 			st = errStyle
 		}
@@ -892,19 +886,19 @@ func (m *model) renderTab(w, h int) string {
 func (m *model) tabHints() []hint {
 	switch m.tab {
 	case tabActivity:
-		return []hint{{"enter", "show digest"}, {"F", "space"}, {"R", "run now"}, {"tab", "next section"}, {"↑↓", "move"}}
+		return []hint{{"enter", "show digest"}, {"F", "space"}, {"ctrl+r", "run now"}, {"↑↓", "move"}}
 	case tabAccounts:
-		return append(m.hintsAccounts(), hint{"tab", "next section"})
+		return m.hintsAccounts()
 	case tabSpaces:
 		return m.hintsSpaces()
 	case tabAgents:
-		return append(m.hintsAgents(), hint{"tab", "next section"})
+		return m.hintsAgents()
 	case tabSchedules:
-		return append(m.hintsSchedules(), hint{"tab", "next section"})
+		return m.hintsSchedules()
 	case tabSettings:
-		return []hint{{"enter", "edit"}, {"i", "install service"}, {"u", "uninstall"}, {"tab", "next section"}}
+		return []hint{{"enter", "edit"}, {"i", "install service"}, {"u", "uninstall"}}
 	}
-	return feedHints()
+	return m.feedHints()
 }
 
 // listWidth is the width of the list panel at the left of a master-detail tab.
