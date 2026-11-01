@@ -45,15 +45,15 @@ The system SHALL validate the configuration when it loads it and when the TUI or
 - **THEN** the system reports that `monday` is not one of `mon` to `sun`
 
 ### Requirement: Dashboard tabs
-The system SHALL provide a full-screen dashboard in the alternate screen with three areas: Feed, Spaces and Setup. Setup SHALL have the sections Accounts, Agents, Schedules, Settings and Send log, in this order. The header SHALL show the areas as `1 Feed`, `2 Spaces` and `3 Setup`, with the number of new cards after Feed and the number of new conversations after Spaces. The line under the header SHALL show the sections of Setup when Setup is open, and else the result of the last run. `i2a` with no arguments SHALL open the Feed; `i2a config` SHALL open the Spaces area. The keys `1` to `3` and a mouse click SHALL open an area. `tab` and `shift+tab` SHALL go to the next and the previous section, in the order Feed, Spaces, Accounts, Agents, Schedules, Settings, Send log. Forms SHALL stay in the detail panel, as before. `q` SHALL quit; `?` SHALL show the model of i2a and all keys.
+The system SHALL provide a full-screen dashboard in the alternate screen with three areas: Feed, Spaces and Setup. Setup SHALL have the sections Accounts, Agents, Schedules, Settings and Send log, in this order. The header SHALL show the areas as `Feed`, `Spaces` and `Setup` with no numbers, with the number of new cards after Feed and the number of new conversations after Spaces. The line under the header SHALL show the sections of Setup when Setup is open, and else the result of the last run. `i2a` with no arguments SHALL open the Feed; `i2a config` SHALL open the Spaces area. A mouse click on an area or a section SHALL open it. The keys `1` to `3` SHALL NOT open an area. `tab` and `shift+tab` SHALL go to the next and the previous section, in the order Feed, Spaces, Accounts, Agents, Schedules, Settings, Send log. Forms SHALL stay in the detail panel, as before. `q` SHALL quit; `?` SHALL show the model of i2a and all keys.
 
 #### Scenario: Header
 - **WHEN** the user runs `i2a config` in a window of 120 × 40, with 3 new conversations
-- **THEN** the header shows `1 Feed`, `2 Spaces 3 new` and `3 Setup`, and the Spaces area is open
+- **THEN** the header shows `Feed`, `Spaces 3 new`, `Setup` and `ctrl+r run now`, and the Spaces area is open
 
 #### Scenario: Setup sections
-- **WHEN** the user presses `3`
-- **THEN** the line under the header shows Accounts, Agents, Schedules, Settings and Send log, and `tab` opens the next section
+- **WHEN** the user clicks `Setup`
+- **THEN** the line under the header shows Accounts, Agents, Schedules, Settings and Send log, and a click on Agents opens Agents
 
 #### Scenario: Feed first
 - **WHEN** the user runs `i2a` with no arguments
@@ -188,11 +188,11 @@ Each save SHALL write `#:schema ./config.schema.json` as the first line, then a 
 - **THEN** the first line is `#:schema ./config.schema.json`, and the next lines say that a save by i2a removes comments
 
 ### Requirement: Key hints and key help fit the window
-The footer SHALL show the hints of the focused list with its main key first, and `? keys · q quit` at the right. It SHALL show only the hints that fit the width of the window, in their order, and SHALL NOT cut a hint. At 80 columns the footer SHALL show `R` in the Spaces area and `enter` and `a` in the panel of a space. The key help (`?`) SHALL be a dialog as wide as its longest line, or the window when the window is narrower. It SHALL NOT wrap a line that fits, and it SHALL scroll when the window is too short.
+The footer SHALL show the hints of the focused list or panel with its main key first, and `? keys · q quit` at the right. It SHALL show only the hints that fit the width of the window, in their order, and SHALL NOT cut a hint. At 80 columns the footer SHALL show `ctrl+r` in the Spaces area and `enter` and `a` in the panel of a space. The key help (`?`) SHALL be a dialog as wide as its longest line, or the window when the window is narrower. It SHALL NOT wrap a line that fits, and it SHALL scroll when the window is too short.
 
 #### Scenario: Spaces footer at 80 columns
 - **WHEN** the window is 80 columns wide and a space is selected in the Spaces area
-- **THEN** the footer shows `R run now`, and each hint is complete
+- **THEN** the footer shows `ctrl+r run now`, and each hint is complete
 
 #### Scenario: Key help at 140 columns
 - **WHEN** the window is 140 × 34 and the user presses `?`
