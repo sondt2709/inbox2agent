@@ -833,7 +833,7 @@ func (m *model) askDone(msg askDoneMsg) tea.Cmd {
 }
 
 func feedHints() []hint {
-	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"R", "send now"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
+	return []hint{{"↑↓", "move"}, {"r", "reply"}, {"t", "ask agent"}, {"R", "run now"}, {"c", "copy reply"}, {"o", "open thread"}, {"d", "done"},
 		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"F", "space"}, {"a", "done cards"}}
 }
 

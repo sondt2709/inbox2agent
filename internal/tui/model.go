@@ -650,14 +650,14 @@ Form        tab / shift+tab or ↑ ↓ move between the fields
 
 Feed           r reply · t ask the agent · c copy the reply
                o open the thread · d done · u unread · s sort
-               f category · F space · a done cards · R send now
+               f category · F space · a done cards · R run now
 Activity       enter show the digest file · F space (as the Feed)
 Accounts       enter edit · x remove
-Conversations  space select · a select all shown · m move to a space
-               L add to one more space · l read level · n rename
+Conversations  m move to a space · L add to a space, keep the others
+               l read level · space select · a select all · n rename
                / search · f filter
 Spaces         enter edit · a add conversations · x delete
-               c show its conversations · R send this space now
+               c show its conversations · R run this space now
 Agents         enter edit · x delete (choose a replacement)
 Schedules      enter edit · x delete (choose a replacement)
 Settings       enter edit · i install the service · u uninstall it`

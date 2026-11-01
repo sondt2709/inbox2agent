@@ -516,3 +516,22 @@ func TestDigestViewer(t *testing.T) {
 		t.Fatalf("enter on a send did not show the digest: %v", d)
 	}
 }
+
+// On a narrow terminal the footer keeps the main keys of a tab: R in the
+// Spaces tab and m and L in the Conversations tab.
+func TestNarrowFooterKeepsTheMainKeys(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	footer := func() string { lines := strings.Split(screen(m), "\n"); return lines[len(lines)-1] }
+	send(m, "5")
+	for range 2 {
+		if f := footer(); !strings.Contains(f, "R run now") {
+			t.Errorf("Spaces, space %d: the footer has no R: %q", m.spc, f)
+		}
+		send(m, "down")
+	}
+	send(m, "4")
+	if f := footer(); !strings.Contains(f, "m move to space") || !strings.Contains(f, "L add to space") {
+		t.Errorf("Conversations: the footer has no m or L: %q", f)
+	}
+}

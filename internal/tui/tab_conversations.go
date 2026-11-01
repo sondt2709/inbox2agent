@@ -196,9 +196,9 @@ func (m *model) shownConvs() []convRow {
 
 func (m *model) hintsConversations() []hint {
 	if len(m.convSel) > 0 {
-		return []hint{{"space", "select"}, {"m", fmt.Sprintf("move %d", len(m.convSel))}, {"l", "read level"}, {"esc", "clear"}}
+		return []hint{{"m", fmt.Sprintf("move %d", len(m.convSel))}, {"L", fmt.Sprintf("add %d to a space", len(m.convSel))}, {"l", "read level"}, {"space", "select"}, {"esc", "clear"}}
 	}
-	return []hint{{"↑↓", "move"}, {"space", "select"}, {"a", "select all"}, {"m", "move to space"}, {"L", "one more space"}, {"l", "read level"}, {"n", "rename"}, {"/", "search"}, {"f", "filter"}}
+	return []hint{{"m", "move to space"}, {"L", "add to space"}, {"l", "read level"}, {"space", "select"}, {"a", "select all"}, {"n", "rename"}, {"/", "search"}, {"f", "filter"}, {"↑↓", "move"}}
 }
 
 // targets returns the selected conversations, or the conversation under the cursor.
@@ -370,7 +370,7 @@ func (m *model) linkDialog(rows []convRow) {
 		m.setStatus("Each space lists "+what+" already. Add a space in tab 5.", true)
 		return
 	}
-	m.openDialog(&pickDialog{name: "Add to one more space",
+	m.openDialog(&pickDialog{name: "Add to a space (keep the other spaces)",
 		text: "The spaces that list " + what + " keep it. Each space gets its own copy of each message, for its own agent.", options: opts})
 }
 
