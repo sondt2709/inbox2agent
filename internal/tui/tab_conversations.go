@@ -281,7 +281,7 @@ func (m *model) newSpace(name string) (string, string) {
 		return "", "Type a name."
 	}
 	var id string
-	if err := m.u.commit(func(c *config.Config) error {
+	if err := m.u.commitUndoable(func(c *config.Config) error {
 		for _, s := range c.AllSpaces() {
 			if strings.EqualFold(s.Title(), name) {
 				return errNameUsed
@@ -290,7 +290,7 @@ func (m *model) newSpace(name string) (string, string) {
 		id = config.NewID(name, func(id string) bool { _, ok := c.Space(id); return ok })
 		c.Spaces = append(c.Spaces, config.Space{ID: id, Name: name, Agent: c.Agents[0].ID, Schedule: c.Schedules[0].ID})
 		return nil
-	}, nil); errors.Is(err, errNameUsed) {
+	}); errors.Is(err, errNameUsed) {
 		return "", "The name " + name + " is used."
 	} else if err != nil {
 		return "", "Cannot save: " + err.Error()

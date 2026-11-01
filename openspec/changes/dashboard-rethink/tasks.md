@@ -36,6 +36,6 @@
 ## 6. Tests and docs
 
 - [x] 6.1 Unit tests of the TUI for each requirement; each new test fails once with the code broken
-- [ ] 6.2 e2e scenarios that use tabs 4 and 5 and the keys `m`, `L`, `l`
+- [x] 6.2 e2e scenarios that use tabs 4 and 5 and the keys `m`, `L`, `l`
 - [x] 6.3 README and CLAUDE.md key tables and tab names
-- [ ] 6.4 `task test`, both lints, `task leakcheck`, full `task e2e`
+- [x] 6.4 `task test`, both lints, `task leakcheck`, full `task e2e`

@@ -438,7 +438,7 @@ func (m *model) keyPanel(k string, it railItem) tea.Cmd {
 			s, _ := m.u.cfg.Space(it.space)
 			t := m.targetsOf(c)
 			m.editLinks(t, func(cf *config.Config, x convRow) []config.Link {
-				return slices.DeleteFunc(realLinks(cf, x.Account.ID, x.ID), func(l config.Link) bool { return l.Space == it.space })
+				return orNoSpace(cf, x, slices.DeleteFunc(realLinks(cf, x.Account.ID, x.ID), func(l config.Link) bool { return l.Space == it.space }))
 			}, fmt.Sprintf("Removed %s from %s.", what(t), s.Title()))
 		case railIgnored:
 			t := m.targetsOf(c)

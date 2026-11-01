@@ -53,11 +53,16 @@ func (d *spacesDialog) title() string {
 	return fmt.Sprintf("Spaces of %d conversations", len(d.rows))
 }
 
-// added is true when a checked space was not a space of the conversation.
+// added is true when a checked space is not a space of one of the rows.
 func (d *spacesDialog) added() bool {
 	for _, o := range d.opts {
-		if o.on && !o.was {
-			return true
+		if !o.on {
+			continue
+		}
+		for _, r := range d.rows {
+			if _, in := levelIn(r, o.id); !in || inNoSpace(r) {
+				return true
+			}
 		}
 	}
 	return false
@@ -174,19 +179,32 @@ func (d *spacesDialog) save(m *model) tea.Cmd {
 // own level of Everything else, or none, so it follows unsorted.read. When
 // unsorted.read is off, no entry would ignore it, so it gets "Only for me".
 func noSpace(c *config.Config, r convRow) []config.Link {
-	if cur, sp, had := c.Conversation(r.Account.ID, r.ID); had && sp == config.UnsortedID && cur.Read != config.ReadOff {
+	cur, sp, had := c.Conversation(r.Account.ID, r.ID)
+	if had && sp == config.UnsortedID && cur.Read != config.ReadOff {
 		return []config.Link{{Space: config.UnsortedID, Read: cur.Read}}
 	}
 	if c.Unsorted.Read == config.ReadOff {
 		return []config.Link{{Space: config.UnsortedID, Read: config.ReadMentions}}
 	}
+	if had && cur.Label != "" {
+		// An entry keeps the label; it has the level of unsorted.read.
+		return []config.Link{{Space: config.UnsortedID, Read: c.Unsorted.Read}}
+	}
 	return nil
+}
+
+// orNoSpace returns links, or the links of noSpace when links is empty.
+func orNoSpace(c *config.Config, r convRow, links []config.Link) []config.Link {
+	if len(links) == 0 {
+		return noSpace(c, r)
+	}
+	return links
 }
 
 // sameSpaces is true when each row has the spaces of the first row.
 func sameSpaces(rows []convRow) bool {
 	for _, r := range rows[1:] {
-		if !slices.Equal(r.Spaces, rows[0].Spaces) || inNoSpace(r) != inNoSpace(rows[0]) {
+		if !slices.Equal(r.Spaces, rows[0].Spaces) || !slices.Equal(r.Reads, rows[0].Reads) || inNoSpace(r) != inNoSpace(rows[0]) {
 			return false
 		}
 	}
@@ -414,7 +432,7 @@ func (d *searchDialog) toggle(m *model, r convRow) {
 	in = in && !inNoSpace(r)
 	if in {
 		m.editLinks([]convRow{r}, func(c *config.Config, x convRow) []config.Link {
-			return slices.DeleteFunc(realLinks(c, x.Account.ID, x.ID), func(l config.Link) bool { return l.Space == d.space })
+			return orNoSpace(c, x, slices.DeleteFunc(realLinks(c, x.Account.ID, x.ID), func(l config.Link) bool { return l.Space == d.space }))
 		}, fmt.Sprintf("Removed %s from %s.", r.Title(), s.Title()))
 		return
 	}

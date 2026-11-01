@@ -80,13 +80,24 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 			e.api.Publish(Event{Kind: EventError, Detail: "config.toml not reloaded: " + first})
 		} else {
 			e.SetConfig(cfg)
-			next = nextSends(cfg, e.d.Now())
+			// A space that is due keeps its send time, so a reload just
+			// before the due check does not skip a send.
+			now, fresh := e.d.Now(), nextSends(cfg, e.d.Now())
+			for id, at := range next {
+				if _, ok := fresh[id]; ok && !at.After(now) {
+					fresh[id] = at
+				}
+			}
+			next = fresh
 			log.Info("configuration reloaded", "accounts", len(cfg.Accounts), "spaces", len(cfg.Spaces))
 			logNext(log, cfg, next)
 			e.api.Publish(Event{Kind: EventReload, Count: len(cfg.Spaces)})
 		}
 		e.api.setStatus(spaceNexts(e.cfg, next), nil)
 	}
+
+	e.refresh = reload
+	defer func() { e.refresh = nil }()
 
 	t := time.NewTicker(tick)
 	defer t.Stop()

@@ -577,6 +577,10 @@ func (s *Store) Requeue(ctx context.Context, account, conversation string, since
 		if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'pending' WHERE id = ?`, id); err != nil {
 			return 0, err
 		}
+		// A space that was skipped before and is not skipped now gets the message.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM deliveries WHERE message_id = ? AND state = ?`, id, inbox.DeliverySkipped); err != nil {
+			return 0, err
+		}
 		for _, sp := range skip {
 			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deliveries (message_id, space, state) VALUES (?, ?, ?)`,
 				id, sp, inbox.DeliverySkipped); err != nil {

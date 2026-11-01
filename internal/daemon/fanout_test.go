@@ -275,3 +275,32 @@ func TestRequeueSkipsTheOtherSpaces(t *testing.T) {
 		t.Errorf("pending = %+v, want none", p)
 	}
 }
+
+// Dispatch reads a changed configuration after it reads the pending messages,
+// so a requeue for a new link that a slow step hid (a busy ask, a poll) is not
+// set back to sent with the old links.
+func TestDispatchRefreshesAfterThePendingRead(t *testing.T) {
+	c := twoSpaces()
+	c.Spaces[1].Conversations = nil // Cr is only in Review
+	h := newHarness(t, c)
+	d := h.bySpace(nil)
+	ctx := context.Background()
+	h.sources["work"].addFor("old", true)
+	h.e.Poll(ctx, true)
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	next := fileCopy(h.e.Config())
+	next.Spaces = append([]config.Space(nil), next.Spaces...)
+	next.Spaces[1].Conversations = []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}
+	h.e.refresh = func() { h.e.SetConfig(next) } // the file changed; the engine has the old links
+	if _, err := h.st.Requeue(ctx, "work", "Cr", time.Now().Add(-time.Hour), false, []string{"review"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.e.Dispatch(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := batchIDs(d.by["team"]); len(got) != 1 {
+		t.Errorf("Team got %v, want the requeued message", got)
+	}
+}

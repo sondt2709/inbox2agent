@@ -434,3 +434,31 @@ func TestExpireKeepsAMessageThatASpaceGot(t *testing.T) {
 		t.Errorf("skipped deliveries = %d, %v, want 1: the requeued message", skipped, err)
 	}
 }
+
+// A space that a requeue skipped gets the message in a later requeue that
+// does not skip it.
+func TestRequeueRemovesAnOldSkip(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	if _, err := s.SavePoll(ctx, "work", []inbox.Message{msg("m", now.Add(-time.Hour))}, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Pending(ctx)
+	id, _ := s.CreateDispatch(ctx, Dispatch{Space: "triage", Agent: "triage", Driver: "orca", CreatedAt: now, MessageCount: 1})
+	if err := s.FinishDispatch(ctx, id, DispatchSent, "", "triage", inbox.StateSent, []int64{p[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	for _, skip := range [][]string{{"review"}, {"team"}} {
+		if err := s.SetStates(ctx, map[int64]string{p[0].ID: inbox.StateSent}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Requeue(ctx, "work", "c1", now.Add(-2*time.Hour), false, skip); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := s.Pending(ctx)
+	if len(got) != 1 || got[0].Delivered["review"] != "" || got[0].Delivered["team"] != inbox.DeliverySkipped || got[0].Delivered["triage"] != inbox.StateSent {
+		t.Errorf("deliveries = %+v, want review free, team skipped, triage sent", got)
+	}
+}

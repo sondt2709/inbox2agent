@@ -62,6 +62,11 @@ type Engine struct {
 	unpaired map[string]bool // WhatsApp accounts that got ErrNotPaired since their last good read
 	api      *Server         // the API of the daemon, or nil
 	reads    map[string]AccountRead
+	// refresh loads a changed configuration file; Run sets it. Dispatch
+	// calls it after it reads the pending messages: a dashboard writes the
+	// file before it requeues messages for a new link, so the links are at
+	// least as new as the requeue.
+	refresh func()
 }
 
 // SetAPI connects the API server: the loop serves its runs, and the engine
@@ -251,6 +256,9 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 	pending, err := e.d.Store.Pending(ctx)
 	if err != nil {
 		return res, err
+	}
+	if e.refresh != nil {
+		e.refresh()
 	}
 	// Fan-out: each space that links the conversation and whose read level
 	// wants the message gets its own copy, one time.

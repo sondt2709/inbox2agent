@@ -409,3 +409,50 @@ func TestRequeueSkipsTheSpacesThatTheRowHad(t *testing.T) {
 		t.Errorf("requeue calls = %v, want C1 with Acme skipped", calls)
 	}
 }
+
+func TestNoSpaceKeepsTheLabel(t *testing.T) {
+	m := newTestModel(t)
+	changeFile(t, m, func(c *config.Config) error { return c.SetLabel("work", "C1", "Rel") })
+	refresh(m)
+	m.openDialog(m.newSpacesDialog(m.rowsWhere(func(r convRow) bool { return r.ID == "C1" })))
+	send(m, "space", "enter") // uncheck Acme
+	c := loadFile(t, m)
+	if cv, sp, ok := c.Conversation("work", "C1"); !ok || sp != config.UnsortedID || cv.Label != "Rel" {
+		t.Errorf("after uncheck of the last space: %+v in %s (entry %v), want the label in Everything else", cv, sp, ok)
+	}
+}
+
+func TestRequeueOptionForAnyRowThatGetsASpace(t *testing.T) {
+	m := newTestModel(t)
+	changeFile(t, m, func(c *config.Config) error {
+		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: "triage", Schedule: "always"})
+		if err := c.SetSpaces("work", "D1", "@bob", []config.Link{{Space: "acme", Read: config.ReadAll}, {Space: "beta", Read: config.ReadAll}}); err != nil {
+			return err
+		}
+		return nil
+	})
+	refresh(m)
+	// @bob (first) is in Acme and Beta; # release is in Acme only.
+	d := m.newSpacesDialog(m.rowsWhere(func(r convRow) bool { return r.ID == "D1" || r.ID == "C1" }))
+	if d.rows[0].ID != "D1" {
+		t.Fatalf("first row %s, want D1", d.rows[0].ID)
+	}
+	if !d.added() {
+		t.Error("the dialog does not offer the old messages, but enter adds Beta to # release")
+	}
+}
+
+func TestANewSpaceCanBeUndone(t *testing.T) {
+	m := newTestModel(t)
+	m.spc = len(m.railItems()) - 1 // + New space
+	send(m, "enter")
+	typeText(m, "Gamma")
+	send(m, "enter")
+	if _, ok := loadFile(t, m).Space("gamma"); !ok {
+		t.Fatal("no space gamma")
+	}
+	send(m, "esc", "u")
+	if _, ok := loadFile(t, m).Space("gamma"); ok {
+		t.Errorf("u after a new space: %q, the space stays", m.status)
+	}
+}
