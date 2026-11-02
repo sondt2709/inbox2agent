@@ -1,4 +1,5 @@
-package whatsapp
+// Package qrcode draws QR codes as text for the terminal.
+package qrcode
 
 import (
 	"strings"
@@ -9,10 +10,10 @@ import (
 // quiet is the white border of the QR code, in modules.
 const quiet = 2
 
-// QRText renders a QR code with half-block characters: two modules for each
+// Text renders a QR code with half-block characters: two modules for each
 // character line. It sets black on white with ANSI codes, so that the code
 // scans in a dark terminal too.
-func QRText(text string) (string, error) {
+func Text(text string) (string, error) {
 	code, err := qr.Encode(text, qr.L)
 	if err != nil {
 		return "", err

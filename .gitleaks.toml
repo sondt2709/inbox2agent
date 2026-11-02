@@ -1,0 +1,7 @@
+# gitleaks configuration: the default rules, and one test fixture.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test vectors of the phone push. The key is the public test key 0..31, not a secret."
+paths = ['''^internal/phone/testdata/vectors\.json$''']

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/qrcode"
 	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
@@ -101,7 +102,7 @@ func PairWhatsApp(ctx context.Context, dataDir, id, phone string, lookback time.
 			fmt.Fprintf(out, "Tap \"Link with phone number instead\" and type this code: %s\n", ev.Code)
 			return
 		}
-		qr, err := whatsapp.QRText(ev.QR)
+		qr, err := qrcode.Text(ev.QR)
 		if err != nil {
 			fmt.Fprintf(out, "Cannot draw the QR code: %v\n", err)
 			return

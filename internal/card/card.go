@@ -180,9 +180,9 @@ type Note struct {
 // tricks into many urgent cards cannot flood the screen.
 const MaxHighNotes = 3
 
-// counts reports whether a saved card gives a notification: it is new, or its
-// urgency went up, or it came back from done.
-func counts(c inbox.SavedCard) bool {
+// Counts reports whether a saved card gives a notification: it is new, or its
+// urgency went up, or it came back from done. The phone push uses it too.
+func Counts(c inbox.SavedCard) bool {
 	switch c.Result {
 	case inbox.SaveAdded:
 		return true
@@ -210,7 +210,7 @@ func Plan(saved []inbox.SavedCard, minUrgency string) []Note {
 	var notes []Note
 	var group []inbox.SavedCard
 	for _, c := range saved {
-		if !counts(c) || inbox.UrgencyRank(c.Urgency) < min {
+		if !Counts(c) || inbox.UrgencyRank(c.Urgency) < min {
 			continue
 		}
 		if c.Urgency == inbox.UrgencyHigh && len(notes) < MaxHighNotes {

@@ -1,0 +1,26 @@
+{
+  "$comment": "Design tokens of i2a. docs/design.md explains each token. internal/tui/tokens_test.go checks the TUI (tui: a name in that test) and mobile/shared DesignTokens.kt (kotlin: a const val name) against these values.",
+  "tokens": {
+    "brand.primary":      { "value": "#7D56F4", "tui": "accent",      "kotlin": "BrandPrimary" },
+    "brand.onPrimary":    { "value": "#FFFDF5", "tui": "onAccent",    "kotlin": "BrandOnPrimary" },
+    "brand.primarySoft":  { "value": "#B9A8FF", "tui": "labelFocus",  "kotlin": "BrandPrimarySoft" },
+    "brand.primaryDim":   { "value": "#3B2F6B", "tui": "accentDim",   "kotlin": "BrandPrimaryDim" },
+    "surface.base":       { "value": "#15131F", "tui": "",            "kotlin": "SurfaceBase" },
+    "surface.raised":     { "value": "#1E1B2E", "tui": "header",      "kotlin": "SurfaceRaised" },
+    "surface.input":      { "value": "#2A2740", "tui": "inputBg",     "kotlin": "SurfaceInput" },
+    "surface.inputFocus": { "value": "#3A3360", "tui": "focusBg",     "kotlin": "SurfaceInputFocus" },
+    "surface.button":     { "value": "#3A3A4E", "tui": "btnNormal",   "kotlin": "SurfaceButton" },
+    "line.border":        { "value": "#4A4A5E", "tui": "borderFg",    "kotlin": "LineBorder" },
+    "text.default":       { "value": "#D0D0D0", "tui": "fgColor",     "kotlin": "TextDefault" },
+    "text.muted":         { "value": "#808080", "tui": "mutedFg",     "kotlin": "TextMuted" },
+    "text.mutedOnBox":    { "value": "#A8A8A8", "tui": "",            "kotlin": "TextMutedOnBox" },
+    "state.ok":           { "value": "#3FB950", "tui": "green",       "kotlin": "StateOk" },
+    "state.warn":         { "value": "#F2C94C", "tui": "yellow",      "kotlin": "StateWarn" },
+    "state.error":        { "value": "#F85149", "tui": "red",         "kotlin": "StateError" },
+    "state.info":         { "value": "#58A6FF", "tui": "blue",        "kotlin": "StateInfo" },
+    "mark.unread":        { "value": "#F778BA", "tui": "unreadMark",  "kotlin": "MarkUnread" },
+    "danger.bg":          { "value": "#5A1E26", "tui": "btnDangerBg", "kotlin": "DangerBg" },
+    "danger.fg":          { "value": "#FFD7DC", "tui": "btnDangerFg", "kotlin": "DangerFg" },
+    "category.fg":        { "value": "#111111", "tui": "categoryFg",  "kotlin": "CategoryFg" }
+  }
+}

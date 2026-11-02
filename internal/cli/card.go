@@ -109,7 +109,11 @@ Example:
 					notes++
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%d cards saved: %s. Notifications: %d.\n", len(saved), strings.Join(parts, ", "), notes)
+			line := fmt.Sprintf("%d cards saved: %s. Notifications: %d.", len(saved), strings.Join(parts, ", "), notes)
+			if n := pushCards(ctx, e.secrets, st, saved, cfg.Notify.Enabled, cfg.Notify.MinUrgency, cmd.ErrOrStderr()); n > 0 {
+				line += fmt.Sprintf(" Phone: %d.", n)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
 			return nil
 		},
 	}

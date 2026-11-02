@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark only. The colors are tokens of docs/design-tokens.json (surface.base, surface.raised). -->
+    <style name="Theme.I2a" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/surface_base</item>
+        <item name="android:statusBarColor">@color/surface_raised</item>
+        <item name="android:navigationBarColor">@color/surface_raised</item>
+    </style>
+</resources>

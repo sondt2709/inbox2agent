@@ -1,0 +1,68 @@
+{
+  "$comment": "Sealed messages for the Go and Kotlin tests. Write again with: go test ./internal/phone -run TestVectors -update",
+  "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "aad": "i2a-push-v1",
+  "vectors": [
+    {
+      "name": "test-alert",
+      "c": "AAECAwQFBgcICQoL7VT8SHfXFkpHj1vA4FsqR8r7qWUiKnVVbtXXsapdNoUBEbNZa13GOmaB1H8qVfxirllgjaUpsGVV5LpKxrXU0Iq7nGm2nA==",
+      "payload": {
+        "v": 1,
+        "kind": "test",
+        "ts": 1793700000,
+        "alert": true
+      }
+    },
+    {
+      "name": "card-alert",
+      "c": "DA0ODxAREhMUFRYXxG84U2xH6NbI4K3pBz+1tiXYUSbU9ZsKGY0YGpSbeReokfi9hbNQSOIcnCSrWGs6QCF1LNsyN//hjwideI2q1Lp6S4eOBacsUs1hxkJ3w52czpWTfLXORoBLFHRMnOyouQUXjMz0H3Lihh2LgU8u83+F9z3/DBO2BZQDKxZFDis5EMKYj2jYdrDCF3xPrd+9Xeh18YnbCVXeoI+QxAj8gPX8cJv60J7wGUL3BunQ+ajoUtp8M2jx0KpLZvjE5a2iUTYIUKh8vxfyTC+WfKd1Nr4sUJa/Z8o2kxVcggmZkz4ixo2OFjc7t+PLkyj9RA8Kj1M77MlYIuqhRsIOXVmK4XenAU2+WAQPzfveyphRUyxuO8vy/pLe8msqsFAWWn+JPKeOSWHLvVJnsfRvtYX/TWiRfA/1d7IL430OB6bDAjw07nH3rjn5wJJuS0XoktlQG2WNw5Dbk0ppKXPx4caosiRbyYmmGurAzkHlADDs",
+      "payload": {
+        "v": 1,
+        "kind": "card",
+        "ts": 1793700001,
+        "alert": true,
+        "card": {
+          "id": 812,
+          "key": "mm:release-window",
+          "cat": "action",
+          "urg": "high",
+          "title": "Approve the release window for Friday",
+          "group": "Harbor Portal",
+          "body": "Lena asks if the **portal release** can go on Friday 18:00.\n\n- QA passed\n- The rollback plan is ready",
+          "reply": "Yes, Friday 18:00 is OK.",
+          "created": 1793699000,
+          "state": "new",
+          "refs": [
+            {
+              "author": "lena",
+              "text": "Can we release on Friday 18:00?",
+              "url": "https://chat.example.com/team/pl/abc",
+              "channel": "town-square",
+              "at": 1793698000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "card-silent",
+      "c": "GBkaGxwdHh8gISIjX9EBWt94dcrgqDl+ff9xj6GSE4AO1V2dB61AE8RtIUqxc0yrCL80gM3eHAFU+5lhXexMiB8Ty6+jL47zX1/akUbaI9X8XoI5dVWFHeKidXET83kaUiVNFmUgdPDwZdVhMz2vFKT04N5s5KxV9krk8W3Uh+fm4Py7qTDZO98LO9CU4WotxADYPbOmtM3NhAn3fswDyGtk8QeGDJ/RH02HRzZz6NJPJ6M9eOTFO9FlwwVMyYEAR9s5PAi+L7pkOBwNJ0YU8iSTpMugFsFJbCNg",
+      "payload": {
+        "v": 1,
+        "kind": "card",
+        "ts": 1793700002,
+        "alert": false,
+        "card": {
+          "id": 813,
+          "cat": "info",
+          "urg": "low",
+          "title": "Bữa tối dời sang 19:30 ✓",
+          "group": "Gia đình",
+          "body": "Mẹ dời bữa tối sang 19:30.",
+          "created": 1793699100,
+          "state": "new"
+        }
+      }
+    }
+  ]
+}
