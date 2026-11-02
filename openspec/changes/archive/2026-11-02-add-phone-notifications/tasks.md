@@ -41,7 +41,7 @@
 ## 7. Mobile CI
 
 - [x] 7.1 Job `mobile` in `.github/workflows/ci.yml`; `release` needs it
-- [ ] 7.2 The job passes on the PR
+- [x] 7.2 The job passes on the PR
 
 ## 8. Verify
 
