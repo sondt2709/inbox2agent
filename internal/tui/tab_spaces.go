@@ -246,17 +246,17 @@ func (m *model) hintsSpaces() []hint {
 		case railAdd:
 			return []hint{{"enter", "add a space"}, {"↑↓", "move"}}
 		case railNew, railIgnored:
-			return []hint{{"enter", "open"}, {"R", "run now"}, {"↑↓", "move"}, {"u", "undo"}}
+			return []hint{{"enter", "open"}, {"ctrl+r", "run now"}, {"↑↓", "move"}, {"u", "undo"}}
 		case railElse:
-			return []hint{{"enter", "open"}, {"R", "run now"}, {"↑↓", "move"}, {"u", "undo"}}
+			return []hint{{"enter", "open"}, {"ctrl+r", "run now"}, {"↑↓", "move"}, {"u", "undo"}}
 		}
-		return []hint{{"enter", "open"}, {"R", "run now"}, {"a", "add conversations"}, {"x", "delete"}, {"↑↓", "move"}, {"u", "undo"}}
+		return []hint{{"enter", "open"}, {"ctrl+r", "run now"}, {"a", "add conversations"}, {"x", "delete"}, {"↑↓", "move"}, {"u", "undo"}}
 	}
 	if r, ok := m.panelSelected(); ok && r.kind == "set" {
 		if r.key == "read" {
-			return []hint{{"←→", "change"}, {"enter", "choose"}, {"esc", "back"}, {"R", "run now"}}
+			return []hint{{"←→", "change"}, {"enter", "choose"}, {"esc", "back"}, {"ctrl+r", "run now"}}
 		}
-		return []hint{{"enter", "change"}, {"esc", "back"}, {"R", "run now"}, {"a", "add conversations"}}
+		return []hint{{"enter", "change"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"a", "add conversations"}}
 	}
 	sel := ""
 	if n := len(m.convSel); n > 0 {
@@ -315,7 +315,7 @@ func (m *model) targetsOf(r convRow) []convRow {
 func (m *model) keySpaces(k string) tea.Cmd {
 	it := m.selectedRail()
 	switch k {
-	case "R":
+	case "ctrl+r":
 		if it.space != "" {
 			return m.runNow([]string{it.space}, m.spaceNames()[it.space])
 		}
@@ -855,6 +855,27 @@ func (m *model) cardsOf(space string) int {
 		}
 	}
 	return n
+}
+
+// wheel moves the panel under the pointer, as ↑ and ↓ do there, and gives
+// that panel the keyboard.
+func (m *model) wheel(x int, k string) tea.Cmd {
+	switch m.tab {
+	case tabFeed:
+		rw := feedRailWidth(m.w)
+		switch {
+		case x < rw:
+			m.feedFocus = focusSpaces
+		case x < rw+feedListWidth(m.w-rw):
+			m.feedFocus = focusCards
+		default:
+			m.feedFocus = focusCard
+		}
+	case tabSpaces:
+		// The list, or the panel when the item has rows.
+		m.spcFocus = x >= listWidth(m.w) && m.selectedRail().kind != railAdd
+	}
+	return m.tabKey(k)
 }
 
 // clickSpaces selects the clicked row of the list or of the panel. A click

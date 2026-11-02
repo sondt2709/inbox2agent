@@ -98,8 +98,8 @@ func TestSpaceFilterKeepsTheIDAndResets(t *testing.T) {
 	if got := titles(h.m); got != "Acme deploy" {
 		t.Fatalf("cards of Acme = %q", got)
 	}
-	if !strings.Contains(screen(h.m), "space: Acme") {
-		t.Error("the filter bar does not show the space")
+	if !strings.Contains(screen(h.m), "▌Acme") {
+		t.Error("the space list does not mark the space")
 	}
 	// Another process adds a space before Acme: the filter stays on Acme.
 	cfg := loadFile(t, h.m)
@@ -140,8 +140,8 @@ func TestActivityUsesTheSpaceFilter(t *testing.T) {
 		t.Errorf("Activity with the filter Acme:\n%s", s)
 	}
 	// The same filter in the Feed.
-	send(m, "1")
-	if !strings.Contains(screen(m), "space: Acme") {
+	at(m, tabFeed)
+	if !strings.Contains(screen(m), "▌Acme") {
 		t.Errorf("the Feed does not use the filter of Activity:\n%s", screen(m))
 	}
 }
@@ -152,7 +152,7 @@ func TestFeedFooterHasNoCutHint(t *testing.T) {
 	lines := strings.Split(screen(h.m), "\n")
 	footer := strings.TrimSpace(lines[len(lines)-1])
 	var known []string
-	for _, x := range append(feedHints(), hint{"tab", "next tab"}, hint{"?", "keys"}, hint{"q", "quit"}) {
+	for _, x := range append(h.m.feedHints(), hint{"?", "keys"}, hint{"q", "quit"}) {
 		known = append(known, x.key+" "+x.desc)
 	}
 	for _, part := range regexp.MustCompile(`\s+·\s+|\s{3,}`).Split(footer, -1) {
@@ -175,7 +175,7 @@ func TestKeyHelpDoesNotWrapItsLines(t *testing.T) {
 			t.Errorf("the key help does not show the line %q as one line:\n%s", l, s)
 		}
 	}
-	if l := lineWith(s, "r reply"); !strings.Contains(ansi.Strip(l), "Feed") {
+	if l := lineWith(s, "←/→ panel"); !strings.Contains(ansi.Strip(l), "Feed") {
 		t.Errorf("the line of the Feed keys does not start with Feed: %q", l)
 	}
 }
@@ -247,16 +247,20 @@ func TestFeedSpaceListAndArrows(t *testing.T) {
 			t.Errorf("the space list does not match %s:\n%s", want, s)
 		}
 	}
-	send(h.m, "right")
-	if h.m.activeSpace() != "acme" || len(h.m.visibleCards()) != 1 {
-		t.Errorf("→: space %q with %d cards, want acme with 1", h.m.activeSpace(), len(h.m.visibleCards()))
+	send(h.m, "left", "down")
+	if h.m.feedFocus != focusSpaces || h.m.activeSpace() != "acme" || len(h.m.visibleCards()) != 1 {
+		t.Errorf("← ↓: focus %d, space %q with %d cards, want the space list on acme with 1", h.m.feedFocus, h.m.activeSpace(), len(h.m.visibleCards()))
 	}
-	send(h.m, "left", "left")
+	send(h.m, "down", "down")
 	if h.m.activeSpace() != config.UnsortedID {
-		t.Errorf("← two times from Acme: space %q, want Everything else (the list wraps)", h.m.activeSpace())
+		t.Errorf("↓ to the end: space %q, want Everything else (the last row)", h.m.activeSpace())
+	}
+	send(h.m, "up", "up", "up", "up")
+	if h.m.activeSpace() != "" {
+		t.Errorf("↑ to the top: space %q, want All", h.m.activeSpace())
 	}
 	h.m.Update(tea.WindowSizeMsg{Width: 90, Height: 40})
-	if feedRailWidth(90) != 0 || strings.Contains(screen(h.m), "│ Spaces ") {
-		t.Error("the space list shows below 100 columns")
+	if feedRailWidth(90) != 0 || strings.Contains(screen(h.m), "│ Spaces ") || h.m.feedFocus != focusCards {
+		t.Error("below 100 columns the space list shows, or keeps the keyboard")
 	}
 }

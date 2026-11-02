@@ -146,7 +146,7 @@ func (m *model) pairDone(msg pairDoneMsg) tea.Cmd {
 	a := config.NewWhatsAppAccount(p.id)
 	a.Name = orStr(p.name, p.id)
 	m.chs[p.id] = chatInfos(msg.chats)
-	return m.addAccount(a, "", fmt.Sprintf("Paired %s: %s are in Everything else. Add them to spaces in 2 Spaces (a, or / to find one).", a.Title(), plural(len(msg.chats), "chat", "chats")))
+	return m.addAccount(a, "", fmt.Sprintf("Paired %s: %s are in Everything else. Add them to spaces in Spaces (a, or / to find one).", a.Title(), plural(len(msg.chats), "chat", "chats")))
 }
 
 // cancelPairing stops a running pairing.

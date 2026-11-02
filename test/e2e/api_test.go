@@ -50,9 +50,9 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 
 	// R in the Feed with the daemon.
 	tui := p.term("")
-	tui.WaitFor(`1 Feed`, 30*time.Second)
+	tui.WaitFor(`Cards · `, 30*time.Second)
 	w.Post(t, w.Bob, w.Selected, "S41 second message")
-	tui.Keys("R")
+	tui.Keys("C-r")
 	// The daemon holds its lock, so a success means that the daemon did the run.
 	waitRun(t, tui, p, 2) // the digest of run --once, then this one
 
@@ -63,13 +63,13 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 		t.Errorf("the socket stays after the daemon stopped: %v", err)
 	}
 	w.Post(t, w.Bob, w.Selected, "S41 third message")
-	tui.Keys("R")
+	tui.Keys("C-r")
 	waitRun(t, tui, p, 3)
-	// R in the Spaces area without the daemon: the selected item is Everything else.
+	// ctrl+r in the Spaces area without the daemon: the selected item is Everything else.
 	w.Post(t, w.Bob, w.Selected, "S41 fourth message")
-	tui.Press("2", `\+ New space`, 5*time.Second)
-	tui.WaitFor(`R run now`, 10*time.Second) // after the status line of the last run
-	tui.Keys("R")
+	tui.Press("Tab", `\+ New space`, 5*time.Second) // Feed → Spaces
+	tui.WaitFor(`ctrl\+r run now`, 10*time.Second)  // after the status line of the last run
+	tui.Keys("C-r")
 	waitRun(t, tui, p, 4)
 	tui.Keys("q")
 	var all []string

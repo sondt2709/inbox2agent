@@ -45,7 +45,7 @@ func TestS33WhatsAppNotPaired(t *testing.T) {
 
 	tm := p.term("config")
 	tm.WaitFor(`\+ New space`, 30*time.Second)
-	s = tm.Press("3", `linked device "i2a" · not paired`, 5*time.Second)
+	s = tm.Press("Tab", `linked device "i2a" · not paired`, 5*time.Second) // Spaces → Accounts
 	if strings.Contains(s, "Server URL") || strings.Contains(s, "Token") || !strings.Contains(s, "Phone       unknown") {
 		t.Errorf("the form of a WhatsApp account shows Mattermost fields, or no phone line:\n%s", s)
 	}
@@ -57,7 +57,7 @@ func TestS34WhatsAppAddForm(t *testing.T) {
 	p := newPerson(t, "S34")
 	tm := p.term("config")
 	tm.WaitFor(`\+ New space`, 30*time.Second)
-	tm.Press("3", `An account only connects`, 5*time.Second)
+	tm.Press("Tab", `An account only connects`, 5*time.Second) // Spaces → Accounts
 	tm.Press("Enter", `▌ Platform`, 5*time.Second)
 	s := tm.Press("Right", `Phone number`, 5*time.Second)
 	for _, want := range []string{"can ban an account", "Connect"} {

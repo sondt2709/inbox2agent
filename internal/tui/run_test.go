@@ -31,7 +31,7 @@ func TestRInTheFeedRunsAllSpaces(t *testing.T) {
 	h := newFeedModel(t)
 	f := &fakeRun{}
 	h.m.u.d.RunNow = f.run
-	send(h.m, "R")
+	send(h.m, "ctrl+r")
 	if len(f.calls) != 1 || f.calls[0] != nil {
 		t.Fatalf("runs = %v, want one run of all spaces", f.calls)
 	}
@@ -44,7 +44,7 @@ func TestRInTheSpacesTabRunsTheSelectedSpace(t *testing.T) {
 	m := newTestModel(t)
 	f := &fakeRun{}
 	m.u.d.RunNow = f.run
-	send(m, "R") // Acme is the first row
+	send(m, "ctrl+r") // Acme is the first row
 	if len(f.calls) != 1 || len(f.calls[0]) != 1 || f.calls[0][0] != "acme" {
 		t.Fatalf("runs = %v, want one run of acme", f.calls)
 	}
@@ -57,8 +57,8 @@ func TestASecondRWhileARunIsBusy(t *testing.T) {
 	h := newFeedModel(t)
 	f := &fakeRun{release: make(chan struct{})}
 	h.m.u.d.RunNow = f.run
-	cmd := h.m.key("R") // the run waits for release
-	h.m.key("R")
+	cmd := h.m.key("ctrl+r") // the run waits for release
+	h.m.key("ctrl+r")
 	if !strings.Contains(screen(h.m), "A run is busy") {
 		t.Errorf("a second R did not say that a run is busy:\n%s", screen(h.m))
 	}

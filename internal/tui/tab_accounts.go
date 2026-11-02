@@ -168,7 +168,7 @@ func (m *model) accountForm(id string) *form {
 	}
 	fm.fields = append(fm.fields,
 		noteField(m.accountSpaces(id), textStyle),
-		noteField("This account does not choose a space or an agent. Add its conversations to spaces in 2 Spaces.", faint),
+		noteField("This account does not choose a space or an agent. Add its conversations to spaces in Spaces.", faint),
 		textField("name", "Name", a.Title(), a.ID, "The name that i2a shows, for example Company A or Personal phone.", required),
 		mmOnly(textField("url", "Server URL", a.URL, "https://chat.example.com", "The address of the Mattermost server.", validURL)),
 		mmOnly(secretField("token", "Token", "stored in the "+m.u.d.Secrets.Backend()+" · type a new token to replace it",
@@ -311,7 +311,7 @@ func (m *model) newAccountForm() *form {
 	warn.hidden = phone.hidden
 	used := func(s string) bool { _, ok := u.cfg.Account(s); return ok }
 	fm.fields = []*formField{
-		noteField("An account only connects. After the connection, its conversations are in Everything else; add them to spaces in 2 Spaces. GitHub and Linear come later.", faint),
+		noteField("An account only connects. After the connection, its conversations are in Everything else; add them to spaces in Spaces. GitHub and Linear come later.", faint),
 		kind,
 		textField("id", "Account ID", newID("work", used), "work", "A short ID that does not change, for example work or phone.", func(s string) error {
 			if used(s) {
@@ -359,7 +359,7 @@ func (m *model) connectAccount() tea.Cmd {
 				return nil
 			}
 			a.User = user
-			return m.addAccount(a, tok, "Connected as "+user+". Its conversations are in Everything else: add them to spaces in 2 Spaces.")
+			return m.addAccount(a, tok, "Connected as "+user+". Its conversations are in Everything else: add them to spaces in Spaces.")
 		}
 	})
 }

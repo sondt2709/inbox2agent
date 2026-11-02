@@ -116,43 +116,43 @@ Each change that is merged into `main` makes a new release. The PR title gives t
 ## Quick start
 
 1. Create a personal access token in Mattermost: **Profile > Security > Personal Access Tokens**. If you do not see this section, ask your administrator to turn on personal access tokens.
-2. Run `i2a config`. Press `3` (Setup › Accounts), then `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Everything else.
-3. Press `2` (Spaces), select "+ New space" and press `enter` to make a space, for example "Company A". Press `a` in the space: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` to add or remove a conversation.
+2. Run `i2a config`. Click **Setup** (or press `tab`) to open Accounts, then press `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Everything else.
+3. Click **Spaces**, select "+ New space" and press `enter` to make a space, for example "Company A". Press `a` in the space: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` to add or remove a conversation.
 4. Select Everything else. It reads each conversation that no space has, at the level "New and other conversations read" (default: only the messages for you), and sends them to its agent, or holds them.
 5. Run `i2a run --once`. The default agent `triage` uses the `dry-run` driver, so `i2a` writes a digest file and starts no agent. Read the digest to see what an agent would get.
-6. Run `i2a config` again. Press `3` and `tab` (Setup › Agents), and `enter` to edit `triage`. Set the driver to `orca` (`→`), the CLI (for example `claude`) and the workspace folder, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. Press `tab` (Schedules) to change when the spaces send.
+6. Run `i2a config` again. Click **Setup**, then **Agents**, and press `enter` to edit `triage`. Set the driver to `orca` (`→`), the CLI (for example `claude`) and the workspace folder, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. Click **Schedules** to change when the spaces send.
 7. Allow the agent to run `i2a card`. For Claude Code, add a rule to `.claude/settings.json` (or `settings.local.json`) in the workspace folder, with the path that `command -v i2a` shows:
 
    ```json
    { "permissions": { "allow": ["Bash(/Users/you/.local/bin/i2a card:*)"] } }
    ```
 
-8. Press `3` and `tab` three times (Setup › Settings), then `i` to install the background service. Or run `i2a service install`. `i2a` now runs in the background at login.
+8. Click **Setup**, then **Settings**, and press `i` to install the background service. Or run `i2a service install`. `i2a` now runs in the background at login.
 9. Run `i2a`. The Feed shows the cards of the agent.
 
 Run `i2a status` to see the accounts, the spaces with their next send, the agents, the schedules, the message counts and the service state.
 
 ### The dashboard
 
-`i2a` opens the dashboard on the Feed. `i2a config` opens it on Spaces. The header has three areas, and at the right the service, the next send and `R run now`:
+`i2a` opens the dashboard on the Feed. `i2a config` opens it on Spaces. The header has three areas, and at the right the service, the next send and `ctrl+r run now`. Click an area or a section to open it:
 
 ```
-◆ i2a   1 Feed 3   2 Spaces 2 new   3 Setup              ● running · next send today 11:45 · R run now
+◆ i2a   Feed 3   Spaces 2 new   Setup                    ● running · next send today 11:45 · ctrl+r run now
  Last run 11:40:12 · Read 1 new messages · Review: sent (1).
 ```
 
 | Area | Shows |
 |---|---|
-| 1 Feed | the spaces with their card counts at the left, the cards, and the selected card: space, summary (Markdown), suggested reply and source messages |
-| 2 Spaces | each space, Everything else, New conversations and Ignored at the left; at the right the panel of the selected item |
-| 3 Setup | the sections Accounts, Agents, Schedules, Settings and Send log; `tab` goes to the next section |
+| Feed | three panels: the spaces with their card counts, the cards, and the selected card: space, summary (Markdown), suggested reply and source messages |
+| Spaces | each space, Everything else, New conversations and Ignored at the left; at the right the panel of the selected item |
+| Setup | the sections Accounts, Agents, Schedules, Settings and Send log |
 
 The line under the header shows the sections of Setup, or the result of the last run until the next one. These keys work in each area:
 
 | Key | Action |
 |---|---|
-| `1` `2` `3` | Feed, Spaces, Setup. `tab` / `shift+tab` go through all sections. |
-| `R` | Read all accounts and send the waiting messages now, without waiting for the schedule. In Spaces: send the selected space. |
+| click | Open an area or a section. `tab` / `shift+tab` also go through all sections. |
+| `ctrl+r` | Read all accounts and send the waiting messages now, without waiting for the schedule. In Spaces: send the selected space. |
 | `/` | Find a conversation of any account, and set its spaces |
 | `?` / `q` | All keys / quit |
 
@@ -160,18 +160,19 @@ In the Feed:
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` | Select a card. The card that you select becomes read. |
-| `←` / `→` | The previous or the next space of the list at the left (100 columns or wider). `F` opens the same list as a dialog. The Send log uses the same filter. |
+| `←` / `→` | Give the keyboard to the panel at the left or right: Spaces, Cards, Card. The panel with the keyboard has the accent border. Below 100 columns the Spaces panel is hidden. |
+| `↑` / `↓` | In Spaces: select a space (the Send log uses the same filter). In Cards: select a card; the card that you select becomes read. In Card: scroll the text. The mouse wheel and the trackpad do the same on the panel under the pointer. |
+| `pgup` / `pgdn` | Scroll the text of the card |
+| `F` | Open the space list as a dialog |
 | `r` | Reply: the form at the right has the suggested reply. Edit it, then press `ctrl+s` to send, or `esc` to cancel. See [Replies](#replies). |
 | `t` | Ask the agent about the card, for example "research more". Type the text, then press `ctrl+s`. See [Asks](#asks). |
 | `c` | Copy the suggested reply |
 | `o` | Open the thread of the first source message in the browser |
 | `d` / `u` | Mark the card done / unread |
 | `s` | Sort by urgency (high first) or by newest |
-| `f` | Filter by category: all, action, question, info |
 | `a` | Show or hide the done cards |
 
-The list shows the urgency of each card as bars: `▰▰▰` high (red), `▰▰▱` normal, `▰▱▱` low (grey).
+Each card row starts with the category and the urgency as bars: `▰▰▰` high (red), `▰▰▱` normal, `▰▱▱` low (grey), then `●` for a new card and the title. The second line is the space, the channel in bold, and the time. The title of the Card panel shows `↓ more` when text is below.
 
 The Feed shows the card body as Markdown: headings, bold, lists, code and tables. A link in the body shows as text and cannot be opened. The suggested reply shows as plain text, because `c` copies it and `r` sends it as it is.
 
@@ -214,9 +215,9 @@ A form saves to `config.toml` when you submit it. A running daemon reads the fil
 To add a WhatsApp account:
 
 1. Make the terminal at least 47 rows tall. The QR code needs about 33 rows. A shorter window tells you the number of rows that it needs.
-2. Run `i2a config`. Press `3`, then `enter`. Set Platform to WhatsApp (`→`), type an account ID (for example `phone`) and a name, and press `ctrl+s`.
+2. Run `i2a config`. Click **Setup**, then press `enter`. Set Platform to WhatsApp (`→`), type an account ID (for example `phone`) and a name, and press `ctrl+s`.
 3. On the phone, open WhatsApp › Settings › Linked devices › Link a device, and scan the QR code. The phone shows the device as "i2a". To type a code on the phone instead of a scan, type your phone number in international format (`+15551234567`) before you press `ctrl+s`.
-4. After the scan, the chats are in Everything else. Press `2`, then `a` in a space to add chats, or `/` to find one chat and set its spaces. `i` in Everything else ignores a chat.
+4. After the scan, the chats are in Everything else. Click **Spaces**, then press `a` in a space to add chats, or `/` to find one chat and set its spaces. `i` in Everything else ignores a chat.
 
 Or run `i2a account add whatsapp --id phone [--name "Personal phone"] [--phone +15551234567]`. It prints the QR code in the terminal.
 
@@ -242,7 +243,7 @@ How it works:
 5. The agent reads the batch and runs `i2a card add` with one card for each topic (see [Cards](#cards)).
 6. On macOS, `i2a card add` shows a notification for new cards, and the daemon shows one after each failed send. Each minute, the daemon also sends the asks that wait for a busy agent.
 
-`R` in the dashboard and `i2a run --once` ask the running daemon to read and send now. When no daemon runs, they do the work in their own process. So only one process reads the accounts, and a WhatsApp account keeps one connection. While the daemon runs, the status line of the dashboard shows each batch that it sends.
+`ctrl+r` in the dashboard and `i2a run --once` ask the running daemon to read and send now. When no daemon runs, they do the work in their own process. So only one process reads the accounts, and a WhatsApp account keeps one connection. While the daemon runs, the status line of the dashboard shows each batch that it sends.
 
 ### The daemon API
 

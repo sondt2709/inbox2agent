@@ -22,7 +22,7 @@ func TestHeaderShowsTheAreasAndSetupSections(t *testing.T) {
 	m := newTestModel(t)
 	m.seen = seenSet{"work": {"C1"}}
 	head := lines(m)[0]
-	for _, want := range []string{"1 Feed", "2 Spaces 2 new", "3 Setup", "● running", "R run now"} {
+	for _, want := range []string{"Feed", "Spaces 2 new", "Setup", "● running", "ctrl+r run now"} {
 		if !strings.Contains(head, want) {
 			t.Errorf("header %q has no %q", head, want)
 		}
@@ -30,7 +30,7 @@ func TestHeaderShowsTheAreasAndSetupSections(t *testing.T) {
 	if m.tab != tabSpaces {
 		t.Errorf("i2a config opens tab %d, want Spaces", m.tab)
 	}
-	send(m, "3")
+	at(m, tabAccounts) // a click on Setup
 	if sub := lines(m)[1]; m.tab != tabAccounts || !strings.Contains(sub, "Accounts · Agents · Schedules · Settings · Send log") {
 		t.Fatalf("3 opens tab %d with %q", m.tab, sub)
 	}
@@ -43,11 +43,11 @@ func TestHeaderShowsTheAreasAndSetupSections(t *testing.T) {
 		t.Errorf("tab after Send log: tab %d, want Feed", m.tab)
 	}
 	send(m, "3")
-	if m.tab != tabActivity {
-		t.Errorf("3 opens tab %d, want the last section of Setup", m.tab)
+	if m.tab != tabFeed {
+		t.Errorf("3 opens tab %d; the areas have no number keys", m.tab)
 	}
 	at(m, tabFeed)
-	if sub := lines(m)[1]; !strings.Contains(sub, "No run yet. R reads all accounts") {
+	if sub := lines(m)[1]; !strings.Contains(sub, "No run yet. ctrl+r reads all accounts") {
 		t.Errorf("the line under the header of the Feed: %q", sub)
 	}
 }
@@ -276,7 +276,7 @@ func TestNarrowFooterKeepsTheMainKeys(t *testing.T) {
 	m := newTestModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	footer := func() string { l := lines(m); return l[len(l)-1] }
-	if f := footer(); !strings.Contains(f, "R run now") || !strings.Contains(f, "enter open") {
+	if f := footer(); !strings.Contains(f, "ctrl+r run now") || !strings.Contains(f, "enter open") {
 		t.Errorf("Spaces at 80 columns: %q", f)
 	}
 	send(m, "enter")

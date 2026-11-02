@@ -31,9 +31,6 @@ const (
 	sortNewest  = "newest"
 )
 
-// feedFilters are the filters of the f key, in order. "" is all categories.
-var feedFilters = append([]string{""}, inbox.Categories...)
-
 // statusMsg shows a text in the footer, from work outside the UI loop.
 type statusMsg struct {
 	text  string
@@ -126,13 +123,12 @@ func (m *model) setFeed(f feedMsg) {
 	}
 }
 
-// cardShown reports whether the done and category filters show the card.
+// cardShown reports whether the done filter shows the card.
 func (m *model) cardShown(c inbox.Card) bool {
 	if c.State == inbox.CardDone && !m.feedAll {
 		return false
 	}
-	f := feedFilters[m.feedFilter]
-	return f == "" || c.Category == f
+	return true
 }
 
 // visibleCards returns the cards of the filter in the sort order.
@@ -221,19 +217,47 @@ func (m *model) threadURL(c inbox.Card) string {
 }
 
 func (m *model) keyFeed(k string) tea.Cmd {
+	if feedRailWidth(m.w) == 0 && m.feedFocus == focusSpaces {
+		m.feedFocus = focusCards // the space list is hidden
+	}
 	switch k {
-	case "up", "k":
-		return m.moveFeed(m.feedSel - 1)
-	case "down", "j":
-		return m.moveFeed(m.feedSel + 1)
+	case "left", "h":
+		if m.feedFocus > focusCards || (m.feedFocus == focusCards && feedRailWidth(m.w) > 0) {
+			m.feedFocus--
+		}
+		return nil
+	case "right", "l":
+		m.feedFocus = min(focusCard, m.feedFocus+1)
+		if m.feedFocus == focusCard && m.form != nil {
+			return m.focusForm() // the open reply or ask form takes the keyboard
+		}
+		return nil
+	case "up", "k", "down", "j":
+		step := 1
+		if k == "up" || k == "k" {
+			step = -1
+		}
+		switch m.feedFocus {
+		case focusSpaces:
+			sp := m.feedSpaces()
+			i := max(0, min(len(sp)-1, slices.Index(sp, m.activeSpace())+step))
+			m.setFeedSpace(sp[i])
+			return nil
+		case focusCard:
+			m.cardOff = max(0, m.cardOff+step)
+			return nil
+		}
+		return m.moveFeed(m.feedSel + step)
+	case "pgup":
+		m.cardOff = max(0, m.cardOff-max(1, m.h-8))
+		return nil
+	case "pgdown", "pgdn":
+		m.cardOff += max(1, m.h-8)
+		return nil
 	case "s":
 		m.feedSort = map[string]string{sortUrgency: sortNewest, sortNewest: sortUrgency}[m.feedSort]
 		m.feedSel = 0
 		m.setStatus("Sort: "+m.feedSort+".", false)
-	case "f":
-		m.feedFilter = (m.feedFilter + 1) % len(feedFilters)
-		m.feedSel = 0
-		m.setStatus("Filter: "+orStr(feedFilters[m.feedFilter], "all")+".", false)
 	case "F":
 		m.pickSpaceFilter("card", func(space string) int {
 			n := 0
@@ -244,20 +268,6 @@ func (m *model) keyFeed(k string) tea.Cmd {
 			}
 			return n
 		})
-	case "left", "h", "right", "l":
-		if m.replyCard != 0 || m.askCard != 0 {
-			m.setStatus("Send or cancel the open form first (esc).", true)
-			return nil
-		}
-		sp := m.feedSpaces()
-		i := slices.Index(sp, m.activeSpace())
-		step := 1
-		if k == "left" || k == "h" {
-			step = len(sp) - 1
-		}
-		m.spaceFilter, m.feedSel = sp[(i+step)%len(sp)], 0
-		m.setStatus("Space: "+orStr(m.spaceNames()[m.spaceFilter], "all")+".", false)
-		return nil
 	case "a":
 		m.feedAll = !m.feedAll
 		m.setStatus(map[bool]string{true: "Done cards are shown.", false: "Done cards are hidden."}[m.feedAll], false)
@@ -320,15 +330,18 @@ func (m *model) keyFeed(k string) tea.Cmd {
 func (m *model) clickFeed(x, y int) tea.Cmd {
 	rw := feedRailWidth(m.w)
 	if x < rw {
-		if i := y - 2; i >= 0 && i < len(m.feedSpaces()) {
-			m.spaceFilter, m.feedSel = m.feedSpaces()[i], 0
+		m.feedFocus = focusSpaces
+		if i := y - 2 + m.railOff; y >= 2 && i < len(m.feedSpaces()) {
+			m.setFeedSpace(m.feedSpaces()[i])
 		}
 		return nil
 	}
 	x -= rw
 	if x >= feedListWidth(m.w-rw) {
+		m.feedFocus = focusCard
 		return nil
 	}
+	m.feedFocus = focusCards
 	row := (y-2)/2 + m.feedOff // the panel border and the panel title
 	if y < 2 || row >= len(m.visibleCards()) {
 		return nil
@@ -368,7 +381,9 @@ func (m *model) feedRail(w, h int) string {
 		}
 		items = append(items, listLabel(orStr(m.spaceNames()[id], "All"), fmt.Sprint(m.cardsOf(id)), w-6))
 	}
-	return panel("Spaces", railRows(items, cur, 0, w-4, h-3, true), w, h)
+	m.railOff = scrollTo(cur, m.railOff, h-3)
+	off := m.railOff
+	return detailPanel("Spaces", railRows(items, cur, off, w-4, h-3, true), w, h, m.feedFocus == focusSpaces)
 }
 
 var (
@@ -408,125 +423,152 @@ func when(t, now time.Time) string {
 	return t.Format("02 Jan")
 }
 
-func (m *model) feedCounts() (fresh, actions, questions int) {
+// feedCounts returns the number of new cards.
+func (m *model) feedCounts() (fresh int) {
 	for _, c := range m.cards {
-		if c.State == inbox.CardDone {
-			continue
-		}
 		if c.State == inbox.CardNew {
 			fresh++
 		}
-		switch c.Category {
-		case inbox.CategoryAction:
-			actions++
-		case inbox.CategoryQuestion:
-			questions++
-		}
 	}
-	return
+	return fresh
 }
 
-func (m *model) viewFeed(w, h int) string {
-	fresh, actions, questions := m.feedCounts()
-	var bar strings.Builder
-	for i, f := range feedFilters {
-		n := 0
-		for _, c := range m.cards {
-			if (c.State != inbox.CardDone || m.feedAll) && (f == "" || c.Category == f) {
-				n++
-			}
-		}
-		label := fmt.Sprintf("%s %d", orStr(strings.ToUpper(f[:min(1, len(f))])+f[min(1, len(f)):], "All"), n)
-		if i == m.feedFilter {
-			bar.WriteString(tabActive.Render(label))
-		} else {
-			bar.WriteString(tabInactive.Render(label))
-		}
-		bar.WriteString(" ")
+// setFeedSpace shows the cards of a space ("" for all) and selects its first
+// card. With an open reply or ask form it keeps the space, so a typed text
+// is not lost.
+func (m *model) setFeedSpace(id string) bool {
+	if (m.replyCard != 0 || m.askCard != 0) && id != m.activeSpace() {
+		m.setStatus("Send or cancel the open form first (esc).", true)
+		return false
 	}
-	right := faint.Render(fmt.Sprintf("%d new · %d action · %d question · sort: ", fresh, actions, questions)) + warnStyle.Render(m.feedSort)
-	if m.feedAll {
-		right += faint.Render(" · done shown")
+	m.spaceFilter, m.feedSel, m.act = id, 0, 0
+	if v := m.visibleCards(); len(v) > 0 {
+		m.feedSelID = v[0].ID
 	}
-	if sp := m.activeSpace(); sp != "" {
-		right = faint.Render("space: ") + warnStyle.Render(m.spaceNames()[sp]) + faint.Render(" · ") + right
-	}
-	gap := max(1, w-lipgloss.Width(bar.String())-lipgloss.Width(right)-1)
-	top := bar.String() + strings.Repeat(" ", gap) + right
-	h--
+	return true
+}
 
+// The panels of the Feed that can have the keyboard.
+const (
+	focusSpaces = iota
+	focusCards
+	focusCard
+)
+
+func (m *model) viewFeed(w, h int) string {
 	rw := feedRailWidth(w)
+	if rw == 0 && m.feedFocus == focusSpaces {
+		m.feedFocus = focusCards // the space list is hidden
+	}
 	w -= rw
 	lw := feedListWidth(w)
 	v := m.visibleCards()
-	rowsPerCard := 2
-	visible := max(1, (h-3)/rowsPerCard)
+	visible := max(1, (h-3)/2)
 	m.feedOff = scrollTo(m.feedSel, m.feedOff, visible)
 	var list []string
 	inner := lw - 4
 	for i := m.feedOff; i < min(len(v), m.feedOff+visible); i++ {
-		c := v[i]
-		mark, plainMark := "  ", "  "
-		if c.State == inbox.CardNew {
-			mark, plainMark = unreadMark.Render("● "), "● "
-		}
-		titleW := max(5, inner-2-12-4-2)
-		title := truncate(c.Title, titleW)
-		replied := ""
-		if len(m.replies[c.ID]) > 0 {
-			replied = "✓ replied"
-		}
-		asked := ""
-		if m.waiting(c) {
-			asked = "↪ asked"
-		}
-		space := m.spaceNames()[m.cardSpace(c)]
-		if m.activeSpace() != "" {
-			space = "" // the space list shows it
-		}
-		meta := truncate(strings.Join(nonEmpty(asked, replied, stateNote(c), space, c.Group, when(c.UpdatedAt, m.now())), " · "), inner-6)
-		if i == m.feedSel {
-			list = append(list, selectedRow.Width(inner).Render("▌ "+plainMark+fmt.Sprintf(" %-8s  %s ", strings.ToUpper(c.Category), urgBar(c.Urgency))+title))
-			list = append(list, selectedRow.Width(inner).Render("▌     "+meta))
-			continue
-		}
-		t := textStyle
-		if c.State != inbox.CardNew {
-			t = faint
-		}
-		list = append(list, "  "+mark+catBadge(c.Category)+" "+urgLabel(c.Urgency)+" "+t.Render(title))
-		list = append(list, "      "+faint.Render(meta))
+		list = append(list, m.cardRow(v[i], i == m.feedSel, inner)...)
 	}
 	body := strings.Join(list, "\n")
 	switch {
-	case m.u.d.Store == nil:
-		body = faint.Render("No cards yet. The agent adds cards with\n\"i2a card add\" after each batch.")
-	case len(v) == 0 && len(m.cards) == 0:
+	case m.u.d.Store == nil, len(m.cards) == 0:
 		body = faint.Render("No cards yet. The agent adds cards with\n\"i2a card add\" after each batch.")
 	case len(v) == 0:
-		body = faint.Render("No card matches the filter. Press f to change it.")
+		body = faint.Render("No card in this space.")
 	}
-	left := panel(fmt.Sprintf("Cards · %d", len(v)), body, lw, h)
+	listTitle := fmt.Sprintf("Cards · %d · %s", len(v), m.feedSort)
+	if m.feedAll {
+		listTitle += " · done shown"
+	}
+	left := detailPanel(listTitle, body, lw, h, m.feedFocus == focusCards)
 
 	dw := w - lw
-	detail := ""
-	title := "Card"
 	c, ok := m.selectedCard()
-	if ok {
-		title = "Card " + fmt.Sprint(c.ID)
-		detail = m.cardDetail(c, dw-4)
-	}
-	right2 := panel(title, detail, dw, h)
-	if ok && m.form != nil && m.replyCard == c.ID {
-		right2 = detailPanel(fmt.Sprintf("Reply · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active)
-	}
-	if ok && m.form != nil && m.askCard == c.ID {
-		right2 = detailPanel(fmt.Sprintf("Ask the agent · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active)
+	var right string
+	switch {
+	case ok && m.form != nil && m.replyCard == c.ID:
+		right = detailPanel(fmt.Sprintf("Reply · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active || m.feedFocus == focusCard)
+	case ok && m.form != nil && m.askCard == c.ID:
+		right = detailPanel(fmt.Sprintf("Ask the agent · card %d", c.ID), m.form.render(dw-4, h-4), dw, h, m.form.active || m.feedFocus == focusCard)
+	default:
+		title, text := "Card", ""
+		if ok {
+			title, text = m.cardText(c, dw-4, h-3)
+		}
+		right = detailPanel(title, text, dw, h, m.feedFocus == focusCard)
 	}
 	if rw > 0 {
-		return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, m.feedRail(rw, h), left, right2)
+		return lipgloss.JoinHorizontal(lipgloss.Top, m.feedRail(rw, h), left, right)
 	}
-	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, right2)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+}
+
+// cardRow renders the two lines of a card in the list. The rows start at the
+// left edge: line 1 is the category, the urgency bars, a mark for a new card
+// and the title; line 2 is the space, the group in bold and the time.
+func (m *model) cardRow(c inbox.Card, selected bool, w int) []string {
+	cat := fmt.Sprintf("%-8s ", strings.ToUpper(c.Category))
+	mark := ""
+	if c.State == inbox.CardNew {
+		mark = "● "
+	}
+	title := truncate(c.Title, max(5, w-lipgloss.Width(cat)-4-lipgloss.Width(mark)))
+	var marks []string
+	if len(m.replies[c.ID]) > 0 {
+		marks = append(marks, "✓ replied")
+	}
+	if m.waiting(c) {
+		marks = append(marks, "↪ asked")
+	}
+	if n := stateNote(c); n != "" {
+		marks = append(marks, n)
+	}
+	space := m.spaceNames()[m.cardSpace(c)]
+	tail := strings.Join(nonEmpty(strings.Join(marks, " · "), when(c.UpdatedAt, m.now())), " · ")
+	if selected {
+		meta := strings.Join(nonEmpty(space, c.Group, tail), " · ")
+		return []string{
+			selectedRow.Width(w).Render(truncate(cat+urgBar(c.Urgency)+" "+mark+title, w)),
+			selectedRow.Width(w).Render(truncate(meta, w)),
+		}
+	}
+	t := textStyle
+	if c.State != inbox.CardNew {
+		t = faint
+	}
+	line1 := textStyle.Render(cat) + urgLabel(c.Urgency) + " " + unreadMark.Render(mark) + t.Render(title)
+	var meta []string
+	if space != "" {
+		meta = append(meta, faint.Render(space))
+	}
+	if c.Group != "" {
+		meta = append(meta, boldStyle.Render(c.Group))
+	}
+	if tail != "" {
+		meta = append(meta, faint.Render(tail))
+	}
+	return []string{line1, truncateStyled(strings.Join(meta, faint.Render(" · ")), w)}
+}
+
+// cardText returns the title and the visible lines of the card panel,
+// scrolled by m.cardOff. Another card starts at its first line.
+func (m *model) cardText(c inbox.Card, w, h int) (string, string) {
+	h = max(1, h) // a very short window
+	if c.ID != m.cardFor {
+		m.cardFor, m.cardOff = c.ID, 0
+	}
+	lines := strings.Split(m.cardDetail(c, w), "\n")
+	m.cardOff = max(0, min(m.cardOff, len(lines)-h))
+	end := max(m.cardOff, min(len(lines), m.cardOff+h))
+	title := "Card " + fmt.Sprint(c.ID)
+	if m.cardOff > 0 {
+		title += " · ↑"
+	}
+	if end < len(lines) {
+		title += " · ↓ more"
+	}
+	return title, strings.Join(lines[m.cardOff:end], "\n")
 }
 
 func stateNote(c inbox.Card) string {
@@ -719,6 +761,7 @@ func (m *model) sendReply(c inbox.Card, target inbox.Message, fm *form) tea.Cmd 
 
 func (m *model) closeReply() {
 	m.replyCard, m.form, m.formFor = 0, nil, ""
+	m.feedFocus = focusCards // the keyboard goes back to the cards
 }
 
 // cancelReply closes the reply form. When the user changed it, it asks first.
@@ -847,6 +890,7 @@ func (m *model) sendAsk(c inbox.Card, fm *form) tea.Cmd {
 
 func (m *model) closeAsk() {
 	m.askCard, m.form, m.formFor = 0, nil, ""
+	m.feedFocus = focusCards // the keyboard goes back to the cards
 }
 
 // cancelAsk closes the ask form. When the user typed text, it asks first.
@@ -891,9 +935,16 @@ func (m *model) askDone(msg askDoneMsg) tea.Cmd {
 	return func() tea.Msg { return readFeed(m.ctx, st, all) }
 }
 
-func feedHints() []hint {
-	return []hint{{"r", "reply"}, {"t", "ask agent"}, {"←→", "space"}, {"d", "done"}, {"o", "open thread"}, {"c", "copy reply"},
-		{"u", "unread"}, {"s", "sort"}, {"f", "category"}, {"a", "done cards"}, {"↑↓", "move"}}
+// feedHints are the keys of the panel that has the keyboard.
+func (m *model) feedHints() []hint {
+	switch m.feedFocus {
+	case focusSpaces:
+		return []hint{{"↑↓", "space"}, {"→", "cards"}, {"ctrl+r", "run now"}, {"F", "space list"}}
+	case focusCard:
+		return []hint{{"↑↓", "scroll"}, {"r", "reply"}, {"t", "ask agent"}, {"o", "open thread"}, {"c", "copy reply"}, {"←", "cards"}, {"pgup/pgdn", "page"}}
+	}
+	return []hint{{"r", "reply"}, {"t", "ask agent"}, {"d", "done"}, {"o", "open thread"}, {"→", "card"}, {"←", "spaces"}, {"c", "copy reply"},
+		{"u", "unread"}, {"s", "sort"}, {"a", "done cards"}}
 }
 
 // activeSpace returns the space of the filter of the Feed and Activity, or ""
@@ -916,8 +967,9 @@ func (m *model) pickSpaceFilter(unit string, count func(space string) int) {
 	}
 	set := func(id, name string) func() tea.Cmd {
 		return func() tea.Cmd {
-			m.spaceFilter, m.feedSel, m.act = id, 0, 0
-			m.setStatus("Space: "+name+".", false)
+			if m.setFeedSpace(id) {
+				m.setStatus("Space: "+name+".", false)
+			}
 			return nil
 		}
 	}

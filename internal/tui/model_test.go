@@ -191,7 +191,7 @@ func runWithTimeout(cmd tea.Cmd) tea.Msg {
 func TestDashboardShowsTheModel(t *testing.T) {
 	m := newTestModel(t)
 	s := screen(m)
-	for _, want := range []string{"1 Feed", "2 Spaces", "3 Setup", "● running", "R run now", "● Acme", "Everything else",
+	for _, want := range []string{"Feed", "Spaces", "Setup", "● running", "ctrl+r run now", "● Acme", "Everything else",
 		"Sends to   claude-work", "Conversations · 1", "# release"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the dashboard does not show %q:\n%s", want, s)
@@ -205,13 +205,13 @@ func TestDashboardShowsTheModel(t *testing.T) {
 		at(m, tabSettings)
 		send(m, "enter", "ctrl+u", "9")
 		lines := strings.Split(screen(m), "\n")
-		if !strings.Contains(lines[0], "3 Setup") || !strings.Contains(lines[0], "R run now") || !strings.Contains(lines[1], "● unsaved changes") {
+		if !strings.Contains(lines[0], "Setup") || !strings.Contains(lines[0], "ctrl+r run now") || !strings.Contains(lines[1], "● unsaved changes") {
 			t.Errorf("at %d columns the header or the unsaved mark does not fit:\n%s\n%s", w, lines[0], lines[1])
 		}
 		send(m, "esc", "d")
 	}
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	if head := strings.Split(screen(m), "\n")[0]; !strings.Contains(head, "3 Setup") || !strings.Contains(head, "R run now") {
+	if head := strings.Split(screen(m), "\n")[0]; !strings.Contains(head, "Setup") || !strings.Contains(head, "ctrl+r run now") {
 		t.Errorf("at 80 columns the header = %q", head)
 	}
 }
@@ -231,16 +231,16 @@ func TestTabKeys(t *testing.T) {
 		t.Errorf("tab after the last section: tab %d, want Feed", m.tab)
 	}
 	send(m, "2")
-	if m.tab != tabSpaces {
-		t.Errorf("2: tab %d, want Spaces", m.tab)
+	if m.tab != tabFeed {
+		t.Errorf("2 changed the tab to %d; the areas have no number keys", m.tab)
 	}
 }
 
 func TestMouseClickOnTab(t *testing.T) {
 	m := newTestModel(t)
-	// Click where a person sees the area: the text "3 Setup" in the header (row 0).
+	// Click where a person sees the area: the text "Setup" in the header (row 0).
 	head := strings.Split(screen(m), "\n")[0]
-	x := len([]rune(head[:strings.Index(head, "3 Setup")]))
+	x := len([]rune(head[:strings.Index(head, "Setup")]))
 	m.Update(tea.MouseClickMsg{X: x + 2, Y: 0, Button: tea.MouseLeft})
 	if m.tab != tabAccounts {
 		t.Fatalf("click on Setup: tab %d", m.tab)

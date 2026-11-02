@@ -203,7 +203,7 @@ func TestOnlyADialErrorIsNoDaemon(t *testing.T) {
 }
 
 // A run of the API reads a changed config.toml first: a dashboard can add a
-// space and press R a moment later, before the next step of the loop.
+// space and press ctrl+r a moment later, before the next step of the loop.
 func TestAPIRunReloadsAChangedFile(t *testing.T) {
 	old := tick
 	tick = time.Hour // the loop does not step again by itself

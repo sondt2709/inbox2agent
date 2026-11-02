@@ -260,7 +260,7 @@ func TestS01FirstStart(t *testing.T) {
 // openSection opens Setup and presses tab n times: 1 Agents, 2 Schedules,
 // 3 Settings, 4 Send log. It waits for text of that section.
 func openSection(tm *harness.Term, n int, want string) string {
-	tm.Press("3", `Accounts · Agents · Schedules`, 5*time.Second)
+	tm.Press("Tab", `Accounts · Agents · Schedules`, 5*time.Second) // Spaces → Accounts
 	for range n {
 		tm.Keys("Tab")
 	}
@@ -271,8 +271,8 @@ func openSection(tm *harness.Term, n int, want string) string {
 // of a new account, and fills the form.
 func openAddAccount(tm *harness.Term, url, token string) {
 	tm.WaitFor(`\+ New space`, 30*time.Second)
-	tm.Press("3", `An account only connects`, 5*time.Second)
-	tm.Press("Enter", `▌ Platform`, 5*time.Second) // Mattermost is the default platform
+	tm.Press("Tab", `An account only connects`, 5*time.Second) // Spaces → Accounts
+	tm.Press("Enter", `▌ Platform`, 5*time.Second)             // Mattermost is the default platform
 	tm.Press("Tab", `▌ Account ID`, 5*time.Second)
 	tm.Replace("work")
 	tm.Press("Tab", `▌ Name`, 5*time.Second)
@@ -301,7 +301,7 @@ func TestS02S04ConnectAndSortAChannel(t *testing.T) {
 		t.Errorf("the account does not show the server and the user:\n%s", s)
 	}
 	// S04: find the channel from any area, and put it in a new space.
-	tm.Press("2", `\+ New space`, 5*time.Second)
+	tm.Press("BTab", `\+ New space`, 5*time.Second) // Accounts → Spaces
 	tm.Press("/", `Find a conversation`, 5*time.Second)
 	tm.Type("selected")
 	s = tm.Press("Enter", `# selected · work`, 5*time.Second) // one match: its spaces dialog
@@ -548,10 +548,10 @@ func TestS20FullScreenTUI(t *testing.T) {
 	s := tm.WaitFor(`Everything else · conversations in no space`, 30*time.Second)
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	head := strings.Join(strings.Fields(lines[0]), " ")
-	if !regexp.MustCompile(`^◆ i2a 1 Feed 2 Spaces( \d+ new)? 3 Setup .*R run now$`).MatchString(head) {
+	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*ctrl\+r run now$`).MatchString(head) {
 		t.Errorf("the header = %q", head)
 	}
-	if !strings.Contains(lines[1], "No run yet. R reads all accounts") {
+	if !strings.Contains(lines[1], "No run yet. ctrl+r reads all accounts") {
 		t.Errorf("the line under the header = %q", lines[1])
 	}
 	for _, want := range []string{"● Everything else", "New conversations", "Ignored", "+ New space", "Sends to   triage", "# selected"} {
@@ -574,7 +574,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 		t.Fatalf("discard kept the change of the lookback:\n%s", s)
 	}
 	s = tm.Press("q", `did not change`, 5*time.Second)
-	if strings.Contains(s, "2 Spaces") {
+	if strings.Contains(s, "ctrl+r run now") {
 		t.Fatalf("the TUI is still on the screen after exit:\n%s", s)
 	}
 	after, _ := os.ReadFile(p.configFile())

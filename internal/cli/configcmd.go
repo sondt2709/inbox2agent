@@ -130,7 +130,7 @@ func runNow(ctx context.Context, e *env, spaces []string) (daemon.RunResult, err
 	}
 	unlock, err := daemon.Lock(e.paths.LockFile)
 	if errors.Is(err, daemon.ErrLocked) {
-		return res, errors.New("the daemon is starting: press R again in a few seconds")
+		return res, errors.New("the daemon is starting: press ctrl+r again in a few seconds")
 	}
 	if err != nil {
 		return res, err
