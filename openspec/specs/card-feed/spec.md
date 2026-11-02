@@ -56,7 +56,7 @@ The system SHALL provide `i2a card done --key <key>` and `i2a card done --id <id
 - **THEN** the command exits with code 1 and says that no card has that key
 
 ### Requirement: Card notifications
-On macOS, `i2a card add` SHALL show desktop notifications for the cards of the call. A card SHALL count when it was added, or updated to a higher urgency, or updated from the state `done`. Cards with an urgency lower than `[notify] min_urgency` SHALL NOT count. Each counted `high` card SHALL get one notification, for at most 3 cards in one call. All other counted cards SHALL get one grouped notification with the title `i2a: <n> new cards` and the counts by category. When the group has one card, that card SHALL get its own notification instead. A single notification SHALL have the title `i2a · <CATEGORY> · <urgency>` and the text `<group>: <title>`, cut to 200 characters. `[notify] enabled = false` SHALL turn the card notifications off.
+On macOS, `i2a card add` SHALL show desktop notifications for the cards of the call. A card SHALL count when it was added, or updated to a higher urgency, or updated from the state `done`. Cards with an urgency lower than `[notify] min_urgency` SHALL NOT count. Each counted `high` card SHALL get one notification, for at most 3 cards in one call. All other counted cards SHALL get one grouped notification with the title `i2a: <n> new cards` and the counts by category. When the group has one card, that card SHALL get its own notification instead. A single notification SHALL have the title `i2a · <CATEGORY> · <urgency>` and the text `<group>: <title>`, cut to 200 characters. `[notify] enabled = false` SHALL turn the card notifications off. After the desktop notifications, when a phone pairing exists, `i2a card add` SHALL send the added and updated cards to the phone as the requirement "Push from card add" of `phone-push` describes; the counted cards SHALL be the phone alerts.
 
 #### Scenario: One high and two normal cards
 - **WHEN** a call adds one `high` action and two `normal` questions, and `min_urgency` is `normal`
@@ -73,6 +73,10 @@ On macOS, `i2a card add` SHALL show desktop notifications for the cards of the c
 #### Scenario: Unchanged card
 - **WHEN** a call contains only cards that are unchanged
 - **THEN** no notification shows
+
+#### Scenario: Paired phone
+- **WHEN** a phone pairing exists and a call adds one `high` action
+- **THEN** macOS shows the notification and FCM gets one sealed message with `alert` true
 
 ### Requirement: Card section in the primer
 The system SHALL append a fixed card section to the primer of each batch for a driver other than `dry-run`. The section SHALL name the absolute path of the `i2a` executable (with `I2A_HOME=<path>` before it when the variable is set), show the JSON shape of a card, explain each field, and tell the agent to use the `id` values of the messages in `refs` and the same `key` for the same topic. The section SHALL say that the body can use Markdown (headings, lists, bold, code, tables) and that links show as text and cannot be opened. A custom primer template SHALL NOT remove the section.

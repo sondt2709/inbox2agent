@@ -1,4 +1,4 @@
-package whatsapp
+package qrcode
 
 import (
 	"strings"
@@ -7,11 +7,11 @@ import (
 	"rsc.io/qr"
 )
 
-// TestQRTextDecodesToTheCode reads the half blocks back into modules and
+// TestTextDecodesToTheCode reads the half blocks back into modules and
 // compares them with the QR code.
-func TestQRTextDecodesToTheCode(t *testing.T) {
+func TestTextDecodesToTheCode(t *testing.T) {
 	const text = "2@fake-ref,fake-noise-key,fake-identity-key,fake-adv-secret"
-	out, err := QRText(text)
+	out, err := Text(text)
 	if err != nil {
 		t.Fatal(err)
 	}

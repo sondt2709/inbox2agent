@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Copies of tokens for XML resources only. Compose uses DesignTokens.kt. -->
+    <color name="brand_primary">#FF7D56F4</color>
+    <color name="surface_base">#FF15131F</color>
+    <color name="surface_raised">#FF1E1B2E</color>
+</resources>

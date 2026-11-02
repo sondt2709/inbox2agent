@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/qrcode"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
 	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
@@ -110,7 +111,7 @@ func (m *model) pairStep(msg pairStepMsg) tea.Cmd {
 		p.code = msg.ev.Code
 	}
 	if msg.ev.QR != "" {
-		qr, err := whatsapp.QRText(msg.ev.QR)
+		qr, err := qrcode.Text(msg.ev.QR)
 		if err != nil {
 			p.err = "Cannot draw the QR code: " + err.Error()
 		}
