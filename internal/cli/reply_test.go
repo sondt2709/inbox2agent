@@ -37,7 +37,9 @@ func replyEnv(t *testing.T) (msgID int64, p *cliPlatform, notes *[]string) {
 		return func(string) (source.Replier, error) { return p, nil }
 	}
 	var got []string
-	replyNotifier = func() notify.Notifier { return func(title, text string) { got = append(got, title+" | "+text) } }
+	replyNotifier = func(notify.Options) notify.Notifier {
+		return func(n notify.Note) { got = append(got, n.Title+" | "+n.Body) }
+	}
 	t.Cleanup(func() { replyBuilder, replyNotifier = oldB, oldN })
 	return msgID, p, &got
 }

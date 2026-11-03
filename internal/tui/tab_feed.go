@@ -15,8 +15,10 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/sondt2709/inbox2agent/internal/ask"
+	"github.com/sondt2709/inbox2agent/internal/card"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/reply"
 	"github.com/sondt2709/inbox2agent/internal/source"
 	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
@@ -108,8 +110,10 @@ func readFeed(ctx context.Context, st Store, all bool) feedMsg {
 	return f
 }
 
-// setFeed takes new cards and keeps the selection on the same card.
-func (m *model) setFeed(f feedMsg) {
+// setFeed takes new cards and keeps the selection on the same card. It
+// returns the card notes for the terminal (see Deps.FeedNotes), or nil.
+func (m *model) setFeed(f feedMsg) tea.Cmd {
+	notes := m.feedNotes(f)
 	m.cards, m.refs, m.replies, m.asks = f.cards, f.refs, f.replies, f.asks
 	if m.refs == nil {
 		m.refs = map[int64]inbox.Message{}
@@ -122,6 +126,32 @@ func (m *model) setFeed(f feedMsg) {
 	if len(v) > 0 {
 		m.feedSelID = v[m.feedSel].ID
 	}
+	return notes
+}
+
+// feedNotes compares the cards of a load with the last load and returns the
+// card notes as escape sequences for the terminal. The rule is card.Plan, as
+// for "i2a card add"; the first load gives none.
+func (m *model) feedNotes(f feedMsg) tea.Cmd {
+	saved, since := card.Diff(m.feedLast, m.feedSince, f.cards)
+	m.feedSince = since
+	m.feedLast = make(map[int64]inbox.Card, len(f.cards))
+	for _, c := range f.cards {
+		m.feedLast[c.ID] = c
+	}
+	n := m.u.cfg.Notify
+	if m.u.d.FeedNotes == nil || !n.Enabled || len(saved) == 0 {
+		return nil
+	}
+	names := m.spaceNames()
+	cx := card.Context{Refs: f.refs, Space: func(c inbox.Card) string {
+		return names[card.SpaceOf(c, f.refs, func(id string) bool { _, ok := m.u.cfg.Space(id); return ok }, m.u.cfg.Route)]
+	}}
+	var cmds []tea.Cmd
+	for _, note := range card.Plan(saved, n.MinUrgency, cx) {
+		cmds = append(cmds, tea.Raw(m.u.d.FeedNotes(note)))
+	}
+	return tea.Sequence(cmds...)
 }
 
 // cardShown reports whether the done filter shows the card.
@@ -318,7 +348,7 @@ func (m *model) keyFeed(k string) tea.Cmd {
 	case "t":
 		return m.openAsk(c)
 	case "d":
-		m.setStatus("Done: "+truncate(c.Title, 60), false)
+		m.setStatus("Done: "+truncate(render.PlainText(c.Title), 60), false)
 		return m.setCardState(c, inbox.CardDone)
 	case "u":
 		m.setStatus("Marked unread.", false)
@@ -514,7 +544,7 @@ func (m *model) cardRow(c inbox.Card, selected bool, w int) []string {
 	if c.State == inbox.CardNew {
 		mark = "● "
 	}
-	title := truncate(c.Title, max(5, w-lipgloss.Width(cat)-4-lipgloss.Width(mark)))
+	title := truncate(render.PlainText(c.Title), max(5, w-lipgloss.Width(cat)-4-lipgloss.Width(mark)))
 	var marks []string
 	if len(m.replies[c.ID]) > 0 {
 		marks = append(marks, "✓ replied")
@@ -590,7 +620,7 @@ func nonEmpty(parts ...string) []string {
 func (m *model) cardDetail(c inbox.Card, w int) string {
 	wrap := lipgloss.NewStyle().Width(w)
 	var b strings.Builder
-	b.WriteString(boldStyle.Render(wrap.Render(c.Title)) + "\n")
+	b.WriteString(boldStyle.Render(wrap.Render(render.PlainText(c.Title))) + "\n")
 	var meta strings.Builder // one line when it fits, else wrapped at w
 	meta.WriteString(catBadge(c.Category) + " " + urgStyles[c.Urgency].Render(urgBar(c.Urgency)+" "+c.Urgency))
 	space := orStr(m.spaceNames()[m.cardSpace(c)], "unknown")
@@ -999,29 +1029,7 @@ func (m *model) pickSpaceFilter(unit string, count func(space string) int) {
 // message that a dispatch sent, or else the space of the conversation of its
 // newest ref message, or "" when no ref message exists.
 func (m *model) cardSpace(c inbox.Card) string {
-	if c.Space != "" { // the space of the session of the terminal that added the card
-		if _, ok := m.u.cfg.Space(c.Space); ok {
-			return c.Space
-		}
-	}
-	var newest, sent inbox.Message
-	for _, id := range c.Refs {
-		msg, ok := m.refs[id]
-		if !ok {
-			continue
-		}
-		if msg.CreatedAt.After(newest.CreatedAt) {
-			newest = msg
-		}
-		if msg.Space != "" && msg.CreatedAt.After(sent.CreatedAt) {
-			sent = msg
-		}
-	}
-	switch {
-	case sent.Space != "":
-		return sent.Space
-	case newest.SourceID != "":
-		return m.u.cfg.Route(newest.SourceID, newest.ChannelID)
-	}
-	return ""
+	return card.SpaceOf(c, m.refs,
+		func(id string) bool { _, ok := m.u.cfg.Space(id); return ok },
+		m.u.cfg.Route)
 }

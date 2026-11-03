@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sondt2709/inbox2agent/internal/card"
+	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/store"
@@ -18,6 +20,9 @@ import (
 
 // cardNotifier shows the card notifications. Tests replace it.
 var cardNotifier = notify.Desktop
+
+// cardApps reports the installed apps for the click target. Tests replace it.
+var cardApps notify.Apps = notify.InstalledApp
 
 func newCardCmd() *cobra.Command {
 	c := &cobra.Command{
@@ -105,11 +110,19 @@ Example:
 					parts = append(parts, fmt.Sprintf("%d %s", n[r], r))
 				}
 			}
+			if cfg.Notify.Enabled && notify.FeedShows(e.paths.DataDir) {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d cards saved: %s. Notifications: the Feed shows them.\n", len(saved), strings.Join(parts, ", "))
+				return nil
+			}
 			notes := 0
 			if cfg.Notify.Enabled {
-				show := cardNotifier()
-				for _, note := range card.Plan(saved, cfg.Notify.MinUrgency) {
-					show(note.Title, note.Text)
+				cx, err := planContext(ctx, st, cfg, saved)
+				if err != nil {
+					return err
+				}
+				show := cardNotifier(notify.Options{Via: cfg.Notify.Via, DataDir: e.paths.DataDir})
+				for _, note := range card.Plan(saved, cfg.Notify.MinUrgency, cx) {
+					show(note)
 					notes++
 				}
 			}
@@ -227,4 +240,34 @@ func newCardListCmd() *cobra.Command {
 	c.Flags().BoolVar(&asJSON, "json", false, "print a JSON array")
 	c.Flags().BoolVar(&all, "all", false, "include the done cards")
 	return c
+}
+
+// planContext reads the ref messages of the saved cards and gives card.Plan
+// the space name of each card and the installed apps.
+func planContext(ctx context.Context, st *store.Store, cfg *config.Config, saved []inbox.SavedCard) (card.Context, error) {
+	var ids []int64
+	for _, c := range saved {
+		ids = append(ids, c.Refs...)
+	}
+	refs := map[int64]inbox.Message{}
+	if len(ids) > 0 {
+		msgs, err := st.MessagesByID(ctx, ids)
+		if err != nil {
+			return card.Context{}, err
+		}
+		for _, m := range msgs {
+			refs[m.ID] = m
+		}
+	}
+	valid := func(id string) bool { _, ok := cfg.Space(id); return ok }
+	return card.Context{Refs: refs, Apps: cardApps, Space: func(c inbox.Card) string {
+		id := card.SpaceOf(c, refs, valid, cfg.Route)
+		if id == config.UnsortedID {
+			return "Everything else" // the name of the Feed
+		}
+		if sp, ok := cfg.Space(id); ok {
+			return sp.Title()
+		}
+		return ""
+	}}, nil
 }
