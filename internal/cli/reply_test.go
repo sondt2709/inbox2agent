@@ -20,7 +20,8 @@ type cliPlatform struct{ posts []inbox.ReplyRequest }
 
 func (p *cliPlatform) Reply(_ context.Context, r inbox.ReplyRequest) (inbox.Posted, error) {
 	p.posts = append(p.posts, r)
-	return inbox.Posted{ID: "post" + strconv.Itoa(len(p.posts))}, nil
+	id := "post" + strconv.Itoa(len(p.posts))
+	return inbox.Posted{ID: id, URL: "https://chat.example.com/harbor/pl/" + id}, nil
 }
 
 func (p *cliPlatform) Find(context.Context, inbox.ReplyRequest) (inbox.Posted, bool, error) {
@@ -144,5 +145,21 @@ func TestReplyToAWhatsAppGroupQuotes(t *testing.T) {
 	r = i2a(t, "Or at 4.", "reply", "--to", strconv.FormatInt(id, 10), "--channel")
 	if r.err != nil || strings.TrimSpace(r.out) != "sent to Harbor team (chat). Reply 2." {
 		t.Errorf("--channel: %q, %v", r.out, r.err)
+	}
+}
+
+// A click on the reply note opens the sent post in Mattermost Desktop.
+func TestReplyNoteOpensTheSentPost(t *testing.T) {
+	id, _, _ := replyEnv(t)
+	var got []notify.Note
+	oldN, oldA := replyNotifier, replyApps
+	replyNotifier = func(notify.Options) notify.Notifier { return func(n notify.Note) { got = append(got, n) } }
+	replyApps = func(name string) bool { return name == "Mattermost" }
+	t.Cleanup(func() { replyNotifier, replyApps = oldN, oldA })
+	if r := i2a(t, "Noted, thanks.", "reply", "--to", strconv.FormatInt(id, 10)); r.err != nil {
+		t.Fatal(r.err)
+	}
+	if len(got) != 1 || got[0].Open != "mattermost://chat.example.com/harbor/pl/post1" {
+		t.Errorf("notes = %+v", got)
 	}
 }
