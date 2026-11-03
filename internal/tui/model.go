@@ -135,6 +135,8 @@ type model struct {
 
 	cards     []inbox.Card            // the Feed: open cards, and done cards when feedAll is true
 	refs      map[int64]inbox.Message // the source messages of the cards
+	feedLast  map[int64]inbox.Card    // the cards of the last load, for the card notes
+	feedSince time.Time               // the newest UpdatedAt of the loads; zero before the first
 	feedSel   int                     // index in visibleCards
 	feedSelID int64                   // the selected card, kept across reloads
 	feedOff   int
@@ -398,11 +400,10 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		reload := m.applyFile(msg.file)
 		m.counts, m.dispatches, m.svc, m.svcErr, m.loaded = msg.counts, msg.dispatches, msg.svc, msg.svcErr, true
 		m.waStates, m.waDevices, m.pending = msg.waStates, msg.waDevices, msg.pending
-		m.setFeed(msg.feed)
-		return tea.Batch(reload, tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} }))
+		notes := m.setFeed(msg.feed)
+		return tea.Batch(reload, notes, tea.Tick(refreshEvery, func(time.Time) tea.Msg { return refreshMsg{} }))
 	case feedMsg:
-		m.setFeed(msg)
-		return nil
+		return m.setFeed(msg)
 	case statusMsg:
 		m.setStatus(msg.text, msg.isErr)
 		return nil

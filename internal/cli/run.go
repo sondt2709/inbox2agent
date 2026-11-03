@@ -15,7 +15,6 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
-	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/render"
 )
 
@@ -71,7 +70,7 @@ daemon does the run, so only one process reads the accounts.`,
 			}
 			defer st.Close()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelWarn}))
-			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Notify: notify.Desktop()}, cfg)
+			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Desktop: true}, cfg)
 			defer eng.Close()
 			polls := eng.Poll(cmd.Context(), true)
 			d, err := eng.Dispatch(cmd.Context(), nil)
@@ -134,7 +133,7 @@ GET /v1/status, POST /v1/run and GET /v1/events. Example:
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Notify: notify.Desktop()}, cfg)
+			eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets, Log: log, Desktop: true}, cfg)
 			defer eng.Close()
 			srv := daemon.NewServer(app.Version, e.paths.ConfigFile, time.Now())
 			socket, err := srv.Listen(e.paths.DataDir)

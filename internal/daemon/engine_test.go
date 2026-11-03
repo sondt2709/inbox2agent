@@ -17,6 +17,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/source"
 	"github.com/sondt2709/inbox2agent/internal/store"
@@ -496,7 +497,7 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	cfg := cfgWith("work")
 	h := newHarness(t, cfg)
 	var got []string
-	h.e.d.Notify = func(title, text string) { got = append(got, title+" | "+text) }
+	h.e.d.Notify = func(n notify.Note) { got = append(got, n.Title+" | "+n.Body) }
 	ctx := context.Background()
 
 	h.sources["work"].add("a1", "a2")
@@ -703,7 +704,7 @@ func TestSetConfigAndCloseCloseTheSources(t *testing.T) {
 func TestNotifyNotPairedOnceUntilAGoodPoll(t *testing.T) {
 	h := newHarness(t, cfgWith("phone"))
 	var got []string
-	h.e.d.Notify = func(title, text string) { got = append(got, title+" | "+text) }
+	h.e.d.Notify = func(n notify.Note) { got = append(got, n.Title+" | "+n.Body) }
 	ctx := context.Background()
 	src := h.sources["phone"]
 

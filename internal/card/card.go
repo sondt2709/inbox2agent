@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/notify"
@@ -169,12 +170,6 @@ func Prepare(in []Input, known Known) ([]inbox.Card, []string, error) {
 	return out, warnings, nil
 }
 
-// Note is one desktop notification.
-type Note struct {
-	Title string
-	Text  string
-}
-
 // MaxHighNotes is the number of single notifications for high cards in one call.
 // More high cards go into the grouped notification, so an agent that a message
 // tricks into many urgent cards cannot flood the screen.
@@ -192,36 +187,108 @@ func counts(c inbox.SavedCard) bool {
 	return false
 }
 
-func single(c inbox.SavedCard) Note {
-	title := fmt.Sprintf("i2a · %s · %s", strings.ToUpper(c.Category), c.Urgency)
+// Context gives Plan the facts that are not in a card.
+type Context struct {
+	Refs  map[int64]inbox.Message   // the ref messages of the cards
+	Space func(c inbox.Card) string // the space name of a card; nil or "" when unknown
+	Apps  notify.Apps               // installed apps for the click target; nil is notify.InstalledApp
+}
+
+// SpaceOf returns the space ID of a card: the space of the session of the
+// terminal that added it, else the space of its newest ref message that was
+// sent, else the first space that routes its newest ref message. valid
+// reports whether a space exists; route gives the route of a conversation.
+func SpaceOf(c inbox.Card, refs map[int64]inbox.Message, valid func(string) bool, route func(source, channel string) string) string {
+	if c.Space != "" && valid(c.Space) {
+		return c.Space
+	}
+	var newest, sent inbox.Message
+	for _, id := range c.Refs {
+		msg, ok := refs[id]
+		if !ok {
+			continue
+		}
+		if msg.CreatedAt.After(newest.CreatedAt) {
+			newest = msg
+		}
+		if msg.Space != "" && msg.CreatedAt.After(sent.CreatedAt) {
+			sent = msg
+		}
+	}
+	switch {
+	case sent.Space != "":
+		return sent.Space
+	case newest.SourceID != "":
+		return route(newest.SourceID, newest.ChannelID)
+	}
+	return ""
+}
+
+// clickOf returns the click target of a card: the source of its newest ref
+// message with a URL, or the WhatsApp app for a WhatsApp message with no URL.
+func (cx Context) clickOf(c inbox.Card) (open, activate string) {
+	var newest, whatsapp inbox.Message
+	for _, id := range c.Refs {
+		m, ok := cx.Refs[id]
+		if !ok {
+			continue
+		}
+		if m.URL != "" && m.CreatedAt.After(newest.CreatedAt) {
+			newest = m
+		}
+		if m.SourceType == "whatsapp" && m.CreatedAt.After(whatsapp.CreatedAt) {
+			whatsapp = m
+		}
+	}
+	switch {
+	case newest.URL != "":
+		return notify.Click(newest.SourceType, newest.URL, cx.Apps)
+	case whatsapp.SourceType != "":
+		return notify.Click("whatsapp", "", cx.Apps)
+	}
+	return "", ""
+}
+
+func (cx Context) single(c inbox.SavedCard) notify.Note {
+	title := fmt.Sprintf("%s · %s", strings.ToUpper(c.Category), c.Urgency)
 	if c.Result == inbox.SaveUpdated {
-		title += " (updated)"
+		title += " · updated"
 	}
-	text := c.Title
+	var sub []string
 	if c.Group != "" {
-		text = c.Group + ": " + c.Title
+		sub = append(sub, c.Group)
 	}
-	return Note{Title: title, Text: notify.Short(text, 200)}
+	if cx.Space != nil {
+		if s := cx.Space(c.Card); s != "" {
+			sub = append(sub, s)
+		}
+	}
+	n := notify.Note{Title: title, Subtitle: strings.Join(sub, " · "), Body: render.PlainText(c.Title)}
+	if c.ID != 0 {
+		n.Group = fmt.Sprintf("i2a-card-%d", c.ID)
+	}
+	n.Open, n.Activate = cx.clickOf(c.Card)
+	return n
 }
 
 // Plan returns the notifications for the cards of one call.
-func Plan(saved []inbox.SavedCard, minUrgency string) []Note {
+func Plan(saved []inbox.SavedCard, minUrgency string, cx Context) []notify.Note {
 	min := inbox.UrgencyRank(minUrgency)
-	var notes []Note
+	var notes []notify.Note
 	var group []inbox.SavedCard
 	for _, c := range saved {
 		if !counts(c) || inbox.UrgencyRank(c.Urgency) < min {
 			continue
 		}
 		if c.Urgency == inbox.UrgencyHigh && len(notes) < MaxHighNotes {
-			notes = append(notes, single(c))
+			notes = append(notes, cx.single(c))
 			continue
 		}
 		group = append(group, c)
 	}
 	switch {
 	case len(group) == 1:
-		notes = append(notes, single(group[0]))
+		notes = append(notes, cx.single(group[0]))
 	case len(group) > 0:
 		n := map[string]int{}
 		for _, c := range group {
@@ -233,7 +300,40 @@ func Plan(saved []inbox.SavedCard, minUrgency string) []Note {
 				parts = append(parts, fmt.Sprintf("%d %s", n[cat], cat))
 			}
 		}
-		notes = append(notes, Note{Title: fmt.Sprintf("i2a: %d new cards", len(group)), Text: strings.Join(parts, ", ")})
+		notes = append(notes, notify.Note{Title: fmt.Sprintf("i2a: %d new cards", len(group)), Body: strings.Join(parts, ", "), Group: "i2a-cards"})
 	}
 	return notes
+}
+
+// Diff compares the cards of a new load of the Feed with the cards of the
+// last load (last, by ID). It returns the saved results for Plan and the
+// newest UpdatedAt for the next call. Only an agent save changes UpdatedAt,
+// so a card counts only when its UpdatedAt is after since: a card that shows
+// because the user shows the done cards gives no note. A changed card that
+// the last load did not have was done (the Feed hides done cards). The first
+// load passes a zero since and gets no result.
+func Diff(last map[int64]inbox.Card, since time.Time, cards []inbox.Card) ([]inbox.SavedCard, time.Time) {
+	newest := since
+	for _, c := range cards {
+		if c.UpdatedAt.After(newest) {
+			newest = c.UpdatedAt
+		}
+	}
+	if since.IsZero() {
+		return nil, newest
+	}
+	var out []inbox.SavedCard
+	for _, c := range cards {
+		if !c.UpdatedAt.After(since) {
+			continue
+		}
+		sv := inbox.SavedCard{Card: c, Result: inbox.SaveAdded}
+		if old, ok := last[c.ID]; ok {
+			sv.Result, sv.PrevUrgency, sv.PrevState = inbox.SaveUpdated, old.Urgency, old.State
+		} else if c.CreatedAt.Before(c.UpdatedAt) && !c.CreatedAt.After(since) {
+			sv.Result, sv.PrevUrgency, sv.PrevState = inbox.SaveUpdated, c.Urgency, inbox.CardDone
+		}
+		out = append(out, sv)
+	}
+	return out, newest
 }
