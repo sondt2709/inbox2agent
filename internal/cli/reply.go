@@ -23,6 +23,9 @@ import (
 // replyNotifier shows the notification of a reply. Tests replace it.
 var replyNotifier = notify.Desktop
 
+// replyApps reports the installed apps for the click target. Tests replace it.
+var replyApps notify.Apps = notify.InstalledApp
+
 // replyBuilder builds the replier of a source. Tests replace it.
 var replyBuilder = func(cfg *config.Config, sec secrets.Store) reply.Builder {
 	return func(sourceID string) (source.Replier, error) {
@@ -123,7 +126,10 @@ Example:
 				return err
 			}
 			if cfg.Notify.Enabled {
-				replyNotifier()("i2a · the agent sent a reply", notify.Short(target.ChannelName+": "+r.Text, 200))
+				open, activate := notify.Click(target.SourceType, r.URL, replyApps)
+				replyNotifier(notify.Options{Via: cfg.Notify.Via, DataDir: e.paths.DataDir})(notify.Note{
+					Title: "i2a · the agent sent a reply", Body: notify.Short(target.ChannelName+": "+r.Text, 200),
+					Open: open, Activate: activate})
 			}
 			where := inbox.PlaceChannel
 			if place == inbox.PlaceThread {

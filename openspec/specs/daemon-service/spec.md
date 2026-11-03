@@ -57,7 +57,7 @@ On macOS, `i2a service install` SHALL write a LaunchAgent file for the label `io
 - **THEN** the LaunchAgent file has a `PATH` value that contains the directory of the `orca` executable
 
 ### Requirement: Desktop notification
-On macOS, the daemon and `i2a run --once` SHALL show a desktop notification after each failed dispatch with a driver other than `dry-run`, with the space, the agent, the message count and the error text. They SHALL NOT show a notification for a sent batch; the cards of the agent give the notifications (see the capability `card-feed`). The daemon SHALL show one notification when a WhatsApp account becomes not paired, and again only after a successful read of that account. The system SHALL pass the title and the text to `osascript` as arguments, not as script code. `[notify] enabled = false` SHALL turn all notifications off. The default SHALL be `true`. `[notify] min_urgency` SHALL be `high`, `normal` or `low`; the default SHALL be `normal`. The configuration validation SHALL reject other values.
+On macOS, the daemon and `i2a run --once` SHALL show a desktop notification after each failed dispatch with a driver other than `dry-run`, with the space, the agent, the message count and the error text. They SHALL NOT show a notification for a sent batch; the cards of the agent give the notifications (see the capability `card-feed`). The daemon SHALL show one notification when a WhatsApp account becomes not paired, and again only after a successful read of that account. The system SHALL show these notifications through the notifier chain (see the requirement "Notifier chain" of the capability `desktop-notifications`). `[notify] enabled = false` SHALL turn all notifications off. The default SHALL be `true`. `[notify] min_urgency` SHALL be `high`, `normal` or `low`; the default SHALL be `normal`. The configuration validation SHALL reject other values.
 
 #### Scenario: Batch sent
 - **WHEN** an `orca` batch of 12 messages becomes `sent`
@@ -65,7 +65,7 @@ On macOS, the daemon and `i2a run --once` SHALL show a desktop notification afte
 
 #### Scenario: Dispatch failed
 - **WHEN** an `orca` batch fails because Orca is not reachable
-- **THEN** macOS shows a notification with the title "i2a: dispatch failed", the profile name and the error text
+- **THEN** a notification shows with the title "i2a: dispatch failed", the space name and the error text
 
 #### Scenario: Notifications off
 - **WHEN** `[notify] enabled = false` and a dispatch fails
@@ -73,7 +73,11 @@ On macOS, the daemon and `i2a run --once` SHALL show a desktop notification afte
 
 #### Scenario: WhatsApp not paired
 - **WHEN** the phone unlinks i2a and the daemon polls the source 5 times
-- **THEN** macOS shows one notification with the title "i2a: WhatsApp not paired" and the source ID
+- **THEN** one notification shows with the title "i2a: WhatsApp not paired" and the source ID
+
+#### Scenario: Daemon as a LaunchAgent with terminal-notifier
+- **WHEN** the daemon runs as the LaunchAgent, terminal-notifier is in `/opt/homebrew/bin`, Orca does not run, and a dispatch fails
+- **THEN** terminal-notifier shows the notification
 
 ### Requirement: Source connections
 The daemon SHALL close the connection of each source when it loads a new configuration and when it stops. `i2a run --once` SHALL close the connections before it exits.
@@ -132,3 +136,4 @@ The API SHALL NOT return message text or card text. The loop of the daemon SHALL
 #### Scenario: Status with a daemon
 - **WHEN** the daemon runs and the user runs `i2a status`
 - **THEN** the output has a line `Daemon: running, API <socket path>`
+

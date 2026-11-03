@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/store"
@@ -255,5 +257,95 @@ func TestFeedShowsAndFiltersTheSpace(t *testing.T) {
 	pickSpace(t, h.m, "All spaces")
 	if got := titles(h.m); !strings.Contains(got, "Staging deployed 2.14.0") {
 		t.Errorf("All spaces did not show all cards: %q", got)
+	}
+}
+
+// The rows, the Card panel and the status line show the title with no Markdown.
+func TestFeedShowsPlainTitle(t *testing.T) {
+	h := newFeedModel(t)
+	md := inbox.Card{Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh, Title: "**Check** the `notes` on [prod](https://example.com)", Key: "md"}
+	if _, err := h.st.SaveCards(context.Background(), []inbox.Card{md}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	h.m.Update(h.m.load()())
+	for range 4 {
+		if c, ok := h.m.selectedCard(); ok && c.Key == "md" {
+			break
+		}
+		send(h.m, "up")
+	}
+	s := screen(h.m)
+	if n := strings.Count(s, "Check the notes on prod"); n < 2 {
+		t.Errorf("the row and the Card panel show the plain title %d times, want 2:\n%s", n, s)
+	}
+	for _, raw := range []string{"**Check**", "`notes`", "](https://example.com)"} {
+		if strings.Contains(s, raw) {
+			t.Errorf("the Feed shows the Markdown %q", raw)
+		}
+	}
+	send(h.m, "d")
+	if s := screen(h.m); !strings.Contains(s, "Done: Check the notes on prod") {
+		t.Errorf("the status line does not show the plain title:\n%s", s)
+	}
+}
+
+// rawTexts runs a command and returns the texts of its tea.RawMsg values.
+func rawTexts(cmd tea.Cmd) []string {
+	if cmd == nil {
+		return nil
+	}
+	var out []string
+	var walk func(msg tea.Msg)
+	walk = func(msg tea.Msg) {
+		switch v := msg.(type) {
+		case tea.RawMsg:
+			out = append(out, v.Msg.(string))
+		case tea.BatchMsg:
+			for _, c := range v {
+				if c != nil {
+					walk(c())
+				}
+			}
+		default:
+			// tea.Sequence returns an unexported message: a slice of commands.
+			rv := reflect.ValueOf(msg)
+			if rv.Kind() == reflect.Slice {
+				for i := range rv.Len() {
+					if c, ok := rv.Index(i).Interface().(tea.Cmd); ok && c != nil {
+						walk(c())
+					}
+				}
+			}
+		}
+	}
+	walk(cmd())
+	return out
+}
+
+// In iTerm2 the Feed shows a note for a new card, and none for the first load
+// or for done cards that the done filter shows.
+func TestFeedShowsCardNotesInTheTerminal(t *testing.T) {
+	h := newFeedModel(t)
+	h.m.u.d.FeedNotes = func(n notify.Note) string { return notify.OSC9(notify.OSC9Text(n), false) }
+	reload := func() []string {
+		_, cmd := h.m.Update(h.m.load()())
+		return rawTexts(cmd)
+	}
+	if got := reload(); len(got) != 0 {
+		t.Fatalf("a load with no new card gave notes: %q", got)
+	}
+	md := inbox.Card{Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh, Group: "release", Title: "**Fix** the `deploy`", Key: "md"}
+	if _, err := h.st.SaveCards(context.Background(), []inbox.Card{md}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := reload(), "\x1b]9;ACTION · high · release: Fix the deploy\x07"; len(got) != 1 || got[0] != want {
+		t.Errorf("notes = %q, want %q", got, want)
+	}
+	if got := reload(); len(got) != 0 {
+		t.Errorf("the same cards gave notes again: %q", got)
+	}
+	send(h.m, "a") // show the done cards
+	if got := reload(); len(got) != 0 {
+		t.Errorf("the done filter gave notes: %q", got)
 	}
 }

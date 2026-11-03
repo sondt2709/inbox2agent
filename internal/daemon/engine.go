@@ -47,7 +47,11 @@ type Deps struct {
 	Now         func() time.Time
 	NewDriver   func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error)
 	BuildSource func(a config.Account, env source.Env) (source.Source, error)
-	Notify      notify.Notifier
+	// Notify shows the notifications. When it is nil and Desktop is true, the
+	// engine uses the desktop notifier of its current configuration, so a
+	// reload of [notify] via applies. When both are unset, no note shows.
+	Notify  notify.Notifier
+	Desktop bool
 	// CardCommand runs this i2a for the agent ("i2a card add"). The default is
 	// the path of this executable, with I2A_HOME when it is set.
 	CardCommand string
@@ -89,9 +93,6 @@ func New(d Deps, cfg *config.Config) *Engine {
 	}
 	if d.BuildSource == nil {
 		d.BuildSource = source.Build
-	}
-	if d.Notify == nil {
-		d.Notify = func(string, string) {}
 	}
 	if d.CardCommand == "" {
 		exe, err := os.Executable()
@@ -533,7 +534,19 @@ func (e *Engine) notify(p config.Agent, br BatchResult) {
 	if !e.cfg.Notify.Enabled || p.Driver == config.DriverDryRun || br.Err == nil {
 		return
 	}
-	e.d.Notify("i2a: dispatch failed", notify.Short(fmt.Sprintf("Space %s (agent %s), %d messages stay pending: %v", br.SpaceName, p.Title(), br.Count, br.Err), 200))
+	e.notifier()(notify.Note{Title: "i2a: dispatch failed",
+		Body: notify.Short(fmt.Sprintf("Space %s (agent %s), %d messages stay pending: %v", br.SpaceName, p.Title(), br.Count, br.Err), 200)})
+}
+
+// notifier returns the notifier of the engine for its current configuration.
+func (e *Engine) notifier() notify.Notifier {
+	switch {
+	case e.d.Notify != nil:
+		return e.d.Notify
+	case e.d.Desktop:
+		return notify.Desktop(notify.Options{Via: e.cfg.Notify.Via, DataDir: e.d.Paths.DataDir})
+	}
+	return func(notify.Note) {}
 }
 
 // notifyPaired shows one notification when an account becomes not paired, and
@@ -548,7 +561,7 @@ func (e *Engine) notifyPaired(id string, err error) {
 	}
 	e.unpaired[id] = true
 	if e.cfg.Notify.Enabled {
-		e.d.Notify("i2a: WhatsApp not paired", "Account "+id+": pair again in i2a config (Accounts).")
+		e.notifier()(notify.Note{Title: "i2a: WhatsApp not paired", Body: "Account " + id + ": pair again in i2a config (Accounts)."})
 	}
 }
 

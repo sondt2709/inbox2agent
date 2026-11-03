@@ -164,6 +164,26 @@
             "low"
           ],
           "type": "string"
+        },
+        "terminal": {
+          "description": "iterm2: the Feed shows the card notifications while it is open in iTerm2. off: never.",
+          "enum": [
+            "",
+            "iterm2",
+            "off"
+          ],
+          "type": "string"
+        },
+        "via": {
+          "description": "The notifier when the Feed does not show a note: auto (the Orca plugin, then terminal-notifier, then osascript), orca, terminal-notifier or osascript.",
+          "enum": [
+            "",
+            "auto",
+            "orca",
+            "terminal-notifier",
+            "osascript"
+          ],
+          "type": "string"
         }
       },
       "type": "object"

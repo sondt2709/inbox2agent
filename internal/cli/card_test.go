@@ -58,7 +58,9 @@ func cardEnv(t *testing.T) (msgID int64, notes *[]string) {
 	st.Close()
 	var got []string
 	old := cardNotifier
-	cardNotifier = func() notify.Notifier { return func(title, text string) { got = append(got, title+" | "+text) } }
+	cardNotifier = func(notify.Options) notify.Notifier {
+		return func(n notify.Note) { got = append(got, n.Title+" | "+n.Subtitle+" | "+n.Body) }
+	}
 	t.Cleanup(func() { cardNotifier = old })
 	return p[0].ID, &got
 }
@@ -92,7 +94,7 @@ func TestCardAddListDone(t *testing.T) {
 	if !strings.Contains(r.errOut, "warning: card 1: message 99999 is not in the store") {
 		t.Errorf("stderr = %q", r.errOut)
 	}
-	want := "i2a · ACTION · high | Harbor Portal: Correct your reply to Lena\ni2a · QUESTION · normal | Harbor Portal: Review PR #57"
+	want := "ACTION · high | Harbor Portal · Everything else | Correct your reply to Lena\nQUESTION · normal | Harbor Portal | Review PR #57"
 	if got := strings.Join(*notes, "\n"); got != want {
 		t.Errorf("notifications:\n%s\nwant:\n%s", got, want)
 	}
@@ -151,7 +153,7 @@ func TestCardAddUpdateByKeyAndNotifyOff(t *testing.T) {
 	if r.err != nil || !strings.Contains(r.out, "1 cards saved: 1 updated. Notifications: 1.") {
 		t.Fatalf("update: %v %q", r.err, r.out)
 	}
-	if got := (*notes)[len(*notes)-1]; got != "i2a · QUESTION · high (updated) | Review PR #57 before 18:30" {
+	if got := (*notes)[len(*notes)-1]; got != "QUESTION · high · updated |  | Review PR #57 before 18:30" {
 		t.Errorf("notification = %q", got)
 	}
 	if n := len(list(t)); n != 1 {
@@ -217,5 +219,36 @@ func TestCardAddRecordsTerminal(t *testing.T) {
 	}
 	if c := cardOf("k3"); c.Handle != "" {
 		t.Errorf("handle = %q, want none", c.Handle)
+	}
+}
+
+// While a Feed holds the lock, "i2a card add" shows no card notification.
+func TestCardAddSkipsNotesWhileTheFeedShowsThem(t *testing.T) {
+	_, notes := cardEnv(t)
+	paths, err := app.ResolvePaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := paths.EnsureDataDir(); err != nil {
+		t.Fatal(err)
+	}
+	release, ok := notify.HoldFeedLock(paths.DataDir)
+	if !ok {
+		t.Fatal("no lock")
+	}
+	r := i2a(t, `{"category":"action","urgency":"high","title":"**Fix** the reply"}`, "card", "add")
+	if r.err != nil || !strings.Contains(r.out, "1 cards saved: 1 added. Notifications: the Feed shows them.") {
+		t.Fatalf("card add: %v %q", r.err, r.out)
+	}
+	if len(*notes) != 0 {
+		t.Errorf("notes = %q, want none", *notes)
+	}
+	release()
+	r = i2a(t, `{"category":"action","urgency":"high","title":"**Fix** the other reply"}`, "card", "add")
+	if r.err != nil || !strings.Contains(r.out, "Notifications: 1.") {
+		t.Fatalf("card add after release: %v %q", r.err, r.out)
+	}
+	if got := strings.Join(*notes, "\n"); got != "ACTION · high |  | Fix the other reply" {
+		t.Errorf("notes = %q", got)
 	}
 }

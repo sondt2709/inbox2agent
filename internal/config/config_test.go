@@ -47,6 +47,17 @@ func TestParseAppliesDefaults(t *testing.T) {
 	}
 }
 
+// A [notify] table of an older i2a has no via and no terminal.
+func TestParseOldNotifyTable(t *testing.T) {
+	c, err := Parse([]byte(v2Base + "[notify]\nenabled = true\nmin_urgency = \"high\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Notify.Via != "auto" || c.Notify.Terminal != TerminalITerm2 || c.Notify.MinUrgency != "high" {
+		t.Errorf("notify = %+v", c.Notify)
+	}
+}
+
 const v2Base = `version = 2
 [[accounts]]
 id = "work"
@@ -96,6 +107,8 @@ func TestValidationErrors(t *testing.T) {
 		{"unknown platform", v2Base + "[[accounts]]\nid = \"chat\"\nplatform = \"slack\"\n", `account "chat".platform: "slack" is not supported`},
 		{"mattermost needs url", v2Base + "[[accounts]]\nid = \"w2\"\nplatform = \"mattermost\"\n", `account "w2".url: "" must start with https://`},
 		{"bad min urgency", v2Base + "[notify]\nmin_urgency = \"urgent\"\n", `notify.min_urgency: "urgent" is not high, normal or low`},
+		{"bad notifier", v2Base + "[notify]\nvia = \"growl\"\n", `notify.via: "growl" is not auto, orca, terminal-notifier or osascript`},
+		{"bad terminal", v2Base + "[notify]\nterminal = \"kitty\"\n", `notify.terminal: "kitty" is not iterm2 or off`},
 		{"newer version", "version = 3\n", "this i2a supports 2"},
 	}
 	for _, tc := range cases {
