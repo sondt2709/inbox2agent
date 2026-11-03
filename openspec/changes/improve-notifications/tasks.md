@@ -19,7 +19,7 @@
 
 - [x] 3.1 `extensions/orca/` (`orca-plugin.json`, `main.mjs`, `README.md`) and the package `extensions` that embeds it
 - [x] 3.2 Test and code: the Orca notifier against a fake Unix socket (request line, 3 s timeout, `ok: false`, missing file; no token in errors)
-- [ ] 3.3 Real run: install the plugin in Orca 1.4.240 and call it; record the real response and the error when the plugin system is off; adjust the parser to it
+- [x] 3.3 Real run: install the plugin in Orca 1.4.240 and call it; record the real response and the error when the plugin system is off; adjust the parser to it
 
 ## 4. Configuration
 
@@ -41,6 +41,6 @@
 
 ## 7. Verification
 
-- [ ] 7.1 `task test`, `task lint`, `task leakcheck`, `task e2e`
+- [x] 7.1 `task test`, `task lint`, `task leakcheck`, `task e2e`
 - [x] 7.2 Break each new test one time and confirm that it fails
-- [ ] 7.3 Real runs on macOS with screenshots: iTerm2 Feed, terminal-notifier with click (Mattermost, WhatsApp), Orca plugin, `i2a notify setup` without terminal-notifier, daemon from the LaunchAgent, Feed rows before and after
+- [x] 7.3 Real runs on macOS with screenshots: iTerm2 Feed, terminal-notifier with click (Mattermost, WhatsApp), Orca plugin, `i2a notify setup` without terminal-notifier, daemon from the LaunchAgent, Feed rows before and after
