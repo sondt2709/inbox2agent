@@ -16,7 +16,7 @@ import (
 
 // The i2a plugin of Orca (extensions/orca) and its command.
 const (
-	OrcaPluginKey = "inbox2agent.i2a"
+	OrcaPluginKey = "i2a.notify"
 	OrcaCommand   = "notify"
 	orcaTimeout   = 3 * time.Second
 )

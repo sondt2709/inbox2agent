@@ -436,7 +436,7 @@ Each card notification has the title `<CATEGORY> · <urgency>`, the group and th
 i2a shows each notification through one notifier:
 
 1. **The Feed in iTerm2.** While `i2a` is open in iTerm2, the Feed shows the card notifications in iTerm2 (OSC 9), and `i2a card add` shows none. A click brings the Feed to the front. In tmux, set `allow-passthrough on`. `[notify] terminal = "off"` turns this off.
-2. **The Orca plugin.** Orca shows the note as `i2a: <title>` and sends it to the phones that are paired with Orca. The plugin system of Orca is experimental and off by default. See [extensions/orca](extensions/orca/README.md).
+2. **The Orca plugin.** Orca shows the note as `i2a.notify: <title>` and sends it to the phones that are paired with Orca. The plugin system of Orca is experimental and off by default. See [extensions/orca](extensions/orca/README.md).
 3. **terminal-notifier** (`brew install terminal-notifier`). The note has the i2a icon as an image and the full title. A click opens the source: the post in Mattermost Desktop, the chat in WhatsApp Desktop, or the WhatsApp app for a group.
 4. **osascript.** macOS shows the note as Script Editor, and a click opens Script Editor.
 

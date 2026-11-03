@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
-  "id": "i2a",
-  "publisher": "inbox2agent",
+  "id": "notify",
+  "publisher": "i2a",
   "name": "i2a notifications",
   "version": "1.0.0",
   "description": "Shows the notifications of i2a (inbox2agent) in Orca and on the phones that are paired with Orca.",

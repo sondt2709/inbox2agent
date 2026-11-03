@@ -12,4 +12,4 @@ The plugin system of Orca is experimental. Orca 1.4.240 has it, and it is off by
 4. Allow the capability `notifications:show`.
 5. Run `i2a notify test`. It prints `orca` when Orca showed the test note.
 
-With `[notify] via = "auto"` (the default), i2a uses Orca first, then terminal-notifier, then `osascript`. Orca shows each note as `i2a: <title>`.
+With `[notify] via = "auto"` (the default), i2a uses Orca first, then terminal-notifier, then `osascript`. Orca shows each note as `i2a.notify: <title>` (the plugin key comes first).
