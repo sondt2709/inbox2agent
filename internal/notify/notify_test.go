@@ -248,7 +248,7 @@ func TestOrcaSendsThePluginCommand(t *testing.T) {
 	params, _ := req["params"].(map[string]any)
 	args, _ := params["args"].(map[string]any)
 	if req["method"] != "plugins.invokeCommand" || req["authToken"] != "secret-token" ||
-		params["pluginKey"] != "inbox2agent.i2a" || params["commandId"] != "notify" ||
+		params["pluginKey"] != "i2a.notify" || params["commandId"] != "notify" ||
 		args["title"] != "ACTION · high" || args["body"] != "release · Work — Fix it" {
 		t.Errorf("request = %v", req)
 	}
@@ -256,7 +256,7 @@ func TestOrcaSendsThePluginCommand(t *testing.T) {
 
 func TestOrcaFailures(t *testing.T) {
 	dir, _ := fakeOrca(t, func(req map[string]any) string {
-		return `{"id":"` + req["id"].(string) + `","ok":false,"error":{"code":"plugin_not_found","message":"no plugin inbox2agent.i2a"}}` + "\n"
+		return `{"id":"` + req["id"].(string) + `","ok":false,"error":{"code":"plugin_not_found","message":"plugin i2a.notify is not enabled"}}` + "\n"
 	})
 	err := Orca{UserData: dir}.Send(context.Background(), Note{Title: "t"})
 	if err == nil || !strings.Contains(err.Error(), "plugin_not_found") || strings.Contains(err.Error(), "secret-token") {

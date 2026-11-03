@@ -91,7 +91,7 @@ Facts about the notifiers (checked on macOS 26.6.2):
 - iTerm2 3.7.6 shows OSC 9 (`ESC ] 9 ; text BEL`) as a notification with the title "Alert" and the body "Session <name> #1: <text>". It ignores OSC 777. WezTerm 20240203 showed nothing for OSC 9 or 777. Only a process that owns the terminal can write OSC 9: the daemon and the agent shell have no `/dev/tty`.
 - terminal-notifier 3.1.0 uses its own bundle; its icon cannot change (`-appIcon` and `-sender` are removed). A value that starts with `[` or `-` needs a `\` in front. `-open` works on a click.
 - `open mattermost://<host>/<team>/pl/<post>` opens the post in Mattermost Desktop; `open whatsapp://send?phone=<n>` opens the chat in WhatsApp Desktop. A WhatsApp group has no link.
-- Orca 1.4.240: no OSC 9/99/777 and no `orca notify`; a bell gives fixed text. `notifications.show` of a plugin shows `<plugin id>: <title>` and also goes to the paired phones. The plugin system is experimental and off by default (`pluginSystemEnabled`).
+- Orca 1.4.240: no OSC 9/99/777 and no `orca notify`; a bell gives fixed text. `notifications.show` of a plugin shows `<publisher>.<id>: <title>` and also goes to the paired phones. The plugin system is experimental and off by default (`pluginSystemEnabled`).
 
 Facts about WhatsApp and whatsmeow that the source depends on:
 

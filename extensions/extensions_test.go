@@ -30,8 +30,8 @@ func TestWriteOrcaPlugin(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	// i2a calls "inbox2agent.i2a" and "notify" (notify.OrcaPluginKey, notify.OrcaCommand).
-	if m.Publisher+"."+m.ID != "inbox2agent.i2a" || m.Main != "main.mjs" || len(m.Contributes.Commands) != 1 || m.Contributes.Commands[0].ID != "notify" {
+	// i2a calls "i2a.notify" and "notify" (notify.OrcaPluginKey, notify.OrcaCommand).
+	if m.Publisher+"."+m.ID != "i2a.notify" || m.Main != "main.mjs" || len(m.Contributes.Commands) != 1 || m.Contributes.Commands[0].ID != "notify" {
 		t.Errorf("manifest = %+v", m)
 	}
 	var kinds []string
