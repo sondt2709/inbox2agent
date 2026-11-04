@@ -11,6 +11,8 @@ The Agents tab SHALL list the agents with their driver. The detail panel SHALL s
 - **WHEN** the user presses `s` on the agent `triage`, and the space Triage has the live terminal `term_a` with Claude session `S`
 - **THEN** the dialog shows Triage with `term_a`, the first 8 characters of `S`, the Claude session name and `live`
 
+## ADDED Requirements
+
 ### Requirement: Link a session to a space
 In the sessions dialog, `l` SHALL open an input for a terminal handle (`term_…`) or a Claude session ID (a UUID). The system SHALL find the other ID from the running Claude processes and SHALL require exactly one Claude process. It SHALL ask for a confirmation when the `cwd` of the process is outside the workspace of the agent, or when another space has the same Claude session. The link SHALL store the handle, the Claude session ID and the primer hash `pending` for the space. Unlink SHALL delete the stored session of the space; the old terminal stays open.
 
