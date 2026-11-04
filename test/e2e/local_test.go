@@ -500,13 +500,18 @@ func TestS43OrcaClaudeExitedInTheSession(t *testing.T) {
 		t.Fatalf("stored session = %+v, want %s with its Claude session", first, h1)
 	}
 
+	// /exit while a shell command of the agent runs opens a dialog
+	// (exit, move to background, stay), so wait until the agent is idle.
+	_, _ = exec.Command(bin, "terminal", "wait", "--terminal", h1, "--for", "tui-idle", "--timeout-ms", "120000", "--json").Output()
 	_ = exec.Command(bin, "terminal", "send", "--terminal", h1, "--text", "/exit", "--enter", "--json").Run()
 	finder := agent.NewClaudeFinder()
 	deadline := time.Now().Add(30 * time.Second)
-	for {
+	for gone := 0; gone < 3; { // 3 reads in a row with no Claude process in h1
 		procs, err := finder.InTerminal(h1)
 		if err == nil && len(procs) == 0 {
-			break
+			gone++
+		} else {
+			gone = 0
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("Claude still runs in %s: %+v %v", h1, procs, err)

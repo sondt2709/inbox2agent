@@ -703,3 +703,55 @@ func TestAskCardTerminalRunsAnotherSession(t *testing.T) {
 		t.Errorf("sends = %v, want the ask in term_b only", f.called("terminal send"))
 	}
 }
+
+// goneAfterWait makes the Claude process of term_a exit while the driver
+// waits for tui-idle: the queued /exit ran at the end of the turn.
+func goneAfterWait(t *testing.T, o *Orca, f *fakeOrca) {
+	t.Helper()
+	gone := false
+	o.Claude = &ClaudeFinder{Dir: copyDir(t, "4242.json"), Proc: func(pid int) (ProcInfo, error) {
+		if gone {
+			return ProcInfo{}, ErrNoProcess
+		}
+		return ProcInfo{Start: fixtureStart[pid], Handle: "term_a"}, nil
+	}}
+	run := o.Run
+	o.Run = func(ctx context.Context, bin string, args ...string) ([]byte, error) {
+		out, err := run(ctx, bin, args...)
+		if args[0] == "terminal" && args[1] == "wait" && flag(args, "--terminal") == "term_a" {
+			gone = true
+		}
+		return out, err
+	}
+}
+
+func TestReuseSessionEndsDuringWait(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, started(map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json", "wait_after_launch.json"},
+	}))
+	goneAfterWait(t, o, f)
+	sess["triage"], sess["triage#agent"] = "term_a", sessionA
+	res, err := o.Deliver(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sentTo(f, "term_a"); len(got) != 0 {
+		t.Errorf("sent to term_a after the session left it: %q", got)
+	}
+	if sess["triage"] != launchedHandle || !strings.Contains(res.Detail, "Claude session ended, started session") {
+		t.Errorf("session = %v, result = %+v; want a new session", sess, res)
+	}
+}
+
+func TestAskSessionEndsDuringWait(t *testing.T) {
+	o, f, _, _ := setup(t, config.SessionReuse, started(map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json", "wait_after_launch.json"},
+	}))
+	goneAfterWait(t, o, f)
+	if _, err := o.Ask(context.Background(), Terminal{Handle: "term_a", AgentSession: sessionA}, time.Minute, askFor(t, o)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentTo(f, "term_a"); len(got) != 0 || len(sentTo(f, launchedHandle)) != 1 {
+		t.Errorf("sends = %v; want the ask in a new session only", f.called("terminal send"))
+	}
+}

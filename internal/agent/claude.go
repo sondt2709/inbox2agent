@@ -60,9 +60,12 @@ type claudeFile struct {
 	Cwd       string `json:"cwd"`
 	Name      string `json:"name"`
 	ProcStart string `json:"procStart"` // time.ANSIC in UTC, the start of the process
+	Kind      string `json:"kind"`      // "interactive" for the TUI; "bg" after "Move to background and exit"
 }
 
-// All returns the running Claude processes.
+// All returns the running interactive Claude processes. A background
+// process ("kind": "bg") keeps ORCA_TERMINAL_HANDLE of its terminal, but the
+// terminal shows the shell, so it does not count.
 func (f *ClaudeFinder) All() ([]ClaudeProc, error) {
 	if f == nil {
 		return nil, ErrClaudeUnknown
@@ -93,6 +96,9 @@ func (f *ClaudeFinder) All() ([]ClaudeProc, error) {
 		}
 		if !sameStart(c.ProcStart, p.Start) {
 			continue // the file of an old process, and the OS gave its pid to another one
+		}
+		if c.Kind != "" && c.Kind != "interactive" {
+			continue
 		}
 		out = append(out, ClaudeProc{PID: c.PID, SessionID: c.SessionID, Name: c.Name, Cwd: c.Cwd, Handle: p.Handle})
 	}

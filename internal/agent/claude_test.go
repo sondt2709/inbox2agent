@@ -150,3 +150,17 @@ func TestIsClaude(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeFinderIgnoresBackgroundProcess(t *testing.T) {
+	// 4444-bg.json is a real file of a process after "Move to background and
+	// exit": it keeps the handle of the terminal, but the terminal shows zsh.
+	f := &ClaudeFinder{Dir: copyDir(t, "4444-bg.json"), Proc: func(int) (ProcInfo, error) {
+		return ProcInfo{Start: time.Date(2026, 11, 4, 14, 54, 46, 0, time.UTC), Handle: "term_a"}, nil
+	}}
+	if got, err := f.InTerminal("term_a"); err != nil || len(got) != 0 {
+		t.Errorf("InTerminal = %+v, %v; want no process", got, err)
+	}
+	if got, _ := f.WithSession("b3847aa1-e42b-424e-9b77-4aeff9a68086"); len(got) != 0 {
+		t.Errorf("WithSession = %+v; want no process", got)
+	}
+}

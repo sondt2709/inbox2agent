@@ -45,3 +45,9 @@
 - [x] 7.2 Local e2e scenario (`I2A_E2E_ORCA=1`): run once, `/exit` in the session, run again; expect a new handle and no prompt text in the old terminal
 - [x] 7.3 Write `docs/config.schema.json` again only if a configuration field changed (none expected)
 - [x] 7.4 Run `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task leakcheck`
+
+## 8. Findings of the e2e runs
+
+- [x] 8.1 The finder counts only `kind` `interactive`; capture a real `bg` file as `testdata/claude/sessions/4444-bg.json`
+- [x] 8.2 `sendIdle` checks the Claude session again after the `tui-idle` wait; a failed check starts a new session
+- [x] 8.3 S43 waits for `tui-idle` before `/exit`, and requires 3 reads in a row with no Claude process

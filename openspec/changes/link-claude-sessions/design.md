@@ -10,6 +10,7 @@ Facts from probes on Orca 1.4.240 and Claude Code (files in the local evidence f
 - The Claude process inherits `ORCA_TERMINAL_HANDLE` from the terminal. `sysctl kern.procargs2` (the source of `ps eww`) returns it for a process of the same user.
 - `/clear` keeps the pid and writes a new `sessionId` to the file. A command that the agent runs after `/clear` sees the new `CLAUDE_CODE_SESSION_ID`.
 - `/exit` and a new `claude` in the same terminal give a new pid and a new `sessionId`.
+- `/exit` while a shell command of the agent runs opens a dialog: "Exit and stop tasks", "Move to background and exit", "Stay". "Move to background" ends the interactive process and starts a process with `"kind": "bg"` that keeps `ORCA_TERMINAL_HANDLE` of the terminal; the terminal shows the shell.
 - 54 live terminals had exactly one Claude process each. An Agent Teams terminal (`orca claude-teams`) runs a normal Claude process.
 - The Orca CLI does not return the Claude session ID. `orca agent launch` cannot resume a session. Each terminal command needs a handle.
 - `orca terminal rename --title` sets `customTitle`. The tab bar shows `customTitle ?? title`, so the Claude title does not replace it.
@@ -60,6 +61,10 @@ stored (H, S, hash)
 ```
 
 "Adopt" keeps the 4 live sessions of an upgraded store. The cost: a session that changed before the upgrade is adopted once. The Orca live check still runs in every case: the finder proves the Claude process, and Orca proves that the terminal is writable.
+
+### D3b. Count interactive processes only, and check again before typing
+
+The first S43 e2e runs found two gaps. A `bg` process passed the check, and an agent that exits during the `tui-idle` wait passed it too (the shell is idle). The finder counts only `kind` `interactive` (or no `kind`), and `sendIdle` checks the session again right after the wait, just before it types. A failed second check sends nothing and starts a new session (`errSessionGone`). The guard of D6 stays for the last milliseconds.
 
 ### D4. Follow the session to another terminal
 

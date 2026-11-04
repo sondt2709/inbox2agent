@@ -63,6 +63,10 @@ func NewOrca(p config.Agent, space config.Space, sessions Sessions) *Orca {
 	return o
 }
 
+// errSessionGone means that the Claude session left the terminal while the
+// driver waited for the agent to be idle, for example after /exit.
+var errSessionGone = errors.New("the Claude session left the terminal")
+
 // errNoAgent is the error of a send that Orca reports with the observation
 // "unsupported": no agent runs in the terminal, for example a shell after /exit.
 var errNoAgent = errors.New("no agent runs in the terminal")
@@ -423,7 +427,10 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 	}
 	if ss.PrimerHash == inbox.PrimerPending {
 		// A session that the user linked: it did not get the primer yet.
-		res, err := o.sendIdle(ctx, ss.Handle, o.IdleTimeout, joinPrompts(b))
+		res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, joinPrompts(b))
+		if errors.Is(err, errSessionGone) {
+			return o.startSession(ctx, b, "Claude session ended, started session ")
+		}
 		if err != nil || res.Status != StatusSent {
 			return res, err
 		}
@@ -434,7 +441,10 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		res.Detail = "linked session, " + res.Detail + " with the primer"
 		return res, nil
 	}
-	res, err := o.sendIdle(ctx, ss.Handle, o.IdleTimeout, b.Prompt)
+	res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, b.Prompt)
+	if errors.Is(err, errSessionGone) {
+		return o.startSession(ctx, b, "Claude session ended, started session ")
+	}
 	if err == nil && o.orcaOnly {
 		res.Detail += "; " + ErrClaudeUnknown.Error() + ", Orca check only"
 	}
@@ -462,9 +472,11 @@ func (o *Orca) startSession(ctx context.Context, b *render.Rendered, why string)
 }
 
 // sendIdle waits up to wait for the agent in a live terminal to be idle, then
-// sends the prompt. A busy agent gives held. When no agent runs in the
-// terminal, the stored session of the space is deleted.
-func (o *Orca) sendIdle(ctx context.Context, handle string, wait time.Duration, prompt string) (Result, error) {
+// sends the prompt. A busy agent gives held. A shell is idle too, so when
+// session is known, sendIdle checks again that the terminal runs it, just
+// before it types: else errSessionGone. When no agent runs in the terminal,
+// the stored session of the space is deleted.
+func (o *Orca) sendIdle(ctx context.Context, handle, session string, wait time.Duration, prompt string) (Result, error) {
 	err := o.call(ctx, nil, "terminal", "wait", "--terminal", handle, "--for", "tui-idle",
 		"--timeout-ms", fmt.Sprint(wait.Milliseconds()))
 	if isCode(err, "timeout") {
@@ -472,6 +484,12 @@ func (o *Orca) sendIdle(ctx context.Context, handle string, wait time.Duration, 
 	}
 	if err != nil {
 		return Result{}, err
+	}
+	if o.Claude != nil && session != "" {
+		procs, err := o.Claude.InTerminal(handle)
+		if err == nil && (len(procs) != 1 || procs[0].SessionID != session) {
+			return Result{}, fmt.Errorf("%w %s", errSessionGone, handle)
+		}
 	}
 	detail, err := o.send(ctx, handle, prompt)
 	if errors.Is(err, errNoAgent) {
@@ -494,7 +512,10 @@ func (o *Orca) Ask(ctx context.Context, t Terminal, wait time.Duration, a *rende
 			return Result{}, err
 		}
 		if ok {
-			return o.sendIdle(ctx, cur.Handle, wait, a.Prompt)
+			res, err := o.sendIdle(ctx, cur.Handle, cur.AgentSession, wait, a.Prompt)
+			if !errors.Is(err, errSessionGone) {
+				return res, err
+			}
 		}
 	}
 	saved := o.IdleTimeout
