@@ -287,3 +287,41 @@ func TestOpenAddsMediaColumn(t *testing.T) {
 		t.Errorf("old row = %+v, %t, %v; want media = false", r, ok, err)
 	}
 }
+
+// testdata/timer.jsonl has a text and a document of a direct chat with
+// disappearing messages (7 days), captured with -chat.
+func TestReplyKeepsTheDisappearingTimer(t *testing.T) {
+	ctx := context.Background()
+	db := fixtureDB(t)
+	fxs := fixturesFrom(t, "testdata/timer.jsonl")
+	for i, fx := range fxs {
+		r, ok := rowFromEvent(ctx, fx.event(now.Add(time.Duration(i)*time.Minute)), Me{}, noNames)
+		if !ok {
+			t.Fatalf("fixture %s skipped", fx.ID)
+		}
+		if err := db.SaveMessage(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	text, doc := fxs[0], fxs[1]
+	if r, _, _ := db.Row(ctx, doc.Chat, doc.ID); !r.Media {
+		t.Error("the document row has media = false")
+	}
+
+	f := &fakeClient{}
+	if _, err := sendReply(ctx, f, db, "phone", inbox.ReplyRequest{Target: target(text), Text: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(f.msgs[0], &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("ok"),
+		ContextInfo: &waE2E.ContextInfo{Expiration: proto.Uint32(604800)}}}) {
+		t.Errorf("plain reply = %v; want the text with the timer 604800", f.msgs[0])
+	}
+
+	if _, err := sendReply(ctx, f, db, "phone", inbox.ReplyRequest{Target: target(doc), Text: "thanks", Thread: true}); err != nil {
+		t.Fatal(err)
+	}
+	ci := f.msgs[1].GetExtendedTextMessage().GetContextInfo()
+	if ci.GetExpiration() != 604800 || ci.GetStanzaID() != doc.ID || !proto.Equal(ci.GetQuotedMessage(), doc.Message) {
+		t.Errorf("quote = %v; want a quote of the document with the timer 604800", f.msgs[1])
+	}
+}
