@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
@@ -168,5 +169,65 @@ func TestFeedReplyTargetIsTheStoredMessage(t *testing.T) {
 	}
 	if strings.Contains(p.posts[0].Target.URL, "evil") {
 		t.Errorf("target URL = %q", p.posts[0].Target.URL)
+	}
+}
+
+// A WhatsApp group message: the form shows Quote and Chat, quotes by default,
+// and does not promise a read state.
+func TestFeedReplyWhatsAppGroup(t *testing.T) {
+	h, _ := newReplyFeed(t)
+	h.m.u.cfg.Accounts = append(h.m.u.cfg.Accounts, config.Account{ID: "phone", Platform: config.PlatformWhatsApp})
+	p := &tuiPlatform{}
+	h.m.u.d.Replier = func(_ *config.Config, id string) (source.Replier, error) {
+		if id != "phone" {
+			t.Errorf("replier of account %q", id)
+		}
+		return p, nil
+	}
+	ctx := context.Background()
+	at := time.Now()
+	if _, err := h.st.SavePoll(ctx, "phone", []inbox.Message{{SourceID: "phone", SourceType: "whatsapp", ExternalID: "3EB0AA",
+		ChannelID: "120363000000000001@g.us", ChannelName: "Harbor team", ChannelKind: inbox.KindGroup, Author: "Lan",
+		Text: "Can you join at 3?", CreatedAt: at}}, nil, at); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	pending, _ := h.st.Pending(ctx)
+	for _, m := range pending {
+		if m.SourceID == "phone" {
+			id = m.ID
+		}
+	}
+	if _, err := h.st.SaveCards(ctx, []inbox.Card{{Category: inbox.CategoryQuestion, Urgency: inbox.UrgencyHigh, Group: "Harbor",
+		Title: "Lan asks about 3pm", Reply: "Yes, I join at 3.", Refs: []int64{id}}}, at); err != nil {
+		t.Fatal(err)
+	}
+	h.m.Update(h.m.load()())
+	for range 4 {
+		if c, _ := h.m.selectedCard(); c.Title == "Lan asks about 3pm" {
+			break
+		}
+		send(h.m, "up")
+	}
+
+	send(h.m, "r")
+	s := screen(h.m)
+	for _, want := range []string{"Send to    Harbor team · whatsapp · phone", "Quote", "Chat", "i2a sends no read receipt and no typing state."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the reply form does not show %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "Thread") || strings.Contains(s, "keeps the read state") {
+		t.Errorf("the WhatsApp form shows the Mattermost words:\n%s", s)
+	}
+	if h.m.form.field("where").value() != inbox.PlaceThread {
+		t.Errorf("default place = %s, want the quote (thread)", h.m.form.field("where").value())
+	}
+	send(h.m, "ctrl+s")
+	if len(p.posts) != 1 || !p.posts[0].Thread {
+		t.Fatalf("posts = %+v, want one quote", p.posts)
+	}
+	if s := screen(h.m); !strings.Contains(s, "Sent to Harbor team (quote). The card is done.") {
+		t.Errorf("status after the send:\n%s", s)
 	}
 }

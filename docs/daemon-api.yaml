@@ -9,8 +9,8 @@ info:
 
     Example: `curl --unix-socket <data>/i2a.sock http://i2a/v1/status`
 
-    The API carries no message text and no card text. To change the
-    configuration, edit `config.toml` (see `i2a config --help`).
+    The API carries no message text, card text, reply text or file content.
+    To change the configuration, edit `config.toml` (see `i2a config --help`).
 servers:
   - url: http://i2a
 paths:
@@ -78,12 +78,98 @@ paths:
           content:
             text/event-stream:
               schema: { $ref: "#/components/schemas/Event" }
+  /v1/reply:
+    post:
+      summary: Send a stored reply through the connection of its account
+      description: |
+        `i2a reply` and the Feed first store the reply (state `sending`), then
+        call this endpoint with its ID. The daemon reads the text from the
+        store and sends it with the connection that it holds (WhatsApp). The
+        request does not wait for the daemon loop. It waits for the send for
+        at most 3 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reply_id]
+              properties:
+                reply_id: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The message ID, or the error of the send
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplyResult" }
+        "400":
+          description: The body is not `{"reply_id": <n>}`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: The daemon cannot send replies yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /v1/download:
+    post:
+      summary: Download the file of a stored message to a temporary file
+      description: |
+        The daemon downloads the file of a stored WhatsApp message to a new
+        file in `<data>/tmp/` (mode 0600) and returns its path, never the
+        bytes. `i2a download` moves the file to the target folder. The daemon
+        deletes files in `<data>/tmp/` that are older than one hour. The
+        request does not wait for the daemon loop.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id]
+              properties:
+                message_id: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The temporary file, or the error of the download
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DownloadResult" }
+        "400":
+          description: The body is not `{"message_id": <n>}`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: The daemon cannot download files yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 components:
   schemas:
     Error:
       type: object
       properties:
         error: { type: string }
+    ReplyResult:
+      type: object
+      properties:
+        id: { type: string, description: The message ID on the platform }
+        url: { type: string }
+        error: { type: string, description: The error of the send; empty when sent }
+        answered:
+          type: boolean
+          description: True when no message exists after the error (the reply is failed). False means that the result is not known.
+    DownloadResult:
+      type: object
+      properties:
+        path: { type: string, description: The temporary file in `<data>/tmp/` }
+        name: { type: string, description: The file name that the sender gave; empty when none }
+        mime: { type: string }
+        kind: { type: string, enum: [image, video, document, audio, voice, sticker] }
+        size: { type: integer }
+        error: { type: string, description: The error of the download; empty when downloaded }
     AccountRead:
       type: object
       properties:

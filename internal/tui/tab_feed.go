@@ -19,6 +19,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/reply"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
 // The Feed tab shows the cards of the agent: a list at the left and the
@@ -691,9 +692,13 @@ func (m *model) openReply(c inbox.Card) tea.Cmd {
 	return tea.Batch(read, m.focusForm())
 }
 
-// placeName names the place of a reply as the form shows it.
-func placeName(place, kind string) string {
-	if place == inbox.PlaceChannel && kind != inbox.KindChannel {
+// placeName names the place of a reply to the message as the form shows it.
+// WhatsApp has no threads: the thread place is a quote.
+func placeName(place string, m inbox.Message) string {
+	if place == inbox.PlaceThread && m.SourceType == whatsapp.SourceType {
+		return "quote"
+	}
+	if place == inbox.PlaceChannel && m.ChannelKind != inbox.KindChannel {
 		return "chat"
 	}
 	return place
@@ -714,9 +719,14 @@ func (m *model) replyForm(c inbox.Card) *form {
 		fields = append(fields, noteField(truncate(fmt.Sprintf("Reply to   #%d %s %s  %s", target.ID, target.Author,
 			when(target.CreatedAt, m.now()), target.Text), 200), faint))
 	}
-	channel := "Channel"
+	thread, channel := "Thread", "Channel"
 	if target.ChannelKind != inbox.KindChannel {
 		channel = "Chat"
+	}
+	hint, note := "Thread: in the thread of the message", "A thread reply keeps the read state. A "+strings.ToLower(channel)+" post marks it read."
+	if target.SourceType == whatsapp.SourceType {
+		thread = "Quote"
+		hint, note = "Quote: the reply quotes the message", "i2a sends no read receipt and no typing state."
 	}
 	text := areaField("text", "Text", c.Reply, fmt.Sprintf("%d characters at most", reply.MaxText), 6, func(s string) error {
 		_, err := reply.CheckText(s)
@@ -724,9 +734,9 @@ func (m *model) replyForm(c inbox.Card) *form {
 	})
 	text.area.CharLimit = reply.MaxText
 	fields = append(fields,
-		choiceField("where", "Where", "Thread: in the thread of the message", []string{inbox.PlaceThread, inbox.PlaceChannel},
-			[]string{"Thread", channel}, reply.DefaultPlace(target)),
-		noteField("A thread reply keeps the read state. A "+strings.ToLower(channel)+" post marks it read.", faint),
+		choiceField("where", "Where", hint, []string{inbox.PlaceThread, inbox.PlaceChannel},
+			[]string{thread, channel}, reply.DefaultPlace(target)),
+		noteField(note, faint),
 		text)
 	fm := &form{fields: fields}
 	fm.buttons = []button{
@@ -803,7 +813,7 @@ func (m *model) replyDone(msg replyDoneMsg) tea.Cmd {
 		}
 	}
 	m.setStatus(fmt.Sprintf("Sent to %s (%s). The card is done.", msg.target.ChannelName,
-		placeName(msg.reply.Place, msg.target.ChannelKind)), false)
+		placeName(msg.reply.Place, msg.target)), false)
 	st, all := m.u.d.Store, m.feedAll
 	return func() tea.Msg { return readFeed(m.ctx, st, all) }
 }

@@ -50,6 +50,7 @@ type ReplyRequest struct {
 	// duplicate guard of the platform from it.
 	PendingID string
 	Since     time.Time // the time of the first try
+	ReplyID   int64     // the row of the reply in the store
 }
 
 // Posted is a post that a source created.

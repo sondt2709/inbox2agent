@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS wa_messages (
   ts          INTEGER NOT NULL,
   text        TEXT NOT NULL,
   raw         BLOB,
+  media       INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (chat, id)
 );
 CREATE INDEX IF NOT EXISTS wa_messages_ts ON wa_messages(ts);
@@ -73,12 +75,30 @@ func OpenDB(ctx context.Context, path string, log waLog.Logger) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("create tables in %s: %w", path, err)
 	}
+	if err := addMediaColumn(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("add the column media to %s: %w", path, err)
+	}
 	c := sqlstore.NewWithDB(db, "sqlite", log)
 	if err := c.Upgrade(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("upgrade %s: %w", path, err)
 	}
 	return &DB{sql: db, Container: c}, nil
+}
+
+// addMediaColumn adds wa_messages.media to a file of an older version. The
+// old rows get 0, so the prune deletes them after lookback as before.
+func addMediaColumn(ctx context.Context, db *sql.DB) error {
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('wa_messages') WHERE name = 'media'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `ALTER TABLE wa_messages ADD COLUMN media INTEGER NOT NULL DEFAULT 0`)
+	return err
 }
 
 // Close closes the file.
@@ -105,15 +125,34 @@ type Row struct {
 	Time       time.Time
 	Text       string
 	Raw        []byte // the protobuf of waE2E.Message
+	Media      bool   // the message has a file that i2a download can save
 	ChatName   string // from wa_chats, when read
 }
 
 // SaveMessage stores a message. It ignores a message that is stored already.
 func (d *DB) SaveMessage(ctx context.Context, r Row) error {
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO wa_messages(chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(chat, id) DO NOTHING`,
-		r.Chat, r.ID, r.Sender, r.SenderName, r.Phone, r.Kind, r.FromMe, r.Mention, r.Time.UnixMilli(), r.Text, r.Raw)
+	_, err := d.sql.ExecContext(ctx, `INSERT INTO wa_messages(chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw, media)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(chat, id) DO NOTHING`,
+		r.Chat, r.ID, r.Sender, r.SenderName, r.Phone, r.Kind, r.FromMe, r.Mention, r.Time.UnixMilli(), r.Text, r.Raw, r.Media)
 	return err
+}
+
+// Row returns the stored message with the chat and the ID, and false when
+// the file has no such row (never stored, or deleted by the prune).
+func (d *DB) Row(ctx context.Context, chat, id string) (Row, bool, error) {
+	var r Row
+	var ts int64
+	err := d.sql.QueryRowContext(ctx, `SELECT rowid, chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw, media
+		FROM wa_messages WHERE chat = ? AND id = ?`, chat, id).Scan(&r.RowID, &r.Chat, &r.ID, &r.Sender, &r.SenderName, &r.Phone,
+		&r.Kind, &r.FromMe, &r.Mention, &ts, &r.Text, &r.Raw, &r.Media)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Row{}, false, nil
+	}
+	if err != nil {
+		return Row{}, false, err
+	}
+	r.Time = time.UnixMilli(ts)
+	return r, true, nil
 }
 
 // Messages returns at most limit messages after the row ID, oldest first,
@@ -141,9 +180,11 @@ func (d *DB) Messages(ctx context.Context, after int64, limit int) ([]Row, error
 	return out, rows.Err()
 }
 
-// Prune deletes the messages older than the time.
-func (d *DB) Prune(ctx context.Context, before time.Time) error {
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM wa_messages WHERE ts < ?`, before.UnixMilli())
+// Prune deletes the messages without a file older than textBefore, and the
+// messages with a file older than mediaBefore.
+func (d *DB) Prune(ctx context.Context, textBefore, mediaBefore time.Time) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM wa_messages WHERE (media = 0 AND ts < ?) OR (media <> 0 AND ts < ?)`,
+		textBefore.UnixMilli(), mediaBefore.UnixMilli())
 	return err
 }
 

@@ -12,11 +12,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/reply"
-	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
@@ -24,9 +25,9 @@ import (
 var replyNotifier = notify.Desktop
 
 // replyBuilder builds the replier of a source. Tests replace it.
-var replyBuilder = func(cfg *config.Config, sec secrets.Store) reply.Builder {
+var replyBuilder = func(cfg *config.Config, env source.Env) reply.Builder {
 	return func(sourceID string) (source.Replier, error) {
-		return source.BuildReplier(cfg, sourceID, sec, nil)
+		return daemon.BuildReplier(cfg, sourceID, env)
 	}
 }
 
@@ -47,8 +48,14 @@ message of a direct or group conversation. --thread and --channel change this.
 i2a does not change the read state. Mattermost keeps it for a reply in a thread,
 and marks the channel read for a post in the channel.
 
+WhatsApp has no threads: --thread sends a quote of the message, and --channel
+a plain message. The default is a quote in a group and a plain message in a
+direct chat. i2a sends no read receipt and no typing state. When the daemon
+runs, it sends the reply with its WhatsApp connection.
+
 i2a does not send the same text to the same message two times. When a send
-times out, run the command again: i2a looks for the post first.
+times out, run the command again: i2a looks for the post first (Mattermost), or
+sends again with the same message ID, which WhatsApp shows one time.
 
 Example:
   i2a reply --to 812 <<'EOF'
@@ -116,7 +123,7 @@ Example:
 				place = inbox.PlaceChannel
 			}
 
-			r, target, err := reply.Send(ctx, st, replyBuilder(cfg, e.secrets), reply.Request{
+			r, target, err := reply.Send(ctx, st, replyBuilder(cfg, source.Env{Secrets: e.secrets, DataDir: e.paths.DataDir}), reply.Request{
 				MessageID: to, CardID: c.ID, Text: text, Place: place, By: inbox.ByAgent,
 			}, time.Now)
 			if err != nil {
@@ -129,6 +136,12 @@ Example:
 			if place == inbox.PlaceThread {
 				where = "thread of " + target.Author
 			}
+			if target.SourceType == whatsapp.SourceType {
+				where = "chat"
+				if place == inbox.PlaceThread {
+					where = "quote of " + target.Author
+				}
+			}
 			done := ""
 			if c.ID != 0 {
 				done = " The card is done."
@@ -139,8 +152,8 @@ Example:
 	}
 	c.Flags().Int64Var(&to, "to", 0, "the ID of the message to reply to")
 	c.Flags().StringVar(&cardRef, "card", "", "the ID or the key of a card")
-	c.Flags().BoolVar(&thread, "thread", false, "reply in the thread of the message")
-	c.Flags().BoolVar(&channel, "channel", false, "post in the channel, not in a thread")
+	c.Flags().BoolVar(&thread, "thread", false, "reply in the thread of the message (WhatsApp: quote the message)")
+	c.Flags().BoolVar(&channel, "channel", false, "post in the channel, not in a thread (WhatsApp: no quote)")
 	return c
 }
 

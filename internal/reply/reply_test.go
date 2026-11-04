@@ -164,8 +164,12 @@ func TestTimeOutWithoutAPostSendsAgainWithTheSamePendingID(t *testing.T) {
 	if _, err := e.send(t, "Thanks Minh"); err == nil {
 		t.Fatal("no error")
 	}
-	if _, err := e.send(t, "Thanks Minh"); err != nil {
+	r, err := e.send(t, "Thanks Minh")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if e.f.posts[0].ReplyID == 0 || e.f.posts[0].ReplyID != r.ID {
+		t.Errorf("reply ID in the request = %d, want the row %d", e.f.posts[0].ReplyID, r.ID)
 	}
 	if e.f.replies != 2 || e.f.finds != 1 || len(e.f.posts) != 1 {
 		t.Errorf("replies=%d finds=%d posts=%d, want 2 1 1", e.f.replies, e.f.finds, len(e.f.posts))
@@ -243,6 +247,8 @@ func TestDefaults(t *testing.T) {
 		{inbox.Message{ChannelKind: inbox.KindDirect}, inbox.PlaceChannel},
 		{inbox.Message{ChannelKind: inbox.KindGroup}, inbox.PlaceChannel},
 		{inbox.Message{ChannelKind: inbox.KindDirect, ThreadID: "root"}, inbox.PlaceThread},
+		{inbox.Message{SourceType: "whatsapp", ChannelKind: inbox.KindGroup}, inbox.PlaceThread},
+		{inbox.Message{SourceType: "whatsapp", ChannelKind: inbox.KindDirect}, inbox.PlaceChannel},
 	} {
 		if got := DefaultPlace(c.m); got != c.want {
 			t.Errorf("place of %+v = %s, want %s", c.m, got, c.want)

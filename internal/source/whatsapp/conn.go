@@ -99,6 +99,9 @@ func (c *Conn) DB() *DB { return c.db }
 func (c *Conn) Paired() bool { return c.cli.Store.ID != nil }
 
 // Connect connects a paired client. whatsmeow reconnects after a network error.
+// whatsmeow closes the connection when the context of the connect ends, so
+// the connection does not use the cancel of ctx: it stays open until Close,
+// also when ctx is the context of one API request.
 func (c *Conn) Connect(ctx context.Context) error {
 	if !c.Paired() {
 		return ErrNotPaired
@@ -106,7 +109,7 @@ func (c *Conn) Connect(ctx context.Context) error {
 	if c.cli.IsConnected() {
 		return nil
 	}
-	return c.cli.ConnectContext(ctx)
+	return c.cli.ConnectContext(context.WithoutCancel(ctx))
 }
 
 // WaitOffline waits until the server sent the messages that arrived while
@@ -350,8 +353,9 @@ func rowFromEvent(ctx context.Context, v *events.Message, me Me, n names) (Row, 
 	if err != nil {
 		return Row{}, false
 	}
+	_, media := MediaOf(v.Message)
 	r := Row{Chat: v.Info.Chat.String(), ID: v.Info.ID, Sender: v.Info.Sender.ToNonAD().String(), Kind: kind,
-		FromMe: v.Info.IsFromMe, Time: v.Info.Timestamp, Text: text, Raw: raw}
+		FromMe: v.Info.IsFromMe, Time: v.Info.Timestamp, Text: text, Raw: raw, Media: media}
 	who := v.Info.Sender
 	if who.Server == types.HiddenUserServer && v.Info.SenderAlt.Server == types.DefaultUserServer {
 		who = v.Info.SenderAlt

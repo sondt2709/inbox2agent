@@ -27,11 +27,18 @@ type Source interface {
 type Env struct {
 	Secrets  secrets.Store
 	Lookback time.Duration
-	Levels   map[string]string // the read level of each conversation of the account that has an entry
-	Default  string            // the read level of the other conversations (unsorted.read)
-	HTTP     *http.Client      // nil means the default client
-	DataDir  string            // the data directory of i2a
-	Log      *slog.Logger      // nil means no log
+	// Retention keeps the WhatsApp messages with a file for i2a download.
+	Retention time.Duration
+	Levels    map[string]string // the read level of each conversation of the account that has an entry
+	Default   string            // the read level of the other conversations (unsorted.read)
+	HTTP      *http.Client      // nil means the default client
+	DataDir   string            // the data directory of i2a
+	Log       *slog.Logger      // nil means no log
+	// OneShot builds a source for one send or one download of a process that
+	// is not the daemon: it waits LockWait for the lock and does not wait for
+	// the offline messages.
+	OneShot  bool
+	LockWait time.Duration
 }
 
 // ErrNotPaired is returned by a WhatsApp source that has no device keys.
@@ -51,7 +58,8 @@ func Build(a config.Account, env Env) (Source, error) {
 			mattermost.NewClient(a.URL, token, env.HTTP)), nil
 	case config.PlatformWhatsApp:
 		return whatsapp.New(whatsapp.Settings{ID: a.ID, DataDir: env.DataDir, Levels: env.Levels, Default: env.Default,
-			Lookback: env.Lookback, Log: env.Log}), nil
+			Lookback: env.Lookback, Retention: env.Retention, Log: env.Log, LockWait: env.LockWait,
+			NoOfflineWait: env.OneShot}), nil
 	default:
 		return nil, fmt.Errorf("account %q: unknown platform %q", a.ID, a.Platform)
 	}

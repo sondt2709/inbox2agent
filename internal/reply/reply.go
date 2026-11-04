@@ -15,6 +15,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
 // MaxText is the maximum number of characters of a reply.
@@ -92,8 +93,15 @@ func DefaultTarget(msgs []inbox.Message) (inbox.Message, bool) {
 
 // DefaultPlace returns the place of a reply to the message: its thread when
 // it is in a thread or in a channel, and the channel for a top-level message
-// of a direct or group conversation.
+// of a direct or group conversation. WhatsApp has no threads: the thread is a
+// quote, the default in a group, so the group sees what the reply answers.
 func DefaultPlace(m inbox.Message) string {
+	if m.SourceType == whatsapp.SourceType {
+		if m.ChannelKind == inbox.KindGroup {
+			return inbox.PlaceThread
+		}
+		return inbox.PlaceChannel
+	}
 	if m.ThreadID != "" || m.ChannelKind == inbox.KindChannel {
 		return inbox.PlaceThread
 	}
@@ -145,7 +153,7 @@ func Send(ctx context.Context, st Store, build Builder, req Request, now func() 
 		}
 	}
 	r := inbox.ReplyRequest{Target: target, Text: text, Thread: req.Place == inbox.PlaceThread, PendingID: row.PendingID,
-		Since: row.CreatedAt}
+		Since: row.CreatedAt, ReplyID: row.ID}
 
 	var posted inbox.Posted
 	exists := false

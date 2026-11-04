@@ -5,13 +5,15 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/reply"
-	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
 type cliPlatform struct{ posts []inbox.ReplyRequest }
@@ -31,7 +33,7 @@ func replyEnv(t *testing.T) (msgID int64, p *cliPlatform, notes *[]string) {
 	msgID, _ = cardEnv(t)
 	p = &cliPlatform{}
 	oldB, oldN := replyBuilder, replyNotifier
-	replyBuilder = func(*config.Config, secrets.Store) reply.Builder {
+	replyBuilder = func(*config.Config, source.Env) reply.Builder {
 		return func(string) (source.Replier, error) { return p, nil }
 	}
 	var got []string
@@ -106,5 +108,39 @@ func TestReplyErrors(t *testing.T) {
 	}
 	if len(p.posts) != 0 || len(*notes) != 0 {
 		t.Errorf("posts = %d, notes = %d, want none", len(p.posts), len(*notes))
+	}
+}
+
+func TestReplyToAWhatsAppGroupQuotes(t *testing.T) {
+	_, p, _ := replyEnv(t)
+	paths, _ := app.ResolvePaths()
+	st, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now()
+	if _, err := st.SavePoll(context.Background(), "phone", []inbox.Message{{SourceID: "phone", SourceType: "whatsapp",
+		ExternalID: "3EB0AA", ChannelID: "120363000000000001@g.us", ChannelName: "Harbor team", ChannelKind: inbox.KindGroup,
+		Author: "Lan", Text: "Can you join at 3?", CreatedAt: at}}, nil, at); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	pending, _ := st.Pending(context.Background())
+	for _, m := range pending {
+		if m.SourceID == "phone" {
+			id = m.ID
+		}
+	}
+	st.Close()
+	r := i2a(t, "Yes, I join at 3.", "reply", "--to", strconv.FormatInt(id, 10))
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if len(p.posts) != 1 || !p.posts[0].Thread || strings.TrimSpace(r.out) != "sent to Harbor team (quote of Lan). Reply 1." {
+		t.Errorf("posts = %+v, output %q; want a quote", p.posts, r.out)
+	}
+	r = i2a(t, "Or at 4.", "reply", "--to", strconv.FormatInt(id, 10), "--channel")
+	if r.err != nil || strings.TrimSpace(r.out) != "sent to Harbor team (chat). Reply 2." {
+		t.Errorf("--channel: %q, %v", r.out, r.err)
 	}
 }

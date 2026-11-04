@@ -66,6 +66,18 @@ func (s *Store) FindReply(ctx context.Context, messageID int64, place, text stri
 	return r, err == nil, err
 }
 
+// ErrNoReply is returned for a reply ID that the store does not have.
+var ErrNoReply = errors.New("the store has no such reply")
+
+// ReplyByID returns the reply with the ID, or ErrNoReply.
+func (s *Store) ReplyByID(ctx context.Context, id int64) (inbox.Reply, error) {
+	r, err := scanReply(s.db.QueryRowContext(ctx, `SELECT `+replyCols+` FROM replies WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNoReply
+	}
+	return r, err
+}
+
 // SentReplies returns the sent replies of the cards, oldest first, by card ID.
 func (s *Store) SentReplies(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Reply, error) {
 	out := map[int64][]inbox.Reply{}
