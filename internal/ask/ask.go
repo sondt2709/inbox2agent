@@ -39,9 +39,9 @@ type Store interface {
 type Deps struct {
 	Store       Store
 	Config      *config.Config
-	NewDriver   func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error) // default agent.New
-	CardCommand string                                                                     // the command of the card section; see render.CardCommand
-	LockDir     string                                                                     // the directory of the space locks
+	NewDriver   func(a config.Agent, space config.Space, s agent.Sessions) (agent.Driver, error) // default agent.New
+	CardCommand string                                                                           // the command of the card section; see render.CardCommand
+	LockDir     string                                                                           // the directory of the space locks
 	Now         func() time.Time
 }
 
@@ -208,11 +208,11 @@ func deliver(ctx context.Context, d Deps, t Target, a inbox.Ask, wait time.Durat
 	if newDriver == nil {
 		newDriver = agent.New
 	}
-	drv, err := newDriver(t.Agent, t.Space.ID, d.Store)
+	drv, err := newDriver(t.Agent, t.Space, d.Store)
 	if err != nil {
 		return finish(ctx, d, a, inbox.AskFailed, "", err.Error())
 	}
-	res, err := drv.Ask(ctx, t.Card.Handle, wait, r)
+	res, err := drv.Ask(ctx, agent.Terminal{Handle: t.Card.Handle, AgentSession: t.Card.AgentSession}, wait, r)
 	if err != nil {
 		a, ferr := finish(ctx, d, a, inbox.AskFailed, "", err.Error())
 		return a, errors.Join(err, ferr)

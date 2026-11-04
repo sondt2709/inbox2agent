@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
 )
 
@@ -27,25 +28,33 @@ type Result struct {
 // Driver delivers one batch or one ask. An error means that nothing was delivered.
 type Driver interface {
 	Deliver(ctx context.Context, b *render.Rendered) (Result, error)
-	// Ask sends the prompt of an ask (render.Ask). When handle is a live
-	// terminal, the ask goes there, and Ask waits up to wait for the agent
-	// to be idle. Otherwise the ask goes to the agent of the space as a
-	// batch does, with the same wait for a busy reuse session.
-	Ask(ctx context.Context, handle string, wait time.Duration, a *render.Rendered) (Result, error)
+	// Ask sends the prompt of an ask (render.Ask). When the terminal of the
+	// card still runs its Claude session, the ask goes there, and Ask waits
+	// up to wait for the agent to be idle. Otherwise the ask goes to the
+	// agent of the space as a batch does, with the same wait for a busy
+	// reuse session.
+	Ask(ctx context.Context, t Terminal, wait time.Duration, a *render.Rendered) (Result, error)
 }
 
-// Sessions stores the terminal handle of each space and the hash of the
-// primer that the session got. Two spaces with the same agent have two
-// sessions, so the data of one space never enters the session of another.
+// Terminal is the terminal of a card and the Claude session that wrote it.
+type Terminal struct {
+	Handle       string
+	AgentSession string
+}
+
+// Sessions stores the session of each space: the terminal handle, its
+// Claude session and the hash of the primer that the session got. Two
+// spaces with the same agent have two sessions, so the data of one space
+// never enters the session of another.
 type Sessions interface {
-	Session(ctx context.Context, space string) (handle, primerHash string, err error)
-	SetSession(ctx context.Context, space, handle, primerHash string, now time.Time) error
+	Session(ctx context.Context, space string) (inbox.Session, error)
+	SetSession(ctx context.Context, s inbox.Session) error
 	DeleteSession(ctx context.Context, space string) error
 }
 
-// New returns the driver of an agent for one space. space is the ID of the
-// space; it is the key of the session.
-func New(p config.Agent, space string, sessions Sessions) (Driver, error) {
+// New returns the driver of an agent for one space. The ID of the space is
+// the key of the session; its name is in the tab name of a new session.
+func New(p config.Agent, space config.Space, sessions Sessions) (Driver, error) {
 	switch p.Driver {
 	case config.DriverDryRun:
 		return DryRun{}, nil
@@ -68,6 +77,6 @@ func (DryRun) Deliver(_ context.Context, b *render.Rendered) (Result, error) {
 var ErrDryRunAsk = errors.New("dry-run: no agent reads asks")
 
 // Ask returns ErrDryRunAsk.
-func (DryRun) Ask(context.Context, string, time.Duration, *render.Rendered) (Result, error) {
+func (DryRun) Ask(context.Context, Terminal, time.Duration, *render.Rendered) (Result, error) {
 	return Result{}, ErrDryRunAsk
 }

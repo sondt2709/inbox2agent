@@ -43,20 +43,23 @@ const (
 // Card is one result that an agent reports: a topic with a summary and an
 // optional suggested reply. Refs are the row IDs of the source messages.
 type Card struct {
-	ID        int64
-	Key       string // "" when the card has no key
-	Category  string
-	Urgency   string
-	Group     string
-	Title     string
-	Body      string
-	Reply     string
-	Refs      []int64
-	State     string
-	Handle    string // the Orca terminal of the agent that wrote the card; "" when not known
-	Space     string // the space of the session of Handle; "" when no session has it
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID       int64
+	Key      string // "" when the card has no key
+	Category string
+	Urgency  string
+	Group    string
+	Title    string
+	Body     string
+	Reply    string
+	Refs     []int64
+	State    string
+	Handle   string // the Orca terminal of the agent that wrote the card; "" when not known
+	Space    string // the space of the session of Handle; "" when no session has it
+	// AgentSession is the Claude session that wrote the card in Handle
+	// (CLAUDE_CODE_SESSION_ID); "" when not known.
+	AgentSession string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Results of a card save.

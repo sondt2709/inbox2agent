@@ -28,7 +28,8 @@ func (f *fakeDriver) Deliver(context.Context, *render.Rendered) (agent.Result, e
 	return agent.Result{}, errors.New("unexpected batch")
 }
 
-func (f *fakeDriver) Ask(_ context.Context, handle string, wait time.Duration, a *render.Rendered) (agent.Result, error) {
+func (f *fakeDriver) Ask(_ context.Context, term agent.Terminal, wait time.Duration, a *render.Rendered) (agent.Result, error) {
+	handle := term.Handle
 	f.handle, f.wait = handle, wait
 	f.asks = append(f.asks, a)
 	return f.result, f.err
@@ -79,7 +80,8 @@ func newEnv(t *testing.T) *env {
 	drv := &fakeDriver{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_card, turn started", Handle: "term_card"}}
 	e := &env{st: st, drv: drv, card: saved[0].Card, msgID: pending[0].ID, now: now}
 	e.d = Deps{Store: st, Config: cfg, CardCommand: "/usr/local/bin/i2a", LockDir: dir, Now: func() time.Time { return e.now },
-		NewDriver: func(a config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+		NewDriver: func(a config.Agent, sp config.Space, _ agent.Sessions) (agent.Driver, error) {
+			space := sp.ID
 			if a.ID != "claude-work" || space != "triage" {
 				t.Errorf("driver of agent %q for space %q, want claude-work for triage", a.ID, space)
 			}

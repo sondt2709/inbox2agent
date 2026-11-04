@@ -66,18 +66,28 @@ func flag(args []string, name string) string {
 	return ""
 }
 
-// memSessions keeps the handle of a space under its ID and the primer
-// hash under "<name>#hash".
+// memSessions keeps the handle of a space under its ID, the primer hash
+// under "<id>#hash" and the Claude session under "<id>#agent".
 type memSessions map[string]string
 
-func (m memSessions) Session(_ context.Context, p string) (string, string, error) {
-	return m[p], m[p+"#hash"], nil
+func (m memSessions) Session(_ context.Context, p string) (inbox.Session, error) {
+	return inbox.Session{Space: p, Handle: m[p], AgentSession: m[p+"#agent"], PrimerHash: m[p+"#hash"]}, nil
 }
-func (m memSessions) SetSession(_ context.Context, p, h, hash string, _ time.Time) error {
-	m[p], m[p+"#hash"] = h, hash
+func (m memSessions) SetSession(_ context.Context, s inbox.Session) error {
+	m[s.Space], m[s.Space+"#hash"], m[s.Space+"#agent"] = s.Handle, s.PrimerHash, s.AgentSession
 	return nil
 }
-func (m memSessions) DeleteSession(_ context.Context, p string) error { delete(m, p); return nil }
+func (m memSessions) DeleteSession(_ context.Context, p string) error {
+	delete(m, p)
+	delete(m, p+"#hash")
+	delete(m, p+"#agent")
+	return nil
+}
+
+var (
+	spaceTriage   = config.Space{ID: "triage", Name: "Triage"}
+	spaceBorealis = config.Space{ID: "borealis", Name: "Project Borealis"}
+)
 
 func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *fakeOrca, memSessions, *render.Rendered) {
 	t.Helper()
@@ -86,7 +96,9 @@ func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *f
 	p.Session = session
 	p.Workspace = "/home/user/notes"
 	sess := memSessions{}
-	o := NewOrca(p, "triage", sess)
+	o := NewOrca(p, spaceTriage, sess)
+	o.Claude = nil // the Orca check; a test sets a fixture finder
+	o.Sleep = func(time.Duration) {}
 	f := &fakeOrca{t: t, answers: answers}
 	o.Run = f.run
 	msg := inbox.Message{SourceID: "work", SourceType: "mattermost", ExternalID: "p1", Author: "bob", Text: "hi", CreatedAt: time.Now()}
@@ -106,7 +118,8 @@ const (
 // started are the answers for a new agent: launch, ready, prompt submitted.
 func started(extra map[string][]string) map[string][]string {
 	a := map[string][]string{
-		"agent launch": {"launch_no_prompt.json"}, "terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
+		"agent launch": {"launch_no_prompt.json"}, "terminal rename": {"rename_ok.json"},
+		"terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
 	}
 	for k, v := range extra {
 		a[k] = v
@@ -187,7 +200,7 @@ func TestReuseDoesNotStoreSessionWhenSubmitFails(t *testing.T) {
 
 func TestReuseLiveIdleSendsBatchOnly(t *testing.T) {
 	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
-		"terminal show": {"show_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
 	})
 	sess["triage"] = "term_live"
 	res, err := o.Deliver(context.Background(), r)
@@ -226,7 +239,7 @@ func TestReuseBackgroundAgentTerminalIsLive(t *testing.T) {
 
 func TestReuseBusyIsHeld(t *testing.T) {
 	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
-		"terminal show": {"show_live.json"}, "terminal wait": {"wait_timeout.json"},
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_timeout.json"},
 	})
 	sess["triage"] = "term_live"
 	res, err := o.Deliver(context.Background(), r)
@@ -300,7 +313,7 @@ func TestUnprovenTurnSendsOneBareEnter(t *testing.T) {
 
 func TestWorktreeModeCreatesThenSubmits(t *testing.T) {
 	o, f, _, r := setup(t, config.SessionWorktree, map[string][]string{
-		"worktree create": {"worktree_create_no_prompt.json"}, "terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
+		"worktree create": {"worktree_create_no_prompt.json"}, "terminal rename": {"rename_ok.json"}, "terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
 	})
 	res, err := o.Deliver(context.Background(), r)
 	if err != nil {
@@ -353,7 +366,8 @@ func TestReuseKeepsOneSessionForEachSpace(t *testing.T) {
 	if _, err := o.Deliver(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	other := NewOrca(o.p, "borealis", sess)
+	other := NewOrca(o.p, spaceBorealis, sess)
+	other.Claude = nil
 	f := &fakeOrca{t: t, answers: started(nil)}
 	other.Run = f.run
 	res, err := other.Deliver(context.Background(), r)
@@ -376,15 +390,15 @@ func askFor(t *testing.T, o *Orca) *render.Rendered {
 	return a
 }
 
-const cardHandle = "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578" // the handle in show_live.json
+const cardHandle = "term_b9f22da8-13d6-49bc-a1ab-53eba56c9578"
 
 func TestAskLiveCardTerminalGetsPromptOnly(t *testing.T) {
 	o, f, sess, _ := setup(t, config.SessionReuse, map[string][]string{
-		"terminal show": {"show_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
 	})
 	sess["triage"] = "term_profile"
 	a := askFor(t, o)
-	res, err := o.Ask(context.Background(), cardHandle, 2*time.Minute, a)
+	res, err := o.Ask(context.Background(), Terminal{Handle: cardHandle}, 2*time.Minute, a)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,9 +419,9 @@ func TestAskLiveCardTerminalGetsPromptOnly(t *testing.T) {
 
 func TestAskBusyCardTerminalIsHeld(t *testing.T) {
 	o, f, _, _ := setup(t, config.SessionReuse, map[string][]string{
-		"terminal show": {"show_live.json"}, "terminal wait": {"wait_timeout.json"},
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_timeout.json"},
 	})
-	res, err := o.Ask(context.Background(), cardHandle, 2*time.Minute, askFor(t, o))
+	res, err := o.Ask(context.Background(), Terminal{Handle: cardHandle}, 2*time.Minute, askFor(t, o))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,11 +435,11 @@ func TestAskBusyCardTerminalIsHeld(t *testing.T) {
 
 func TestAskClosedCardTerminalGoesToProfileSession(t *testing.T) {
 	o, f, sess, _ := setup(t, config.SessionReuse, map[string][]string{
-		"terminal show": {"show_closed.json", "show_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+		"terminal show": {"show_closed.json", "show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
 	})
 	sess["triage"] = "term_profile"
 	a := askFor(t, o)
-	res, err := o.Ask(context.Background(), "term_old", 2*time.Minute, a)
+	res, err := o.Ask(context.Background(), Terminal{Handle: "term_old"}, 2*time.Minute, a)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +460,7 @@ func TestAskClosedCardTerminalGoesToProfileSession(t *testing.T) {
 func TestAskWithoutSessionStartsOneWithPrimer(t *testing.T) {
 	o, f, sess, _ := setup(t, config.SessionReuse, started(nil))
 	a := askFor(t, o)
-	res, err := o.Ask(context.Background(), "", 2*time.Minute, a)
+	res, err := o.Ask(context.Background(), Terminal{}, 2*time.Minute, a)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +474,225 @@ func TestAskWithoutSessionStartsOneWithPrimer(t *testing.T) {
 }
 
 func TestDryRunRefusesAsk(t *testing.T) {
-	if _, err := (DryRun{}).Ask(context.Background(), "", time.Minute, &render.Rendered{}); !errors.Is(err, ErrDryRunAsk) {
+	if _, err := (DryRun{}).Ask(context.Background(), Terminal{}, time.Minute, &render.Rendered{}); !errors.Is(err, ErrDryRunAsk) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// After /exit, the terminal runs zsh: connected, writable, no exit cause,
+// and agentIdentity null (show_agent_exited.json). The driver must not type
+// the batch into the shell.
+func TestReuseAgentExited(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, started(map[string][]string{
+		"terminal show": {"show_agent_exited.json"},
+		"terminal wait": {"wait_idle.json", "wait_after_launch.json"},
+	}))
+	sess["triage"] = "term_old"
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range f.called("terminal send") {
+		if flag(s, "--terminal") == "term_old" {
+			t.Fatalf("the batch went to the shell of term_old: %v", s)
+		}
+	}
+	if sess["triage"] != launchedHandle {
+		t.Errorf("session = %v, want a new session %s", sess, launchedHandle)
+	}
+}
+
+// finder gives the driver the fixture Claude processes: pid -> terminal.
+func finder(t *testing.T, handles map[int]string) *ClaudeFinder {
+	t.Helper()
+	return &ClaudeFinder{Dir: copyDir(t, "4242.json", "4343.json"), Proc: fakeProcs(handles)}
+}
+
+func sentTo(f *fakeOrca, handle string) []string {
+	var out []string
+	for _, s := range f.called("terminal send") {
+		if flag(s, "--terminal") == handle {
+			out = append(out, flag(s, "--text"))
+		}
+	}
+	return out
+}
+
+func TestSendIntoShellIsAnError(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_shell.json"},
+	})
+	sess["triage"] = "term_live"
+	_, err := o.Deliver(context.Background(), r)
+	if err == nil || !strings.Contains(err.Error(), "no agent runs in the terminal term_live") {
+		t.Fatalf("err = %v", err)
+	}
+	if n := len(f.called("terminal send")); n != 1 {
+		t.Errorf("%d sends, want 1: no Enter after a send into a shell", n)
+	}
+	if sess["triage"] != "" {
+		t.Errorf("the session of the space stayed: %v", sess)
+	}
+}
+
+func TestReuseSameClaudeSessionSendsBatch(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_agent_exited.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	// Orca still shows no agent (agentIdentity null), but the Claude
+	// process proves the session; the finder wins over the Orca field.
+	o.Claude = finder(t, map[int]string{4242: "term_a"})
+	sess["triage"], sess["triage#agent"] = "term_a", sessionA
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentTo(f, "term_a"); len(got) != 1 || got[0] != r.Prompt {
+		t.Errorf("sent to term_a = %q, want the batch only", got)
+	}
+}
+
+func TestReuseOtherClaudeSessionStartsNewSession(t *testing.T) {
+	// The user ran /clear or started claude again: term_a runs session B now.
+	o, f, sess, r := setup(t, config.SessionReuse, started(nil))
+	o.Claude = finder(t, map[int]string{4343: "term_a", 4242: launchedHandle})
+	sess["triage"], sess["triage#agent"] = "term_a", sessionA+"x"
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentTo(f, "term_a"); len(got) != 0 {
+		t.Errorf("sent to term_a: %q", got)
+	}
+	if sess["triage"] != launchedHandle || sess["triage#agent"] != sessionA {
+		t.Errorf("session = %v, want %s with Claude session %s", sess, launchedHandle, sessionA)
+	}
+}
+
+func TestReuseFollowsTheSessionToAnotherTerminal(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	o.Claude = finder(t, map[int]string{4242: "term_b"})
+	sess["triage"], sess["triage#agent"] = "term_old", sessionA
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentTo(f, "term_b"); len(got) != 1 {
+		t.Errorf("sends to term_b = %q, want 1", got)
+	}
+	if flag(f.called("terminal show")[0], "--terminal") != "term_b" || sess["triage"] != "term_b" {
+		t.Errorf("show = %v, session = %v; want term_b", f.called("terminal show"), sess)
+	}
+}
+
+func TestReuseSessionInTwoTerminalsStartsNewSession(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, started(nil))
+	dir := copyDir(t, "4242.json")
+	b, _ := os.ReadFile(filepath.Join(dir, "4242.json"))
+	if err := os.WriteFile(filepath.Join(dir, "4343.json"), []byte(strings.ReplaceAll(string(b), `"pid":4242`, `"pid":4343`)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o.Claude = &ClaudeFinder{Dir: dir, Proc: func(pid int) (ProcInfo, error) {
+		return ProcInfo{Start: fixtureStart[4242], Handle: map[int]string{4242: "term_b", 4343: "term_c"}[pid]}, nil
+	}}
+	sess["triage"], sess["triage#agent"] = "term_old", sessionA
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if len(sentTo(f, "term_b"))+len(sentTo(f, "term_c")) != 0 || sess["triage"] != launchedHandle {
+		t.Errorf("calls = %v, session = %v; want a new session", f.calls, sess)
+	}
+}
+
+func TestReuseAdoptsClaudeSessionOfOldRow(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	o.Claude = finder(t, map[int]string{4242: "term_a"})
+	sess["triage"] = "term_a" // a row of schema version 7: no Claude session
+	if _, err := o.Deliver(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if len(sentTo(f, "term_a")) != 1 || sess["triage#agent"] != sessionA {
+		t.Errorf("sends = %v, session = %v; want the batch in term_a and %s stored", f.calls, sess, sessionA)
+	}
+}
+
+func TestReuseUnknownClaudeFilesUsesOrcaCheck(t *testing.T) {
+	for show, wantNew := range map[string]bool{"show_claude_live.json": false, "show_agent_exited.json": true} {
+		o, f, sess, r := setup(t, config.SessionReuse, started(map[string][]string{
+			"terminal show": {show}, "terminal wait": {"wait_idle.json", "wait_after_launch.json"},
+		}))
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "1.json"), []byte(`{"process": 1}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		o.Claude = &ClaudeFinder{Dir: dir, Proc: fakeProcs(nil)}
+		sess["triage"], sess["triage#agent"] = "term_a", sessionA
+		if _, err := o.Deliver(context.Background(), r); err != nil {
+			t.Fatalf("%s: %v", show, err)
+		}
+		if got := sess["triage"] == launchedHandle; got != wantNew || (len(sentTo(f, "term_a")) == 0) != wantNew {
+			t.Errorf("%s: session = %v, sends = %v; want new session %v", show, sess, f.called("terminal send"), wantNew)
+		}
+	}
+}
+
+func TestReuseLinkedSessionGetsThePrimer(t *testing.T) {
+	o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	o.Claude = finder(t, map[int]string{4242: "term_c"})
+	sess["triage"], sess["triage#agent"], sess["triage#hash"] = "term_c", sessionA, inbox.PrimerPending
+	res, err := o.Deliver(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sentTo(f, "term_c")
+	if len(got) != 1 || !strings.HasPrefix(got[0], strings.TrimSpace(r.Primer)) || !strings.HasSuffix(got[0], strings.TrimSpace(r.Prompt)) {
+		t.Errorf("sent to term_c = %q, want the primer and the batch", got)
+	}
+	if sess["triage#hash"] != r.PrimerHash || len(f.called("agent launch")) != 0 || !strings.Contains(res.Detail, "linked session") {
+		t.Errorf("session = %v, result = %+v", sess, res)
+	}
+}
+
+func TestNewSessionGetsTabName(t *testing.T) {
+	o, f, _, r := setup(t, config.SessionReuse, started(nil))
+	res, err := o.Deliver(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rn := f.called("terminal rename")
+	if len(rn) != 1 || flag(rn[0], "--terminal") != launchedHandle || flag(rn[0], "--title") != "triage · Triage" {
+		t.Errorf("rename = %v", rn)
+	}
+	if strings.Contains(res.Detail, "tab name") {
+		t.Errorf("detail = %q", res.Detail)
+	}
+}
+
+func TestFailedTabNameKeepsTheBatch(t *testing.T) {
+	o, _, _, r := setup(t, config.SessionNew, started(map[string][]string{"terminal rename": {"show_stale.json"}}))
+	res, err := o.Deliver(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSent || !strings.Contains(res.Detail, "tab name not set: orca terminal rename: terminal_handle_stale") {
+		t.Errorf("result = %+v", res)
+	}
+}
+
+func TestAskCardTerminalRunsAnotherSession(t *testing.T) {
+	o, f, sess, _ := setup(t, config.SessionReuse, map[string][]string{
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json"}, "terminal send": {"send_ok.json"},
+	})
+	// term_a wrote the card in session B (4343) and runs session A (4242) now;
+	// the space has the live session term_b.
+	o.Claude = finder(t, map[int]string{4242: "term_a", 4343: "term_b"})
+	sess["triage"], sess["triage#agent"] = "term_b", sessionB
+	if _, err := o.Ask(context.Background(), Terminal{Handle: "term_a", AgentSession: sessionB + "x"}, time.Minute, askFor(t, o)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sentTo(f, "term_a")) != 0 || len(sentTo(f, "term_b")) != 1 {
+		t.Errorf("sends = %v, want the ask in term_b only", f.called("terminal send"))
 	}
 }

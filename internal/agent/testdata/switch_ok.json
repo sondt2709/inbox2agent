@@ -1,0 +1,15 @@
+{
+  "id": "88cd4bd6-2986-4ba8-b982-5c6411061f77",
+  "ok": true,
+  "result": {
+    "focus": {
+      "handle": "term_a85403fe-ccbd-4f16-ac8e-78970df11eb3",
+      "tabId": "6ca311eb-3803-49a5-89d4-cbbadedfd02f",
+      "worktreeId": "59d77ffb-61f6-410b-8cbb-53ba05e3a342::/home/user/notes",
+      "navigated": true
+    }
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

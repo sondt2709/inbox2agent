@@ -81,7 +81,8 @@ func (r *recorder) Deliver(_ context.Context, b *render.Rendered) (agent.Result,
 	return r.result, nil
 }
 
-func (r *recorder) Ask(_ context.Context, handle string, _ time.Duration, a *render.Rendered) (agent.Result, error) {
+func (r *recorder) Ask(_ context.Context, term agent.Terminal, _ time.Duration, a *render.Rendered) (agent.Result, error) {
+	handle := term.Handle
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.asks = append(r.asks, a)
@@ -125,7 +126,7 @@ func newHarness(t *testing.T, cfg *config.Config) *harness {
 	h.e = New(Deps{
 		Paths: paths, Store: st,
 		Log:       slog.New(slog.NewTextHandler(syncWriter{&h.logMu, h.log}, nil)),
-		NewDriver: func(config.Agent, string, agent.Sessions) (agent.Driver, error) { return h.drv, nil },
+		NewDriver: func(config.Agent, config.Space, agent.Sessions) (agent.Driver, error) { return h.drv, nil },
 		BuildSource: func(sc config.Account, _ source.Env) (source.Source, error) {
 			return h.sources[sc.ID], nil
 		},

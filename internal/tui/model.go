@@ -444,6 +444,17 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		return m.replyDone(msg)
 	case askDoneMsg:
 		return m.askDone(msg)
+	case sessionStatesMsg:
+		// A confirmation can be over the sessions dialog when the states arrive.
+		for _, d := range m.dialogs {
+			if sd, ok := d.(*sessionsDialog); ok && sd.agent.ID == msg.agent {
+				sd.states = msg.states
+			}
+		}
+		return nil
+	case openDialogMsg:
+		m.openDialog(msg.d)
+		return nil
 	}
 
 	if d := m.topDialog(); d != nil {

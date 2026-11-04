@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -17,10 +18,11 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/service"
+	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
 // These scenarios need local apps. They run only when asked:
-//   I2A_E2E_ORCA=1     S14-S18, S21, S25, S29 and S32, with the Orca app running and the claude agent installed
+//   I2A_E2E_ORCA=1     S14-S18, S21, S25, S29, S32 and S43, with the Orca app running and the claude agent installed
 //   I2A_E2E_SERVICE=1  S19, on macOS
 
 func needOrca(t *testing.T) string {
@@ -470,4 +472,98 @@ func TestS32AgentAnswersAnAsk(t *testing.T) {
 	if _, asks := p.asksOf(first.Key); len(asks) != 1 || asks[0].State != inbox.AskSent || asks[0].Handle != h {
 		t.Errorf("asks = %+v, want one sent ask to %s", asks, h)
 	}
+}
+
+// S43: the user quits Claude in the session of the space. The terminal stays
+// open with the shell. The next batch must not go to that shell: i2a starts a
+// new session, names its tab and stores its Claude session.
+func TestS43OrcaClaudeExitedInTheSession(t *testing.T) {
+	bin := needOrca(t)
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S43")
+	p.addAccount(w, w.Selected)
+	p.editConfig(orcaAgent(bin, orcaWorkspace(t), config.SessionReuse, config.PayloadInline))
+
+	w.Post(t, w.Bob, w.Selected, "S43 first: the release is on Monday")
+	s, code := p.run("run --once")
+	if code != 0 || !strings.Contains(s, "started session term_") {
+		t.Fatalf("first batch: exit %d, screen:\n%s", code, s)
+	}
+	h1 := handleRe.FindString(s)
+	t.Cleanup(func() { closeTerminal(bin, h1) })
+	readAgent(t, bin, h1, "S43 first", "S43/orca-terminal-1.txt")
+	if title := orcaTitle(t, bin, h1); title != "triage · Unsorted" {
+		t.Errorf("tab name = %q, want %q", title, "triage · Unsorted")
+	}
+	first := p.session(config.UnsortedID)
+	if first.Handle != h1 || first.AgentSession == "" {
+		t.Fatalf("stored session = %+v, want %s with its Claude session", first, h1)
+	}
+
+	_ = exec.Command(bin, "terminal", "send", "--terminal", h1, "--text", "/exit", "--enter", "--json").Run()
+	finder := agent.NewClaudeFinder()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		procs, err := finder.InTerminal(h1)
+		if err == nil && len(procs) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Claude still runs in %s: %+v %v", h1, procs, err)
+		}
+		time.Sleep(time.Second)
+	}
+
+	w.Post(t, w.Bob, w.Selected, "S43 second: echo S43-shell-got-it")
+	s, code = p.run("run --once")
+	if code != 0 || !strings.Contains(s, "started session term_") {
+		t.Fatalf("after /exit: exit %d, screen:\n%s", code, s)
+	}
+	h2 := handleRe.FindString(s)
+	t.Cleanup(func() { closeTerminal(bin, h2) })
+	if h2 == h1 {
+		t.Fatalf("the batch went to the shell of %s", h1)
+	}
+	readAgent(t, bin, h2, "S43 second", "S43/orca-terminal-2.txt")
+	res := orcaJSON(t, bin, "terminal", "read", "--terminal", h1, "--limit", "400")
+	b, _ := json.Marshal(res)
+	writeEvidence(t, "S43/orca-terminal-1-after-exit.json", string(b))
+	if strings.Contains(string(b), "S43 second") || strings.Contains(string(b), "S43-shell-got-it") {
+		t.Errorf("the shell of %s got the batch:\n%s", h1, b)
+	}
+	second := p.session(config.UnsortedID)
+	if second.Handle != h2 || second.AgentSession == "" || second.AgentSession == first.AgentSession {
+		t.Errorf("stored session = %+v, want %s with a new Claude session", second, h2)
+	}
+}
+
+// orcaTitle returns the title of the tab of a terminal.
+func orcaTitle(t *testing.T, bin, handle string) string {
+	t.Helper()
+	term, _ := orcaJSON(t, bin, "terminal", "show", "--terminal", handle)["terminal"].(map[string]any)
+	title, _ := term["title"].(string)
+	return title
+}
+
+// writeEvidence writes a file to the output folder of the run.
+func writeEvidence(t *testing.T, name, text string) {
+	t.Helper()
+	path := filepath.Join(outRoot, name)
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	_ = os.WriteFile(path, []byte(text), 0o644)
+}
+
+// session returns the stored session of a space.
+func (p *person) session(space string) inbox.Session {
+	p.t.Helper()
+	st, err := store.Open(filepath.Join(p.home, "inbox.db"))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer st.Close()
+	ss, err := st.Session(context.Background(), space)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return ss
 }

@@ -78,6 +78,10 @@ Example:
 			if hw != "" {
 				warnings = append(warnings, hw)
 			}
+			session, sw := card.AgentSession(os.Getenv(card.SessionEnv))
+			if sw != "" {
+				warnings = append(warnings, sw)
+			}
 			for _, w := range warnings {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
 			}
@@ -85,7 +89,7 @@ Example:
 				return err
 			}
 			for i := range cards {
-				cards[i].Handle = handle
+				cards[i].Handle, cards[i].AgentSession = handle, session
 			}
 			saved, err := st.SaveCards(ctx, cards, time.Now())
 			if err != nil {
