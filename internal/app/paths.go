@@ -53,6 +53,10 @@ func ResolvePaths() (Paths, error) {
 	}, nil
 }
 
+// TmpDir is the directory of the temporary files of downloads. The daemon
+// writes a file there, and i2a download moves it to the target folder.
+func (p Paths) TmpDir() string { return filepath.Join(p.DataDir, "tmp") }
+
 // EnsureDataDir creates the data directories with private permissions.
 func (p Paths) EnsureDataDir() error {
 	for _, d := range []string{p.DataDir, p.DigestDir} {

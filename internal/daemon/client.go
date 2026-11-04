@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
 // ErrNoDaemon means that no daemon listens on the socket: the dial failed.
@@ -110,6 +113,43 @@ func (c *Client) Run(ctx context.Context, spaces []string) (RunResult, error) {
 	var res RunResult
 	err := c.do(ctx, http.MethodPost, "/v1/run", RunRequest{Spaces: spaces}, &res)
 	return res, err
+}
+
+// actionError is an error of a reply that the daemon reports. Answered
+// tells whether no message exists after it.
+type actionError struct {
+	msg      string
+	answered bool
+}
+
+func (e *actionError) Error() string  { return e.msg }
+func (e *actionError) Answered() bool { return e.answered }
+
+// Reply asks the daemon to send the stored reply with the ID. An error with
+// Answered() == true means that no message exists. ErrNoDaemon means that no
+// daemon answers; any other error leaves the result unknown.
+func (c *Client) Reply(ctx context.Context, replyID int64) (inbox.Posted, error) {
+	var res ReplyResult
+	if err := c.do(ctx, http.MethodPost, "/v1/reply", ReplyRequest{ReplyID: replyID}, &res); err != nil {
+		return inbox.Posted{}, err
+	}
+	if res.Error != "" {
+		return inbox.Posted{}, &actionError{msg: res.Error, answered: res.Answered}
+	}
+	return inbox.Posted{ID: res.ID, URL: res.URL}, nil
+}
+
+// Download asks the daemon to download the file of the stored message to a
+// temporary file. The caller moves or removes the file.
+func (c *Client) Download(ctx context.Context, messageID int64) (whatsapp.File, error) {
+	var res DownloadResult
+	if err := c.do(ctx, http.MethodPost, "/v1/download", DownloadRequest{MessageID: messageID}, &res); err != nil {
+		return whatsapp.File{}, err
+	}
+	if res.Error != "" {
+		return whatsapp.File{}, errors.New(res.Error)
+	}
+	return whatsapp.File{Path: res.Path, Name: res.Name, MIME: res.MIME, Kind: res.Kind, Size: res.Size}, nil
 }
 
 // Events reads the events of the daemon until ctx ends or the daemon stops.

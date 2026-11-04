@@ -31,15 +31,25 @@ type Settings struct {
 	Levels   map[string]string // the read level of each chat (JID) that has an entry
 	Default  string            // the read level of the other chats (unsorted.read)
 	Lookback time.Duration
-	Log      *slog.Logger
+	// Retention keeps the messages with a file, so that i2a download can
+	// save the file later. 0 means the rule of the other messages.
+	Retention time.Duration
+	Log       *slog.Logger
+	// LockWait waits for the lock of the connection when another process
+	// holds it, for a send or a download of one process. 0 fails at once.
+	LockWait time.Duration
+	// NoOfflineWait connects without the wait for the offline messages,
+	// for a send or a download of one process.
+	NoOfflineWait bool
 }
 
 // Source collects the messages of one WhatsApp account.
 type Source struct {
 	s Settings
 
-	mu   sync.Mutex
-	conn *Conn
+	mu     sync.Mutex
+	conn   *Conn
+	closed bool
 }
 
 // New returns a source. It connects on the first Collect.
@@ -63,6 +73,14 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 func (src *Source) connect(ctx context.Context) (*Conn, error) {
 	src.mu.Lock()
 	defer src.mu.Unlock()
+	return src.connectLocked(ctx)
+}
+
+// connectLocked is connect for a caller that holds src.mu.
+func (src *Source) connectLocked(ctx context.Context) (*Conn, error) {
+	if src.closed {
+		return nil, ErrClosed
+	}
 	if src.conn != nil {
 		if !src.conn.Paired() { // the phone unlinked i2a
 			src.conn.Close()
@@ -71,7 +89,7 @@ func (src *Source) connect(ctx context.Context) (*Conn, error) {
 		}
 		return src.conn, nil
 	}
-	conn, err := Open(ctx, src.s.DataDir, src.s.ID, src.s.Lookback, src.s.Log)
+	conn, err := open(ctx, src.s.DataDir, src.s.ID, src.s.Lookback, src.s.Log, src.s.LockWait)
 	if err != nil {
 		return nil, err
 	}
@@ -79,15 +97,19 @@ func (src *Source) connect(ctx context.Context) (*Conn, error) {
 		conn.Close()
 		return nil, err
 	}
-	conn.WaitOffline(ctx, offlineWait)
+	if !src.s.NoOfflineWait {
+		conn.WaitOffline(ctx, offlineWait)
+	}
 	src.conn = conn
 	return conn, nil
 }
 
-// Close disconnects and releases the lock.
+// Close disconnects and releases the lock. A closed source does not connect
+// again.
 func (src *Source) Close() error {
 	src.mu.Lock()
 	defer src.mu.Unlock()
+	src.closed = true
 	if src.conn == nil {
 		return nil
 	}
@@ -113,7 +135,12 @@ func collect(ctx context.Context, db *DB, s Settings, cur inbox.Cursor, now time
 		}
 		msgs = append(msgs, message(s.ID, r))
 	}
-	if err := db.Prune(ctx, since.Add(-time.Hour)); err != nil {
+	textBefore := since.Add(-time.Hour)
+	mediaBefore := textBefore
+	if keep := now.Add(-s.Retention); s.Retention > 0 && keep.Before(mediaBefore) {
+		mediaBefore = keep
+	}
+	if err := db.Prune(ctx, textBefore, mediaBefore); err != nil {
 		return nil, cur, err
 	}
 	return msgs, inbox.Cursor{"rowid": strconv.FormatInt(after, 10)}, nil

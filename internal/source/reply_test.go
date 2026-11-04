@@ -2,6 +2,7 @@ package source
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -22,26 +23,49 @@ func (m memSecrets) Delete(k string) error { delete(m, k); return nil }
 func (m memSecrets) Backend() string       { return "memory" }
 
 func TestBuildReplier(t *testing.T) {
-	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost, URL: "http://mm.example"}}}
+	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost, URL: "http://mm.example"},
+		{ID: "phone", Platform: config.PlatformWhatsApp}}}
 	sec := memSecrets{secrets.TokenKey("work"): "token"}
-	if r, err := BuildReplier(cfg, "work", sec, nil); err != nil || r == nil {
+	if r, err := BuildReplier(cfg, "work", Env{Secrets: sec}); err != nil || r == nil {
 		t.Errorf("work: %v, %v, want a replier", r, err)
 	}
-	if _, err := BuildReplier(cfg, "gone", sec, nil); err == nil || !strings.Contains(err.Error(), `account "gone" is not in the configuration`) {
+	r, err := BuildReplier(cfg, "phone", OneShot(Env{Secrets: sec, DataDir: t.TempDir()}))
+	if c, ok := r.(io.Closer); err != nil || !ok {
+		t.Errorf("phone: %v, %v, want a WhatsApp replier", r, err)
+	} else {
+		c.Close()
+	}
+	if _, err := BuildReplier(cfg, "gone", Env{Secrets: sec}); err == nil || !strings.Contains(err.Error(), `account "gone" is not in the configuration`) {
 		t.Errorf("gone: %v", err)
 	}
-	if _, err := BuildReplier(cfg, "work", memSecrets{}, nil); err == nil {
+	if _, err := BuildReplier(cfg, "work", Env{Secrets: memSecrets{}}); err == nil {
 		t.Error("no token: no error")
 	}
 }
 
-func TestCanReply(t *testing.T) {
-	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost}, {ID: "chat", Platform: "whatsapp"}}}
-	if err := CanReply(cfg, "work"); err != nil {
-		t.Errorf("work: %v", err)
+func TestBuildDownloader(t *testing.T) {
+	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost, URL: "http://mm.example"},
+		{ID: "phone", Platform: config.PlatformWhatsApp}}}
+	if _, err := BuildDownloader(cfg, "work", Env{Secrets: memSecrets{secrets.TokenKey("work"): "token"}}); !errors.Is(err, ErrCannotDownload) {
+		t.Errorf("work: %v, want ErrCannotDownload", err)
 	}
-	if err := CanReply(cfg, "chat"); !errors.Is(err, ErrCannotReply) {
-		t.Errorf("chat: %v, want ErrCannotReply", err)
+	d, err := BuildDownloader(cfg, "phone", OneShot(Env{DataDir: t.TempDir()}))
+	if err != nil || d == nil {
+		t.Fatalf("phone: %v, %v, want a downloader", d, err)
+	}
+	d.(io.Closer).Close()
+}
+
+func TestCanReply(t *testing.T) {
+	cfg := &config.Config{Accounts: []config.Account{{ID: "work", Platform: config.PlatformMattermost},
+		{ID: "chat", Platform: config.PlatformWhatsApp}, {ID: "issues", Platform: "linear"}}}
+	for _, id := range []string{"work", "chat"} {
+		if err := CanReply(cfg, id); err != nil {
+			t.Errorf("%s: %v", id, err)
+		}
+	}
+	if err := CanReply(cfg, "issues"); !errors.Is(err, ErrCannotReply) {
+		t.Errorf("issues: %v, want ErrCannotReply", err)
 	}
 	if err := CanReply(cfg, "gone"); err == nil || !strings.Contains(err.Error(), "not in the configuration") {
 		t.Errorf("gone: %v", err)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/agent"
@@ -55,7 +56,10 @@ type Deps struct {
 
 // Engine runs reads and dispatches for one configuration.
 type Engine struct {
-	d        Deps
+	d Deps
+	// mu guards cfg and sources: the loop changes them, and a reply or a
+	// download of the API reads them from another goroutine.
+	mu       sync.Mutex
 	cfg      *config.Config
 	sources  map[string]source.Source
 	lastPoll map[string]time.Time
@@ -71,7 +75,10 @@ type Engine struct {
 
 // SetAPI connects the API server: the loop serves its runs, and the engine
 // publishes its events and its status.
-func (e *Engine) SetAPI(s *Server) { e.api = s }
+func (e *Engine) SetAPI(s *Server) {
+	e.api = s
+	s.actions = e
+}
 
 // New returns an engine. Nil fields in Deps get the default values.
 func New(d Deps, cfg *config.Config) *Engine {
@@ -109,11 +116,15 @@ func New(d Deps, cfg *config.Config) *Engine {
 // are built again on the next read, with the new read levels.
 func (e *Engine) SetConfig(cfg *config.Config) {
 	e.Close()
+	e.mu.Lock()
 	e.cfg = cfg
+	e.mu.Unlock()
 }
 
 // Close closes the sources that hold a connection (a WhatsApp source).
 func (e *Engine) Close() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	for id, src := range e.sources {
 		if c, ok := src.(io.Closer); ok {
 			if err := c.Close(); err != nil {
@@ -196,16 +207,27 @@ func (e *Engine) publishDispatch(d DispatchResult) {
 	}
 }
 
+// source returns the source of the account, and builds it on the first use.
+func (e *Engine) source(sc config.Account) (source.Source, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if src, ok := e.sources[sc.ID]; ok {
+		return src, nil
+	}
+	src, err := e.d.BuildSource(sc, source.Env{Secrets: e.d.Secrets, Lookback: e.cfg.Settings.Lookback.D(), HTTP: e.d.HTTP,
+		Retention: e.cfg.Settings.Retention.D(),
+		DataDir:   e.d.Paths.DataDir, Log: e.d.Log, Levels: e.cfg.Levels(sc.ID), Default: e.cfg.Unsorted.Read})
+	if err != nil {
+		return nil, err
+	}
+	e.sources[sc.ID] = src
+	return src, nil
+}
+
 func (e *Engine) pollOne(ctx context.Context, sc config.Account, now time.Time) (int, error) {
-	src, ok := e.sources[sc.ID]
-	if !ok {
-		var err error
-		src, err = e.d.BuildSource(sc, source.Env{Secrets: e.d.Secrets, Lookback: e.cfg.Settings.Lookback.D(), HTTP: e.d.HTTP,
-			DataDir: e.d.Paths.DataDir, Log: e.d.Log, Levels: e.cfg.Levels(sc.ID), Default: e.cfg.Unsorted.Read})
-		if err != nil {
-			return 0, err
-		}
-		e.sources[sc.ID] = src
+	src, err := e.source(sc)
+	if err != nil {
+		return 0, err
 	}
 	cur, err := e.d.Store.Cursor(ctx, sc.ID)
 	if err != nil {
@@ -570,6 +592,7 @@ func (e *Engine) Prune(ctx context.Context) error {
 	if n > 0 || removed > 0 {
 		e.d.Log.Info("retention", "messages_deleted", n, "digests_deleted", removed)
 	}
+	e.pruneTmp()
 	return nil
 }
 

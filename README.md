@@ -13,7 +13,7 @@
                                                                    ▼
                     you ◄── macOS notification ◄── cards in inbox.db ──► Feed tab of "i2a"
                                                                    ▲            │ r, ctrl+s
-                                                                   │            ├──► i2a reply ──► Mattermost thread or chat
+                                                                   │            ├──► i2a reply ──► Mattermost thread or chat, WhatsApp quote or chat
                                      the agent updates the card ───┘            │ t, ctrl+s
                                      (same key)          ◄── i2a ask ◄──────────┘ to the terminal that wrote the card
 ```
@@ -63,12 +63,11 @@ A card goes to the space of the agent that wrote it (the space of its terminal),
 | `orca` driver and `dry-run` driver | Available |
 | Configuration TUI, daemon, macOS LaunchAgent | Available |
 | Cards from the agent, Feed tab, card notifications | Available |
-| Replies from the Feed and with `i2a reply` (Mattermost) | Available |
+| Replies from the Feed and with `i2a reply` (Mattermost and WhatsApp) | Available |
 | Asks to the agent about a card, from the Feed and with `i2a ask` | Available |
-| WhatsApp account (linked device, receive only) | Available |
+| WhatsApp account (linked device) and `i2a download` for its files | Available |
 | Release binaries for macOS and Linux (amd64, arm64) | Available |
 | Homebrew package | Planned |
-| Replies to WhatsApp | Planned |
 | GitHub and Linear accounts | Planned |
 | OAuth sign-in, direct `claude` / `codex` / `opencode` drivers | Planned |
 
@@ -208,9 +207,9 @@ A form saves to `config.toml` when you submit it. A running daemon reads the fil
 
 ## WhatsApp
 
-`i2a` connects to your personal WhatsApp account as a linked device, as WhatsApp Web does. It only reads messages.
+`i2a` connects to your personal WhatsApp account as a linked device, as WhatsApp Web does. It reads messages, and it sends a message only when you or the agent send a reply.
 
-> **Risk:** WhatsApp does not allow unofficial clients, and it can ban an account that uses one. `i2a` uses [whatsmeow](https://github.com/tulir/whatsmeow), an unofficial library. `i2a` sends no messages, no read receipts and no presence, but the risk is not zero. Use it only if you accept this risk.
+> **Risk:** WhatsApp does not allow unofficial clients, and it can ban an account that uses one. `i2a` uses [whatsmeow](https://github.com/tulir/whatsmeow), an unofficial library. A send gives more risk than a read. `i2a` sends only the replies that you or the agent ask for, one at a time, and no read receipts, typing state or presence, but the risk is not zero. Use it only if you accept this risk.
 
 To add a WhatsApp account:
 
@@ -223,7 +222,7 @@ Or run `i2a account add whatsapp --id phone [--name "Personal phone"] [--phone +
 
 A WhatsApp chat uses its read level, as each conversation does: `all` collects each message; `mentions` collects each message of a direct chat, and in a group only the messages that mention you or reply to one of your messages; `off` collects nothing.
 
-It does not collect your own messages, status updates, broadcast lists, WhatsApp channels, reactions, edits, deletes or poll votes. For media, the text is a placeholder and the caption, for example `[image] plan for Friday` or `[document: report.pdf]`. `i2a` does not download media. A reply starts with one `> ` line that has the first 200 characters of the quoted message. The link of a direct message is `https://wa.me/<phone number>`; a group message has no link.
+It does not collect your own messages, status updates, broadcast lists, WhatsApp channels, reactions, edits, deletes or poll votes. For media, the text is a placeholder and the caption, for example `[image] plan for Friday` or `[document: report.pdf]`. `i2a` downloads the file only when you or the agent run `i2a download` (see [Files](#files)). A reply starts with one `> ` line that has the first 200 characters of the quoted message. The link of a direct message is `https://wa.me/<phone number>`; a group message has no link.
 
 How it works:
 
@@ -261,7 +260,7 @@ The route is chosen when a space sends. If you move a conversation to another sp
 
 A `dry-run` batch is a preview. Its messages become `previewed`, not `sent`. When you change the agent to a real driver, the next batch contains them (if they are newer than `lookback`).
 
-`i2a` uses only read requests to collect messages. It does not mark Mattermost messages as read, and it sends no read receipts to WhatsApp. It writes to Mattermost only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
+`i2a` uses only read requests to collect messages. It does not mark Mattermost messages as read, and it sends no read receipts to WhatsApp. It writes to Mattermost or WhatsApp only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
 
 ## Configuration
 
@@ -439,15 +438,16 @@ You can send a reply to the conversation of a card, as yourself. Press `r` on a 
 |---|---|
 | Send to | the channel, the source type and the source ID |
 | Reply to | the message that you answer. The default is the newest message of the card. |
-| Where | `Thread` (in the thread of the message) or `Channel` (`Chat` for a direct or group conversation). The default is the place of the message: its thread, or the chat for a top-level direct message. |
+| Where | `Thread` (in the thread of the message) or `Channel` (`Chat` for a direct or group conversation). The default is the place of the message: its thread, or the chat for a top-level direct message. WhatsApp has no threads: `Quote` quotes the message, and `Chat` sends a plain message. The default is `Quote` in a group and `Chat` in a direct chat. |
 | Text | the suggested reply. Edit it, or type your own. 4,000 characters at most. |
 
 Press `ctrl+s` to send. After the send, the card is done, and the card shows "✓ Replied <time> by you". When the send fails, the form keeps your text and shows the error.
 
-- Replies to WhatsApp messages are not available yet. A reply to a WhatsApp message fails with "cannot send replies yet".
 - The reply always goes to a message that `i2a` collected. `i2a` never sends to a channel, a person or a link from the card text.
-- `i2a` does not change the read state. Mattermost keeps the read state for a reply in a thread, and marks the channel read for a post in the channel or the chat, as for any post that you write.
-- `i2a` does not send the same text to the same message two times. When a send times out, send again: `i2a` looks for the post first, so it does not post two times.
+- `i2a` does not change the read state. Mattermost keeps the read state for a reply in a thread, and marks the channel read for a post in the channel or the chat, as for any post that you write. To WhatsApp, `i2a` sends no read receipt and no typing state.
+- `i2a` does not send the same text to the same message two times. When a send times out, send again: for Mattermost, `i2a` looks for the post first; for WhatsApp, it sends again with the same message ID, and WhatsApp shows the message one time.
+- A WhatsApp reply goes through the daemon when it runs, because the daemon holds the connection. Without a daemon, `i2a` connects for the send. A quote needs the stored copy of the message, which `i2a` keeps for `lookback` plus one hour (`retention` for a message with a file); after that, choose `Chat`.
+- In a WhatsApp chat with disappearing messages, the reply gets the timer of the message that it answers.
 
 The agent can send a reply too:
 
@@ -464,6 +464,24 @@ i2a reply --card mm:pr-57          # the suggested reply of the card, to its new
 2. Allow the command in `.claude/settings.json` of the workspace: `"Bash(/Users/you/.local/bin/i2a reply:*)"`.
 
 When you use `I2A_SECRET_BACKEND=file`, put it before the command in the primer (`I2A_SECRET_BACKEND=file i2a reply ...`). Without it, `i2a reply` reads the token from the keychain.
+
+## Files
+
+A WhatsApp message with `[image]`, `[video]`, `[document: …]`, `[audio]` or `[voice message]` in its text has a file. `i2a` does not download it. You or the agent save it on request:
+
+```sh
+i2a download --message 1234                 # saves to ~/Downloads and prints the path
+i2a download --message 1234 --dir ~/tmp/in  # another folder
+```
+
+- The card section of the primer tells the agent about this command and that the file content is untrusted data.
+- The name is the file name of the sender without path parts, or `whatsapp-<id>.<ext>`. `i2a` never overwrites a file: it writes `plan (1).pdf`.
+- `i2a` marks the file as downloaded from the internet (`com.apple.quarantine`), so macOS asks before it opens a program from it.
+- `i2a` does not record or delete the file. Delete it when you want.
+- The maximum size is 100 MB. A file is available while `i2a` keeps the message (`retention`, default 7 days) and WhatsApp keeps the file on its servers.
+- When the daemon runs, it downloads the file to `<data>/tmp/`, and the command moves the file. macOS can refuse the access to `~/Downloads` for the terminal of the agent: allow it in System Settings › Privacy & Security › Files and Folders, or use `--dir`.
+
+A file from another person can contain instructions for the agent. Give the agent the same rules as for message text.
 
 ## Asks
 
@@ -506,6 +524,7 @@ Other people write the messages, and an agent can run commands. A message can co
 8. A reply goes only to a message that `i2a` collected. Each reply that the agent sends shows a notification.
 9. An ask puts the card text in a fenced data block, never in the instruction. Only your text is the instruction.
 10. The keys of a WhatsApp linked device are in `whatsapp-<id>.db` with the mode 0600. Removing the account logs out the device and deletes the file.
+11. `i2a download` saves only the file of a collected message, only on request, with a name without path parts, and with the quarantine attribute.
 
 An agent that can run `i2a reply` can post as you in the conversations that `i2a` collects. A message can try to trick the agent into a reply. Allow `i2a reply` only when you need it, and tell the agent in the primer when it can reply.
 
@@ -524,6 +543,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | `i2a config check [file]` / `schema` | Check a configuration file (exit 1 with each problem), print the JSON Schema |
 | `i2a card add` / `done --key <key>` / `list [--json] [--all]` | Add cards (JSON on stdin), close a card, list the cards |
 | `i2a reply --to <message id>` or `--card <id or key>`, `[--thread or --channel]` | Send a reply (text on stdin, or the suggested reply of the card) |
+| `i2a download --message <id> [--dir <dir>]` | Save the file of a WhatsApp message to `~/Downloads` and print the path |
 | `i2a ask --card <id or key>` | Ask the agent about a card (text on stdin) |
 | `i2a run --once` | Read all accounts and send the waiting messages of each space with an agent now (the running daemon does it when it runs) |
 | `i2a daemon` | Run in the foreground: read the accounts and send each space on its schedule |

@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
+	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
-	"github.com/sondt2709/inbox2agent/internal/secrets"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
 // Replier is a source that can send a reply to a stored message.
@@ -22,42 +22,91 @@ type Replier interface {
 	Find(ctx context.Context, r inbox.ReplyRequest) (inbox.Posted, bool, error)
 }
 
+// Downloader is a source that can download the file of a stored message.
+type Downloader interface {
+	// Download writes the file of the message to a new file in dir.
+	Download(ctx context.Context, chat, id, dir string) (whatsapp.File, error)
+}
+
 // ErrCannotReply is returned for a source that cannot send replies.
 var ErrCannotReply = errors.New("cannot send replies yet")
 
-// BuildReplier builds the source of the account with the ID, for a send.
-func BuildReplier(cfg *config.Config, accountID string, sec secrets.Store, hc *http.Client) (Replier, error) {
+// ErrCannotDownload is returned for a source that cannot download files.
+var ErrCannotDownload = errors.New("cannot download files")
+
+// account returns the entry of the account with the ID.
+func account(cfg *config.Config, accountID string) (config.Account, error) {
 	for _, sc := range cfg.Accounts {
-		if sc.ID != accountID {
-			continue
+		if sc.ID == accountID {
+			return sc, nil
 		}
-		if sc.Platform != config.PlatformMattermost {
-			return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
-		}
-		src, err := Build(sc, Env{Secrets: sec, Lookback: cfg.Settings.Lookback.D(), HTTP: hc, Default: config.ReadOff})
-		if err != nil {
-			return nil, err
-		}
-		r, ok := src.(Replier)
-		if !ok {
-			return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
-		}
-		return r, nil
 	}
-	return nil, fmt.Errorf("account %q is not in the configuration", accountID)
+	return config.Account{}, fmt.Errorf("account %q is not in the configuration", accountID)
+}
+
+// canReply lists the platforms that send replies.
+func canReply(p string) bool {
+	return p == config.PlatformMattermost || p == config.PlatformWhatsApp
+}
+
+// OneShot returns env for a source of one send or one download in a process
+// that is not the daemon: it waits for the WhatsApp lock that a closing
+// daemon or dashboard can hold, and does not wait for offline messages.
+func OneShot(env Env) Env {
+	env.OneShot, env.LockWait, env.Default = true, 10*time.Second, config.ReadOff
+	return env
+}
+
+// BuildReplier builds the source of the account with the ID, for a send in
+// this process. A WhatsApp source holds a connection: close it (io.Closer).
+func BuildReplier(cfg *config.Config, accountID string, env Env) (Replier, error) {
+	sc, err := account(cfg, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !canReply(sc.Platform) {
+		return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
+	}
+	env.Lookback, env.Retention = cfg.Settings.Lookback.D(), cfg.Settings.Retention.D()
+	src, err := Build(sc, env)
+	if err != nil {
+		return nil, err
+	}
+	r, ok := src.(Replier)
+	if !ok {
+		return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
+	}
+	return r, nil
+}
+
+// BuildDownloader builds the source of the account with the ID, for a
+// download in this process. Close it (io.Closer).
+func BuildDownloader(cfg *config.Config, accountID string, env Env) (Downloader, error) {
+	sc, err := account(cfg, accountID)
+	if err != nil {
+		return nil, err
+	}
+	env.Lookback, env.Retention = cfg.Settings.Lookback.D(), cfg.Settings.Retention.D()
+	src, err := Build(sc, env)
+	if err != nil {
+		return nil, err
+	}
+	d, ok := src.(Downloader)
+	if !ok {
+		return nil, fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotDownload)
+	}
+	return d, nil
 }
 
 // CanReply reports whether the account with the ID exists in the configuration
 // and can send replies. It does not read the token.
 func CanReply(cfg *config.Config, accountID string) error {
-	for _, sc := range cfg.Accounts {
-		if sc.ID != accountID {
-			continue
-		}
-		if sc.Platform != config.PlatformMattermost {
-			return fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
-		}
-		return nil
+	sc, err := account(cfg, accountID)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("account %q is not in the configuration", accountID)
+	if !canReply(sc.Platform) {
+		return fmt.Errorf("account %q (%s): %w", sc.ID, sc.Platform, ErrCannotReply)
+	}
+	return nil
 }

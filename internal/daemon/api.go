@@ -13,10 +13,14 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
 // The daemon serves a small HTTP API on a Unix socket. The API carries no
-// message text and no card text: only counts, states, IDs and errors.
+// message text, card text, reply text or file content: only counts, states,
+// IDs, paths and errors.
 
 // SocketName is the name of the socket file in the data directory.
 const SocketName = "i2a.sock"
@@ -179,6 +183,47 @@ type Server struct {
 	listener  net.Listener
 	removeOld []string // the files to remove when the server stops
 	stopping  chan struct{}
+	actions   actions // the engine, for a reply and a download; nil before SetAPI
+}
+
+// actions are the calls of the API that do not go through the loop.
+type actions interface {
+	Reply(ctx context.Context, replyID int64) (inbox.Posted, error)
+	Download(ctx context.Context, messageID int64) (whatsapp.File, error)
+}
+
+// actionWait limits one reply or one download of the API.
+var actionWait = 3 * time.Minute
+
+// ReplyRequest is the body of POST /v1/reply. The daemon reads the text of
+// the reply from the store, so the API carries no text.
+type ReplyRequest struct {
+	ReplyID int64 `json:"reply_id"`
+}
+
+// ReplyResult is the answer of POST /v1/reply. Error is set when the send
+// failed; Answered tells whether no message exists after the error.
+type ReplyResult struct {
+	ID       string `json:"id,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Answered bool   `json:"answered,omitempty"`
+}
+
+// DownloadRequest is the body of POST /v1/download.
+type DownloadRequest struct {
+	MessageID int64 `json:"message_id"`
+}
+
+// DownloadResult is the answer of POST /v1/download: a temporary file that
+// the caller moves, or the error. The API never carries the bytes.
+type DownloadResult struct {
+	Path  string `json:"path,omitempty"`
+	Name  string `json:"name,omitempty"`
+	MIME  string `json:"mime,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	Size  int64  `json:"size,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // ErrUnknownSpace is the error of a run of a space that does not exist.
@@ -242,11 +287,61 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("POST /v1/run", s.handleRun)
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
+	mux.HandleFunc("POST /v1/reply", s.handleReply)
+	mux.HandleFunc("POST /v1/download", s.handleDownload)
 	return mux
 }
 
 // Paths lists the paths of the API, for the test of the OpenAPI file.
-var Paths = []string{"/v1/status", "/v1/run", "/v1/events"}
+var Paths = []string{"/v1/status", "/v1/run", "/v1/events", "/v1/reply", "/v1/download"}
+
+// decodeID reads a JSON body with one positive ID.
+func decodeID(w http.ResponseWriter, r *http.Request, v any, id func() int64, shape string) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(v); err != nil || id() <= 0 {
+		writeError(w, http.StatusBadRequest, "the body is not "+shape)
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleReply(w http.ResponseWriter, r *http.Request) {
+	var req ReplyRequest
+	if !decodeID(w, r, &req, func() int64 { return req.ReplyID }, `{"reply_id": <n>}`) {
+		return
+	}
+	if s.actions == nil {
+		writeError(w, http.StatusServiceUnavailable, "the daemon cannot send replies yet")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), actionWait)
+	defer cancel()
+	p, err := s.actions.Reply(ctx, req.ReplyID)
+	if err != nil {
+		var a interface{ Answered() bool }
+		writeJSON(w, http.StatusOK, ReplyResult{Error: err.Error(), Answered: errors.As(err, &a) && a.Answered()})
+		return
+	}
+	writeJSON(w, http.StatusOK, ReplyResult{ID: p.ID, URL: p.URL})
+}
+
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	var req DownloadRequest
+	if !decodeID(w, r, &req, func() int64 { return req.MessageID }, `{"message_id": <n>}`) {
+		return
+	}
+	if s.actions == nil {
+		writeError(w, http.StatusServiceUnavailable, "the daemon cannot download files yet")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), actionWait)
+	defer cancel()
+	f, err := s.actions.Download(ctx, req.MessageID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, DownloadResult{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, DownloadResult{Path: f.Path, Name: f.Name, MIME: f.MIME, Kind: f.Kind, Size: f.Size})
+}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

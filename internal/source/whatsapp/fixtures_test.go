@@ -43,7 +43,13 @@ const (
 // fixtures returns the messages in the file order.
 func fixtures(t *testing.T) []fixture {
 	t.Helper()
-	f, err := os.Open("testdata/messages.jsonl")
+	return fixturesFrom(t, "testdata/messages.jsonl")
+}
+
+// fixturesFrom returns the messages of a fixture file in the file order.
+func fixturesFrom(t *testing.T, path string) []fixture {
+	t.Helper()
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

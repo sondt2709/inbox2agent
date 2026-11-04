@@ -16,6 +16,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	go.mau.fi/whatsmeow v0.0.0-20261028111316-d24d079a3755
+	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.0
 	rsc.io/qr v0.2.0
@@ -75,7 +76,6 @@ require (
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

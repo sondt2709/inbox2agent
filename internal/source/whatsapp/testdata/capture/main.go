@@ -6,6 +6,10 @@
 //
 //	go run ./internal/source/whatsapp/testdata/capture -db <data>/whatsapp-<id>.db
 //
+// With -chat, it exports only the rows of one chat, for a separate fixture
+// file (-out), for example testdata/timer.jsonl from a chat with
+// disappearing messages.
+//
 // It writes internal/source/whatsapp/testdata/messages.jsonl: at most -per rows
 // for each kind of message (direct or group, own or not, mention, quote, media
 // type). Each line holds the row columns and the stored waE2E.Message as
@@ -56,6 +60,7 @@ func main() {
 	dbPath := flag.String("db", "", "the file of a paired source (whatsapp-<id>.db)")
 	out := flag.String("out", "internal/source/whatsapp/testdata/messages.jsonl", "the output file")
 	per := flag.Int("per", 2, "the rows to keep for each kind of message")
+	chat := flag.String("chat", "", "export only the rows of this chat JID")
 	flag.Parse()
 	if *dbPath == "" {
 		log.Fatal("give -db")
@@ -77,7 +82,8 @@ func main() {
 		s.fix(lid.String, meLID)
 	}
 
-	rows, err := db.Query(`SELECT chat, id, sender, kind, from_me, mention, phone, raw FROM wa_messages ORDER BY rowid`)
+	rows, err := db.Query(`SELECT chat, id, sender, kind, from_me, mention, phone, raw FROM wa_messages
+		WHERE ? = '' OR chat = ? ORDER BY rowid`, *chat, *chat)
 	if err != nil {
 		log.Fatal(err)
 	}

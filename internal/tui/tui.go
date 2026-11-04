@@ -157,9 +157,9 @@ func newUI(d Deps) *ui {
 		d.Open = openURL
 	}
 	if d.Replier == nil {
-		sec := d.Secrets
+		env := source.Env{Secrets: d.Secrets, DataDir: d.Paths.DataDir}
 		d.Replier = func(cfg *config.Config, accountID string) (source.Replier, error) {
-			return source.BuildReplier(cfg, accountID, sec, nil)
+			return daemon.BuildReplier(cfg, accountID, env)
 		}
 	}
 	if d.AskDriver == nil {
