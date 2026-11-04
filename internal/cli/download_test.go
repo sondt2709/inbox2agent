@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -80,11 +81,13 @@ func TestDownloadSavesTheFile(t *testing.T) {
 	if (*fetched)[0].ExternalID != "3EB0AA" {
 		t.Errorf("fetched %+v", (*fetched)[0])
 	}
-	buf := make([]byte, 64)
-	if n, err := unix.Getxattr(want, download.QuarantineAttr, buf); err != nil {
-		t.Errorf("no quarantine attribute: %v", err)
-	} else if !strings.HasSuffix(string(buf[:n]), ";i2a;") {
-		t.Errorf("quarantine = %q", buf[:n])
+	if runtime.GOOS == "darwin" {
+		buf := make([]byte, 64)
+		if n, err := unix.Getxattr(want, download.QuarantineAttr, buf); err != nil {
+			t.Errorf("no quarantine attribute: %v", err)
+		} else if !strings.HasSuffix(string(buf[:n]), ";i2a;") {
+			t.Errorf("quarantine = %q", buf[:n])
+		}
 	}
 	if left, _ := os.ReadDir(paths.TmpDir()); len(left) != 0 {
 		t.Errorf("temporary files left: %d", len(left))

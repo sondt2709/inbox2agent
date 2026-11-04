@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,9 @@ func TestMoveNeverOverwrites(t *testing.T) {
 }
 
 func TestMoveDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the mode of the folder")
+	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "locked")
 	if err := os.Mkdir(dir, 0o500); err != nil {
@@ -117,6 +121,9 @@ func TestCopyNewDoesNotOverwrite(t *testing.T) {
 }
 
 func TestQuarantine(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("com.apple.quarantine is a macOS attribute")
+	}
 	p := tmpFile(t, t.TempDir(), "x")
 	if err := Quarantine(p, time.Unix(0x6720_0000, 0)); err != nil {
 		t.Fatal(err)
