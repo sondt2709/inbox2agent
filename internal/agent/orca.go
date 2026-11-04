@@ -44,6 +44,7 @@ type Orca struct {
 	space        config.Space // its ID is the key of the reuse session
 	sessions     Sessions
 	Claude       *ClaudeFinder // finds the Claude session of a terminal; nil for another CLI
+	orcaOnly     bool          // the last check could not read the Claude sessions
 	Run          Runner
 	Now          func() time.Time
 	Sleep        func(time.Duration)
@@ -331,11 +332,13 @@ func (o *Orca) orcaLive(ctx context.Context, handle string, needAgent bool) (boo
 //   - else exactly one other terminal runs the stored Claude session: follow it;
 //   - when the Claude sessions cannot be read, Orca must report an agent.
 func (o *Orca) check(ctx context.Context, ss inbox.Session) (inbox.Session, bool, error) {
+	o.orcaOnly = false
 	if ss.Handle == "" {
 		return ss, false, nil
 	}
 	if o.Claude != nil {
 		procs, err := o.Claude.InTerminal(ss.Handle)
+		o.orcaOnly = err != nil
 		if err == nil {
 			if len(procs) == 1 && (ss.AgentSession == "" || procs[0].SessionID == ss.AgentSession) {
 				ss.AgentSession = procs[0].SessionID
@@ -431,7 +434,11 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		res.Detail = "linked session, " + res.Detail + " with the primer"
 		return res, nil
 	}
-	return o.sendIdle(ctx, ss.Handle, o.IdleTimeout, b.Prompt)
+	res, err := o.sendIdle(ctx, ss.Handle, o.IdleTimeout, b.Prompt)
+	if err == nil && o.orcaOnly {
+		res.Detail += "; " + ErrClaudeUnknown.Error() + ", Orca check only"
+	}
+	return res, err
 }
 
 // startSession launches a new session with the primer and the batch, and

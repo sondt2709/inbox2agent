@@ -6,14 +6,14 @@
 
 ## 2. Claude session finder
 
-- [x] 2.1 Add `internal/agent/claude.go`: `ClaudeProc`, `ClaudeFinder` with `InTerminal(handle)` and `WithSession(id)`, `ErrUnknown`; reader of `<claude dir>/sessions/*.json`; pid check; environment from `kern.procargs2`
+- [x] 2.1 Add `internal/agent/claude.go`: `ClaudeProc`, `ClaudeFinder` with `InTerminal(handle)` and `WithSession(id)`, `ErrClaudeUnknown`; reader of `<claude dir>/sessions/*.json`; pid check; environment from `kern.procargs2`
 - [x] 2.2 Put the process reader behind a function field, so tests use the fixture directory and a fake environment
 - [x] 2.3 Unit tests: one process, no process, two processes with one session, a file that does not decode, `CLAUDE_CONFIG_DIR`
 
 ## 3. Store schema version 8
 
 - [x] 3.1 Add `migrateV8` (backup `inbox.db.v7.bak`, `sessions.agent_session`, `cards.agent_session`) and set `SchemaVersion = 8`
-- [x] 3.2 Change `Session` and `SetSession` to `agent.Session{Handle, AgentSession, PrimerHash}`; add `ListSessions` for the dashboard
+- [x] 3.2 Change `Session` and `SetSession` to `inbox.Session{Space, Handle, AgentSession, PrimerHash, CreatedAt}`; add `Sessions` for the dashboard
 - [x] 3.3 `SaveCards` stores `Card.AgentSession`; the update by key replaces it when the call has one
 - [x] 3.4 Tests: upgrade from version 7, failure keeps version 7, new store has version 8
 

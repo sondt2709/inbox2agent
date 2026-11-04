@@ -38,7 +38,7 @@ The handle stays the address, because every `orca` command needs it. The Claude 
 
 ### D2. Read the Claude session from the process (`internal/agent/claude.go`)
 
-`ClaudeFinder` reads `<claude dir>/sessions/*.json` (`CLAUDE_CONFIG_DIR`, else `~/.claude`). For each file, it checks that the pid runs, reads the environment of the pid with `unix.SysctlRaw("kern.procargs2", pid)` and takes `ORCA_TERMINAL_HANDLE`. It returns `[]ClaudeProc{PID, SessionID, Name, Cwd, Handle}`. Two queries: `InTerminal(handle)` and `WithSession(id)`. A missing directory or a file that does not decode gives `ErrUnknown`, not an error of the batch.
+`ClaudeFinder` reads `<claude dir>/sessions/*.json` (`CLAUDE_CONFIG_DIR`, else `~/.claude`). For each file, it checks that the pid runs, reads the environment of the pid with `unix.SysctlRaw("kern.procargs2", pid)` and takes `ORCA_TERMINAL_HANDLE`. It returns `[]ClaudeProc{PID, SessionID, Name, Cwd, Handle}`. Two queries: `InTerminal(handle)` and `WithSession(id)`. A missing directory or a file that does not decode gives `ErrClaudeUnknown`, not an error of the batch.
 
 Alternative: run `ps eww -p <pid>`. Rejected: one process for each file, and values with spaces break the output. `x/sys/unix` is already a dependency and works with `CGO_ENABLED=0`.
 
@@ -67,7 +67,7 @@ If the user resumes session S in another tab, or Orca restarts and gives new han
 
 ### D5. A linked session gets the primer
 
-The link stores `primer_hash = "pending"` (`agent.PrimerPending`). The driver sends the primer and the batch to that terminal, then stores the real hash. Other hash values keep today's rule: a different hash starts a new session.
+The link stores `primer_hash = "pending"` (`inbox.PrimerPending`). The driver sends the primer and the batch to that terminal, then stores the real hash. Other hash values keep today's rule: a different hash starts a new session.
 
 ### D6. Post-send guard
 
@@ -83,11 +83,11 @@ After `launch` (new and reuse modes) and `worktree create`, the driver runs `orc
 
 ### D9. Store schema version 8
 
-`ALTER TABLE sessions ADD COLUMN agent_session TEXT NOT NULL DEFAULT ''` and the same for `cards`, after the backup `inbox.db.v7.bak`, in one transaction. `Sessions.Session` returns `agent.Session{Handle, AgentSession, PrimerHash}`; `SetSession` takes it.
+`ALTER TABLE sessions ADD COLUMN agent_session TEXT NOT NULL DEFAULT ''` and the same for `cards`, after the backup `inbox.db.v7.bak`, in one transaction. `Sessions.Session` returns `inbox.Session{Space, Handle, AgentSession, PrimerHash, CreatedAt}`; `SetSession` takes it.
 
 ### D10. Agents tab
 
-The agent detail gets a note "Sessions" with one line for each space that uses the agent: space, handle, short Claude session ID, from the store only (no Orca call in the 2 second refresh). The key `s` opens the sessions dialog. `enter` and `x` keep their meanings (edit, delete). The dialog loads the state with the finder and `orca terminal show` in a `tea.Cmd`: handle, Claude session ID, Claude session name, state (`live`, `no Claude`, `other session`, `closed`, `unknown`). Actions on the selected space: `l` link, `u` unlink, `o` open in Orca (`orca terminal switch`).
+The agent detail gets a note "Sessions" with one line for each space that uses the agent: space, handle, short Claude session ID, from the store only (no Orca call in the 2 second refresh). The key `s` opens the sessions dialog. `enter` and `x` keep their meanings (edit, delete). The dialog loads the state with the finder and `orca terminal show` in a `tea.Cmd`: handle, Claude session ID, Claude session name, state (`live`, `no Claude`, `other session`, `closed`, `no agent`, `unknown`). Actions on the selected space: `l` link, `u` unlink, `o` open in Orca (`orca terminal switch`).
 
 Link: an input dialog accepts `term_…` or a UUID. The finder resolves the other ID and requires exactly one Claude process. A `cwd` outside the agent `workspace`, or a session that another space has, opens a confirm dialog. The link writes `(H, S, "pending")` to the store. Unlink deletes the row.
 
@@ -95,7 +95,7 @@ The approved sketch used `enter`, `x` and `o` on rows of the detail panel. The f
 
 ## Risks / Trade-offs
 
-- [Claude Code changes `~/.claude/sessions/*.json`] → The finder returns `ErrUnknown`, the driver falls back to the Orca check with `agentIdentity`, and the daemon logs one warning.
+- [Claude Code changes `~/.claude/sessions/*.json`] → The finder returns `ErrClaudeUnknown`, the driver falls back to the Orca check with `agentIdentity`, and the detail of the dispatch says "cannot read the Claude sessions, Orca check only".
 - [`agentIdentity` stays `"claude"` for some seconds after an exit] → Only the fallback depends on it. D6 limits the damage.
 - [The daemon runs as a LaunchAgent] → Same user, so `kern.procargs2` returns the environment. The local e2e scenario runs the real binary.
 - [Adopt on upgrade] → One time only, for rows with no Claude session ID.

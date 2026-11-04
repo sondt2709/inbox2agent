@@ -329,6 +329,9 @@ func TestWorktreeModeCreatesThenSubmits(t *testing.T) {
 	if send := f.called("terminal send")[0]; flag(send, "--terminal") != worktreeHandle {
 		t.Errorf("send args = %v", send)
 	}
+	if rn := f.called("terminal rename"); len(rn) != 1 || flag(rn[0], "--terminal") != worktreeHandle || flag(rn[0], "--title") != "triage · Triage" {
+		t.Errorf("rename = %v, want the tab name of the worktree terminal", rn)
+	}
 }
 
 func TestUnknownWorkspaceIsAddedOnce(t *testing.T) {
@@ -627,8 +630,12 @@ func TestReuseUnknownClaudeFilesUsesOrcaCheck(t *testing.T) {
 		}
 		o.Claude = &ClaudeFinder{Dir: dir, Proc: fakeProcs(nil)}
 		sess["triage"], sess["triage#agent"] = "term_a", sessionA
-		if _, err := o.Deliver(context.Background(), r); err != nil {
+		res, err := o.Deliver(context.Background(), r)
+		if err != nil {
 			t.Fatalf("%s: %v", show, err)
+		}
+		if !wantNew && !strings.Contains(res.Detail, "cannot read the Claude sessions, Orca check only") {
+			t.Errorf("%s: detail = %q, want the note about the Orca check", show, res.Detail)
 		}
 		if got := sess["triage"] == launchedHandle; got != wantNew || (len(sentTo(f, "term_a")) == 0) != wantNew {
 			t.Errorf("%s: session = %v, sends = %v; want new session %v", show, sess, f.called("terminal send"), wantNew)
