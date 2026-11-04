@@ -1,7 +1,7 @@
 # whatsapp-source Specification
 
 ## Purpose
-This capability collects the messages of a personal WhatsApp account. i2a connects as a linked device, stores each received message in the file of the source, and collects the selected chats, the direct chats and the group mentions. It only reads: it sends no messages, no read receipts and no presence.
+This capability collects the messages of a personal WhatsApp account. i2a connects as a linked device, stores each received message in the file of the source, and collects the selected chats, the direct chats and the group mentions. It sends a message only for a reply that the user or the agent asks for, and downloads a file only for `i2a download`. It sends no read receipts, no typing state and no presence.
 ## Requirements
 ### Requirement: Pair as a linked device
 The system SHALL connect a WhatsApp source as a linked device of the personal account of the user. Pairing SHALL show a QR code that changes when WhatsApp sends a new code, or, when the user gives a phone number in international format, one 8-character pairing code. The device name on the phone SHALL be "i2a". Pairing SHALL stop when WhatsApp stops giving codes (after about 160 seconds) with no scan. When the window is too short for the QR code, the TUI SHALL say how many rows it needs.
@@ -19,7 +19,7 @@ The system SHALL connect a WhatsApp source as a linked device of the personal ac
 - **THEN** the system stops the pairing, shows "Pairing timed out", and saves no source
 
 ### Requirement: Message file of a source
-The system SHALL keep the device keys and the received messages of a WhatsApp source in `<data>/whatsapp-<id>.db` with the file mode 0600. The system SHALL write each received message to this file when it arrives, also messages from a history sync. The system SHALL NOT store messages older than `lookback`, and SHALL delete stored messages older than `lookback` plus one hour.
+The system SHALL keep the device keys and the received messages of a WhatsApp source in `<data>/whatsapp-<id>.db` with the file mode 0600. The system SHALL write each received message to this file when it arrives, also messages from a history sync. The system SHALL NOT store messages older than `lookback`. The system SHALL delete stored messages without a file when they are older than `lookback` plus one hour, and stored messages with a file (image, video, document, audio, voice message or sticker) when they are older than `retention`, so that `i2a download` can read them later.
 
 #### Scenario: File mode
 - **WHEN** the user pairs the source `phone`
@@ -28,6 +28,10 @@ The system SHALL keep the device keys and the received messages of a WhatsApp so
 #### Scenario: Message received while no poll runs
 - **WHEN** a message arrives and the daemon stops before the next poll
 - **THEN** the next poll after the restart returns the message
+
+#### Scenario: Document after the lookback
+- **WHEN** `lookback` is 1 day, `retention` is 7 days, and a contact sent a document 2 days ago
+- **THEN** the row of the document is still in `wa_messages`, and the text messages of the same day are deleted
 
 ### Requirement: Connection
 The daemon SHALL open the connection of a WhatsApp source on the first poll and SHALL keep it open between polls. Only one process SHALL hold the connection of a source; the holder SHALL lock `<data>/whatsapp-<id>.lock`. On the first poll after a connect, the source SHALL wait for the messages that arrived while it was offline, for at most 30 seconds. `i2a run --once` SHALL connect, collect and disconnect.
@@ -41,7 +45,7 @@ The daemon SHALL open the connection of a WhatsApp source on the first poll and 
 - **THEN** `<data>/whatsapp-<id>.lock` is locked by the daemon process
 
 ### Requirement: Message text
-The source SHALL use the text of the message. For media, the text SHALL start with a placeholder: `[image]`, `[video]`, `[document: <file name>]`, `[voice message]`, `[audio]`, `[sticker]`, `[contact: <name>]`, `[location: <name>]` or `[poll] <question>`, followed by the caption when it exists. A message that quotes another message SHALL start with one line `> ` and at most 200 characters of the quoted text. The source SHALL NOT download media.
+The source SHALL use the text of the message. For media, the text SHALL start with a placeholder: `[image]`, `[video]`, `[document: <file name>]`, `[voice message]`, `[audio]`, `[sticker]`, `[contact: <name>]`, `[location: <name>]` or `[poll] <question>`, followed by the caption when it exists. A message that quotes another message SHALL start with one line `> ` and at most 200 characters of the quoted text. The source SHALL NOT download media when it collects; only `i2a download` downloads a file.
 
 #### Scenario: Image with a caption
 - **WHEN** a contact sends an image with the caption `plan for Friday`
@@ -98,4 +102,26 @@ The source SHALL use, for each chat, the read level of the conversation in the c
 #### Scenario: Group off
 - **WHEN** a group has the read level `off` and a member mentions the user
 - **THEN** the source does not collect the message
+
+### Requirement: Send a reply
+A WhatsApp source SHALL send a reply as a text message to the chat of the target message. A reply in the place `thread` SHALL quote the target message. The source SHALL use the WhatsApp message ID that the reply gives. When WhatsApp answers with an error, or the source is not paired, the error SHALL mean that no message exists. A time-out or a lost connection SHALL mean that the result is not known.
+
+#### Scenario: Plain reply
+- **WHEN** the source sends the reply "ok, 3pm" with the place `channel` to a direct chat
+- **THEN** the contact gets "ok, 3pm" with no quote
+
+#### Scenario: Quoted reply in a group
+- **WHEN** the source sends the reply "yes" with the place `thread` to a group message of Lan
+- **THEN** the group gets "yes" with a quote of the message of Lan
+
+#### Scenario: Not paired
+- **WHEN** the phone unlinked i2a and the user sends a reply
+- **THEN** the reply is `failed` with the error "not paired: pair again in i2a config"
+
+### Requirement: Download the file of a message
+A WhatsApp source SHALL download and decrypt the file of a stored message when `i2a download` asks for it, with the media keys of the stored row. The source SHALL refuse a message without a file and a message whose row no longer exists.
+
+#### Scenario: Row deleted
+- **WHEN** retention deleted the row of a document and the agent runs `i2a download --message <id>`
+- **THEN** the command exits with code 1 and says that the file is no longer available
 

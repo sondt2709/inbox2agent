@@ -4,7 +4,7 @@
 This capability sends a reply from i2a to the conversation of a stored message, as the user of the source. The user sends from the Feed with the reply form; the agent sends with `i2a reply`. The capability keeps the target to stored messages, records each reply, and does not post the same reply two times.
 ## Requirements
 ### Requirement: Reply form in the Feed
-The key `r` on a selected card SHALL open a reply form in the detail panel. The form SHALL have these fields: Send to (the channel, the source type and the source ID; not editable), Reply to (a choice of the card refs that exist in the store; shown only when there is more than one), Where (thread or channel; "Chat" instead of "Channel" for a direct or group conversation), a note about the read state, and Text (the suggested reply of the card, or empty). `ctrl+s` SHALL send the reply. `esc` SHALL close the form and send nothing. When the card has no ref that exists in the store, `r` SHALL show "The card has no message to reply to" and open no form.
+The key `r` on a selected card SHALL open a reply form in the detail panel. The form SHALL have these fields: Send to (the channel, the source type and the source ID; not editable), Reply to (a choice of the card refs that exist in the store; shown only when there is more than one), Where (thread or channel; "Chat" instead of "Channel" for a direct or group conversation, and "Quote" instead of "Thread" for a WhatsApp target), a note about the read state, and Text (the suggested reply of the card, or empty). `ctrl+s` SHALL send the reply. `esc` SHALL close the form and send nothing. When the card has no ref that exists in the store, `r` SHALL show "The card has no message to reply to" and open no form.
 
 #### Scenario: Send the suggested reply as it is
 - **WHEN** the user selects a card with the suggested reply "Thanks Minh, I will review PR 57 this afternoon." and the ref 812, and presses `r` and then `ctrl+s`
@@ -22,8 +22,12 @@ The key `r` on a selected card SHALL open a reply form in the detail panel. The 
 - **WHEN** retention deleted all messages of a card and the user presses `r`
 - **THEN** no form opens and the status line says "The card has no message to reply to"
 
+#### Scenario: WhatsApp card
+- **WHEN** the user presses `r` on a card with a ref from a WhatsApp group
+- **THEN** the form opens, and Where shows "Quote" and "Chat" with "Quote" selected
+
 ### Requirement: Reply target and place
-The target of a reply SHALL be a message in the store. The system SHALL NOT take a channel, a user or a URL from card text, from the reply text or from a command-line value other than a message ID or a card ID or key. The default target SHALL be the newest card ref that exists in the store. The default place SHALL be the thread of the message when the message is in a thread or in a channel of kind `channel`, and the channel when the message is a top-level message of a direct or group conversation. A reply in a thread SHALL use the root of the thread, also when the target message is a reply in that thread.
+The target of a reply SHALL be a message in the store. The system SHALL NOT take a channel, a user or a URL from card text, from the reply text or from a command-line value other than a message ID or a card ID or key. The default target SHALL be the newest card ref that exists in the store. The default place SHALL be the thread of the message when the message is in a thread or in a channel of kind `channel`, and the channel when the message is a top-level message of a direct or group conversation. For a WhatsApp target, the default place SHALL be the channel (a plain message) in a direct chat and the thread (a quote of the target) in a group. A reply in a thread SHALL use the root of the thread, also when the target message is a reply in that thread.
 
 #### Scenario: Direct message
 - **WHEN** the target is a top-level message from `@lena.wong` in a direct conversation
@@ -37,6 +41,10 @@ The target of a reply SHALL be a message in the store. The system SHALL NOT take
 - **WHEN** the card body contains `https://chat.example.com/team/pl/abc123`
 - **THEN** the reply goes to the card ref message, not to the post in the URL
 
+#### Scenario: WhatsApp group
+- **WHEN** the target is a message in a WhatsApp group and the agent runs `i2a reply --to <id>` without `--thread` or `--channel`
+- **THEN** the reply is a quote of the target message in that group
+
 ### Requirement: Reply text
 The system SHALL remove hidden characters from the reply text with the rule of message text, and remove spaces at the start and the end. Empty text SHALL be an error. Text with more than 4,000 characters SHALL be an error. The system SHALL NOT change mentions or Markdown in the text.
 
@@ -49,7 +57,7 @@ The system SHALL remove hidden characters from the reply text with the rule of m
 - **THEN** the command exits with code 1, says that the maximum is 4,000 characters, and creates no post
 
 ### Requirement: Read state of a reply
-The system SHALL NOT send a request that marks a channel as read or as unread. The read state SHALL change only as the platform changes it for a post of the user. The form SHALL tell the user that a thread reply keeps the read state and that a post in the channel or chat marks it read.
+The system SHALL NOT send a request that marks a channel as read or as unread. For WhatsApp, the system SHALL NOT send read receipts, typing state or presence. The read state SHALL change only as the platform changes it for a post of the user. For a Mattermost target, the form SHALL tell the user that a thread reply keeps the read state and that a post in the channel or chat marks it read. For a WhatsApp target, the form SHALL tell the user that i2a sends no read receipt.
 
 #### Scenario: Reply in a thread
 - **WHEN** the user has unread messages in `pr-reviews` and sends a reply in a thread there
@@ -58,6 +66,10 @@ The system SHALL NOT send a request that marks a channel as read or as unread. T
 #### Scenario: Post in the chat
 - **WHEN** the user sends a reply in the chat of `@lena.wong`
 - **THEN** Mattermost marks the chat read, and i2a sent only `GET /posts/{id}` and `POST /posts`
+
+#### Scenario: WhatsApp reply
+- **WHEN** the user sends a reply to a WhatsApp direct message of a contact
+- **THEN** the contact gets the message, and the earlier messages of the contact do not get blue ticks
 
 ### Requirement: Failed send and safe retry
 The system SHALL record each reply in the store with the state `sending` before it calls the platform, and `sent` or `failed` after. When the platform answers with an error, the reply SHALL be `failed`, the form SHALL show the error under the Text field and keep the text, and the card SHALL keep its state. When the result is not known (a time-out or a lost connection), the reply SHALL stay `sending`. A new send with the same target, place and text as an earlier reply SHALL:
@@ -107,9 +119,32 @@ The detail panel of a card SHALL show one line for each `sent` reply of the card
 - **THEN** the detail panel shows "✓ Replied 14:52 by you → pr-reviews (thread)"
 
 ### Requirement: Sources that cannot send
-When the source of the target message does not support replies, or is no longer in the configuration, the system SHALL NOT open the form or send, and SHALL say which source cannot send. The key `c` SHALL still copy the suggested reply.
+When the source of the target message does not support replies, or is no longer in the configuration, the system SHALL NOT open the form or send, and SHALL say which source cannot send. Mattermost and WhatsApp sources SHALL support replies. The key `c` SHALL still copy the suggested reply.
 
 #### Scenario: Removed source
 - **WHEN** the user removed the source `work` from the configuration and presses `r` on a card with a message from `work`
 - **THEN** no form opens, and the status line says that the source `work` is not in the configuration
+
+#### Scenario: WhatsApp source
+- **WHEN** the agent runs `i2a reply --to <id>` for a message of a paired WhatsApp source
+- **THEN** the command does not say "cannot send replies yet"
+
+### Requirement: WhatsApp reply delivery
+A WhatsApp reply SHALL use the connection of the daemon when the daemon answers on its socket. When no daemon answers, the process SHALL open the connection of the source, send, and close it. A quote SHALL contain the ID, the sender and the stored content of the target message. When the stored row of the target message no longer exists, the system SHALL refuse a quote, say to use the chat place, and send nothing. The WhatsApp message ID of a reply SHALL come from its pending ID, so each try of one reply has the same message ID. A new send of a reply that is `sending` SHALL send again with the same message ID.
+
+#### Scenario: Daemon runs
+- **WHEN** the daemon holds the WhatsApp connection and the user sends a reply from the Feed
+- **THEN** the daemon sends the message, the reply is `sent`, and the Feed process does not open the connection
+
+#### Scenario: No daemon
+- **WHEN** no daemon runs and the agent runs `i2a reply --to <id>` for a WhatsApp message
+- **THEN** the command connects, sends, disconnects, and releases `<data>/whatsapp-<id>.lock`
+
+#### Scenario: Quote of an old message
+- **WHEN** the stored row of the target message was deleted and the user sends with Where = Quote
+- **THEN** nothing is sent, and the form says that the message is too old to quote and to use Chat
+
+#### Scenario: Retry after a time-out
+- **WHEN** the first send of a reply times out, and the user sends the same reply again
+- **THEN** both tries use the same WhatsApp message ID, and the contact sees one message
 

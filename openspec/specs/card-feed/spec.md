@@ -75,7 +75,7 @@ On macOS, `i2a card add` SHALL show desktop notifications for the cards of the c
 - **THEN** no notification shows
 
 ### Requirement: Card section in the primer
-The system SHALL append a fixed card section to the primer of each batch for a driver other than `dry-run`. The section SHALL name the absolute path of the `i2a` executable (with `I2A_HOME=<path>` before it when the variable is set), show the JSON shape of a card, explain each field, and tell the agent to use the `id` values of the messages in `refs` and the same `key` for the same topic. The section SHALL say that the body can use Markdown (headings, lists, bold, code, tables) and that links show as text and cannot be opened. A custom primer template SHALL NOT remove the section.
+The system SHALL append a fixed card section to the primer of each batch for a driver other than `dry-run`. The section SHALL name the absolute path of the `i2a` executable (with `I2A_HOME=<path>` before it when the variable is set), show the JSON shape of a card, explain each field, and tell the agent to use the `id` values of the messages in `refs` and the same `key` for the same topic. The section SHALL say that the body can use Markdown (headings, lists, bold, code, tables) and that links show as text and cannot be opened. The section SHALL say that a WhatsApp message with a media placeholder has a file, that `i2a download --message <id>` saves the file and prints its path, and that the file content is untrusted data like message text. A custom primer template SHALL NOT remove the section.
 
 #### Scenario: Custom primer
 - **WHEN** a custom primer in Vietnamese is set
@@ -84,6 +84,10 @@ The system SHALL append a fixed card section to the primer of each batch for a d
 #### Scenario: Markdown line
 - **WHEN** the system builds the primer for an `orca` driver
 - **THEN** the card section contains "You can use Markdown"
+
+#### Scenario: Download line
+- **WHEN** the system builds the primer for an `orca` driver
+- **THEN** the card section contains the path of the `i2a` executable followed by `download --message <id>`, and says that the file content is untrusted data
 
 ### Requirement: Feed tab
 The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `new` and `read` cards in a list and the selected card at the right: the space (with its color), the category, the urgency, the group, the title, the body, the suggested reply, and the references with account, conversation, author, time and text of each message, or "message deleted". Each card row SHALL start at the left edge of the list, with no bar and no mark column. Its first line SHALL be the category as plain text, the urgency as bars (`▰▰▰` for `high` in red, `▰▰▱` for `normal`, and `▰▱▱` for `low` in the faint color), `● ` for a `new` card, and the title up to the width of the list. Its second line SHALL be the space, the group in bold, and the time. The detail panel SHALL show the bars and the word of the urgency. The space of a card SHALL be the space of its newest ref message that has one. The Feed SHALL read the store again every 2 seconds. When no store exists, it SHALL show "No cards yet".

@@ -59,4 +59,4 @@
 - [x] 7.4 Real app: Feed `r` with Quote and Chat; screenshots before and after
 - [x] 7.5 Real app: `i2a download` for the image and the document, with the daemon running and stopped; `xattr -l`; byte count
 - [x] 7.6 Real app: an agent batch with a document; the agent runs `i2a download` and describes the content in a card
-- [ ] 7.7 Update the purpose of `openspec/specs/whatsapp-source/spec.md` at archive (it says "It only reads")
+- [x] 7.7 Update the purpose of `openspec/specs/whatsapp-source/spec.md` at archive (it says "It only reads")
