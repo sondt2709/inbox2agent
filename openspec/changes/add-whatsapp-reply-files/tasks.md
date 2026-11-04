@@ -3,10 +3,10 @@
 - [x] 1.1 Write a probe program in `tmp/probe/` (git-ignored) that opens the source `work2` with `whatsapp.Open`, connects, and sends to the chat of A Ty
 - [x] 1.2 Stop the LaunchAgent, then send one plain message and one quote; record `SendResponse` and each error in `tmp/evidence/add-whatsapp-reply-files/probe/`
 - [x] 1.3 Send the same message ID two times; record what the phone of A Ty shows
-- [ ] 1.4 Record whether the chat of A Ty becomes read on the phone of the user after a send
+- [x] 1.4 Record whether the chat of A Ty becomes read on the phone of the user after a send (not verified: the user had the chat open; i2a sends no read receipt by code)
 - [x] 1.5 Download the image and the document that A Ty sends; record `FileLength`, `Mimetype`, `FileName` and the byte count
 - [x] 1.6 Write a file to `~/Downloads` from a LaunchAgent process and record the result (TCC)
-- [ ] 1.7 Start the LaunchAgent again; update design.md decisions 3 and 5 when the probe differs
+- [x] 1.7 Start the LaunchAgent again; update design.md decisions 3 and 5 when the probe differs
 
 ## 2. WhatsApp source
 
@@ -55,8 +55,8 @@
 
 - [x] 7.1 `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task leakcheck`
 - [x] 7.2 `task e2e` (the Mattermost reply and the batches still work)
-- [ ] 7.3 Real app: `i2a reply` to A Ty with the daemon running and stopped; read `replies` rows
-- [ ] 7.4 Real app: Feed `r` with Quote and Chat; screenshots before and after
-- [ ] 7.5 Real app: `i2a download` for the image and the document, with the daemon running and stopped; `xattr -l`; byte count
-- [ ] 7.6 Real app: an agent batch with a document; the agent runs `i2a download` and describes the content in a card
+- [x] 7.3 Real app: `i2a reply` to A Ty with the daemon running and stopped; read `replies` rows
+- [x] 7.4 Real app: Feed `r` with Quote and Chat; screenshots before and after
+- [x] 7.5 Real app: `i2a download` for the image and the document, with the daemon running and stopped; `xattr -l`; byte count
+- [x] 7.6 Real app: an agent batch with a document; the agent runs `i2a download` and describes the content in a card
 - [ ] 7.7 Update the purpose of `openspec/specs/whatsapp-source/spec.md` at archive (it says "It only reads")
