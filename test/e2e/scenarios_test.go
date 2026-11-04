@@ -73,7 +73,21 @@ func newPerson(t *testing.T, id string) *person {
 		"I2A_HOME": home, "I2A_SECRET_BACKEND": "file", "I2A_NOTIFY": "off", "TERM": "xterm-256color", "PATH": os.Getenv("PATH"),
 		// The tests can run in an Orca terminal. A card of a scenario must not record that terminal.
 		"ORCA_TERMINAL_HANDLE": "",
+		// A folder with no Claude sessions: a scenario does not depend on the
+		// Claude processes of the machine. realClaude undoes it.
+		"CLAUDE_CONFIG_DIR": filepath.Join(home, "no-claude"),
 	}}
+}
+
+// realClaude lets i2a read the Claude sessions of the machine, for the
+// scenarios that start real agents in Orca.
+func (p *person) realClaude() {
+	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if dir == "" {
+		h, _ := os.UserHomeDir()
+		dir = filepath.Join(h, ".claude")
+	}
+	p.env["CLAUDE_CONFIG_DIR"] = dir
 }
 
 // term opens a terminal that runs "i2a <args>".

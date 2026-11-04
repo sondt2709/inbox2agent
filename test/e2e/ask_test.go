@@ -44,7 +44,7 @@ for a in "$@"; do
   prev="$a"
 done
 case "$cmd" in
-  "terminal show") cat "$data/show_live.json" ;;
+  "terminal show") cat "$data/show_claude_live.json" ;;
   "terminal wait") cat "$data/wait_idle.json" ;;
   "terminal send") cat "$data/send_ok.json" ;;
   *) echo "fake orca: no fixture for $cmd" >&2; exit 1 ;;
