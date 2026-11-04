@@ -452,6 +452,13 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			}
 		}
 		return nil
+	case sessionsNoteMsg:
+		for _, d := range m.dialogs {
+			if sd, ok := d.(*sessionsDialog); ok && sd.agent.ID == msg.agent {
+				sd.msg, sd.isErr = msg.text, msg.isErr
+			}
+		}
+		return nil
 	case openDialogMsg:
 		m.openDialog(msg.d)
 		return nil

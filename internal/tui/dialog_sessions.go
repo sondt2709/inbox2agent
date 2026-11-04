@@ -30,6 +30,13 @@ type sessionsDialog struct {
 // openDialogMsg opens a dialog after the dialog that sent it closed.
 type openDialogMsg struct{ d dialog }
 
+// sessionsNoteMsg is the result of an action of the sessions dialog, from
+// work outside the update loop. The dialog shows it: the footer is under it.
+type sessionsNoteMsg struct {
+	agent, text string
+	isErr       bool
+}
+
 // sessionStatesMsg carries the states that loadSessions read.
 type sessionStatesMsg struct {
 	agent  string
@@ -137,12 +144,12 @@ func (d *sessionsDialog) update(m *model, msg tea.Msg) tea.Cmd {
 				d.msg, d.isErr = sp.Title()+" has no session.", true
 				return nil
 			}
-			in, ctx, h := m.u.d.Inspector(d.agent), m.ctx, st.Handle
+			in, ctx, h, id := m.u.d.Inspector(d.agent), m.ctx, st.Handle, d.agent.ID
 			return func() tea.Msg {
 				if err := in.Switch(ctx, h); err != nil {
-					return statusMsg{text: "Cannot show " + h + " in Orca: " + err.Error(), isErr: true}
+					return sessionsNoteMsg{agent: id, text: "Cannot show " + h + " in Orca: " + err.Error(), isErr: true}
 				}
-				return statusMsg{text: "Orca shows " + h + "."}
+				return sessionsNoteMsg{agent: id, text: "Orca shows " + h + "."}
 			}
 		}
 	}

@@ -105,6 +105,9 @@ func TestAgentsShowsTheSessionOfEachSpace(t *testing.T) {
 	if len(h.switched) != 1 || h.switched[0] != "term_a" {
 		t.Errorf("switched = %v, want term_a", h.switched)
 	}
+	if s := screen(h.m); !strings.Contains(s, "Orca shows term_a.") {
+		t.Errorf("the dialog does not show the result of o:\n%s", s)
+	}
 }
 
 func TestAgentsSessionOfAnotherClaudeSession(t *testing.T) {

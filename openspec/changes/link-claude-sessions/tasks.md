@@ -42,6 +42,6 @@
 ## 7. Docs and e2e
 
 - [x] 7.1 `CLAUDE.md`: the Orca facts (shell after exit, `unsupported`, rename, Copy Terminal ID) and the Claude session facts
-- [ ] 7.2 Local e2e scenario (`I2A_E2E_ORCA=1`): run once, `/exit` in the session, run again; expect a new handle and no prompt text in the old terminal
-- [ ] 7.3 Write `docs/config.schema.json` again only if a configuration field changed (none expected)
-- [ ] 7.4 Run `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task leakcheck`
+- [x] 7.2 Local e2e scenario (`I2A_E2E_ORCA=1`): run once, `/exit` in the session, run again; expect a new handle and no prompt text in the old terminal
+- [x] 7.3 Write `docs/config.schema.json` again only if a configuration field changed (none expected)
+- [x] 7.4 Run `task test`, `task lint`, `golangci-lint run --build-tags e2e ./test/...`, `task leakcheck`
