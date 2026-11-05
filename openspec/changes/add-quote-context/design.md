@@ -40,7 +40,7 @@ Alternative: find the row ID in `SavePoll`. Rejected: the earlier message can ar
 
 ### WhatsApp: read the quote in the event handler
 
-`rowFromEvent` already has the contact names (`names`) and the user (`Me`). It reads `ContextInfo`: `quote_id` = `stanzaID`, `quote_me` = `participant` is the user, `quote_author` = the contact name of `participant`, else its phone number as `+<number>`, else "". `quote_author` is "" when `quote_me` is true. The file `whatsapp-<id>.db` gets the three columns with `ALTER TABLE` (the same way as `media`). `collect` reads the quoted text from `raw` with `quoted()`, so the text is not stored twice.
+`rowFromEvent` already has the contact names (`names`) and the user (`Me`). It reads `ContextInfo`: `quote_id` = `stanzaID`, `quote_me` = `participant` is the user, `quote_author` = the contact name of `participant`, else its phone number as `+<number>`, else "". `quote_author` is "" when `quote_me` is true. The file `whatsapp-<id>.db` gets the three columns with `ALTER TABLE` (the same way as `media`). `collect` reads the quoted text from `raw` with `quoted()`, so the text is not stored twice. When `quote_author` is empty and `quote_me` is false, `collect` takes the sender name (and `from_me`) of the quoted row in `wa_messages`, when the file still has it.
 
 Alternative: read all from `raw` in `collect`. Rejected: `collect` has no contact store and no `Me`.
 
