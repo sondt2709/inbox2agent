@@ -23,7 +23,8 @@ func (a *cliAgent) Deliver(context.Context, *render.Rendered) (agent.Result, err
 	return agent.Result{}, nil
 }
 
-func (a *cliAgent) Ask(_ context.Context, handle string, _ time.Duration, r *render.Rendered) (agent.Result, error) {
+func (a *cliAgent) Ask(_ context.Context, term agent.Terminal, _ time.Duration, r *render.Rendered) (agent.Result, error) {
+	handle := term.Handle
 	a.handles = append(a.handles, handle)
 	a.asks = append(a.asks, r)
 	return a.result, nil
@@ -45,7 +46,7 @@ func askEnv(t *testing.T, driver string) *cliAgent {
 	}
 	a := &cliAgent{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_card, turn started", Handle: "term_card"}}
 	old := askDriver
-	askDriver = func(config.Agent, string, agent.Sessions) (agent.Driver, error) { return a, nil }
+	askDriver = func(config.Agent, config.Space, agent.Sessions) (agent.Driver, error) { return a, nil }
 	t.Cleanup(func() { askDriver = old })
 	return a
 }

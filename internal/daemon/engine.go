@@ -46,7 +46,7 @@ type Deps struct {
 	Log         *slog.Logger
 	HTTP        *http.Client
 	Now         func() time.Time
-	NewDriver   func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error)
+	NewDriver   func(a config.Agent, space config.Space, s agent.Sessions) (agent.Driver, error)
 	BuildSource func(a config.Account, env source.Env) (source.Source, error)
 	Notify      notify.Notifier
 	// CardCommand runs this i2a for the agent ("i2a card add"). The default is
@@ -501,7 +501,7 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 	if err := e.d.Store.SetDigestPath(ctx, id, r.DigestPath); err != nil {
 		return fail(id, err)
 	}
-	drv, err := e.d.NewDriver(p, s.ID, e.d.Store)
+	drv, err := e.d.NewDriver(p, s, e.d.Store)
 	if err != nil {
 		return fail(id, err)
 	}

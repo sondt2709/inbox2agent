@@ -1,0 +1,11 @@
+{
+  "id": "7e5a88f0-b945-465a-9efa-a33ebd515613",
+  "ok": false,
+  "error": {
+    "code": "terminal_exited",
+    "message": "terminal_exited"
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

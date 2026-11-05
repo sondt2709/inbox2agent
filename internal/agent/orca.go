@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/render"
 )
 
@@ -40,20 +41,35 @@ func ExecRunner(ctx context.Context, bin string, args ...string) ([]byte, error)
 // Orca delivers batches through the orca CLI.
 type Orca struct {
 	p            config.Agent
-	space        string // the ID of the space: the key of the reuse session
+	space        config.Space // its ID is the key of the reuse session
 	sessions     Sessions
+	Claude       *ClaudeFinder // finds the Claude session of a terminal; nil for another CLI
+	orcaOnly     bool          // the last check could not read the Claude sessions
 	Run          Runner
 	Now          func() time.Time
+	Sleep        func(time.Duration)
 	IdleTimeout  time.Duration // wait for a busy agent in reuse mode
 	StartTimeout time.Duration // wait for a new agent to be ready
 	SubmitWait   time.Duration
 }
 
 // NewOrca returns the orca driver of an agent for one space.
-func NewOrca(p config.Agent, space string, sessions Sessions) *Orca {
-	return &Orca{p: p, space: space, sessions: sessions, Run: ExecRunner, Now: time.Now,
+func NewOrca(p config.Agent, space config.Space, sessions Sessions) *Orca {
+	o := &Orca{p: p, space: space, sessions: sessions, Run: ExecRunner, Now: time.Now, Sleep: time.Sleep,
 		IdleTimeout: 5 * time.Second, StartTimeout: 90 * time.Second, SubmitWait: 30 * time.Second}
+	if IsClaude(p.CLI) {
+		o.Claude = NewClaudeFinder()
+	}
+	return o
 }
+
+// errSessionGone means that the Claude session left the terminal while the
+// driver waited for the agent to be idle, for example after /exit.
+var errSessionGone = errors.New("the Claude session left the terminal")
+
+// errNoAgent is the error of a send that Orca reports with the observation
+// "unsupported": no agent runs in the terminal, for example a shell after /exit.
+var errNoAgent = errors.New("no agent runs in the terminal")
 
 // OrcaError is an error that the orca CLI reported.
 type OrcaError struct {
@@ -87,10 +103,12 @@ type launchResult struct {
 
 type showResult struct {
 	Terminal struct {
-		Handle    string          `json:"handle"`
-		Connected bool            `json:"connected"`
-		Writable  bool            `json:"writable"`
-		ExitCause json.RawMessage `json:"exitCause"`
+		Handle        string          `json:"handle"`
+		Title         string          `json:"title"`
+		Connected     bool            `json:"connected"`
+		Writable      bool            `json:"writable"`
+		ExitCause     json.RawMessage `json:"exitCause"`
+		AgentIdentity string          `json:"agentIdentity"` // null after the agent exits
 	} `json:"terminal"`
 }
 
@@ -98,7 +116,8 @@ type sendResult struct {
 	Send struct {
 		Accepted bool `json:"accepted"`
 		Prompt   struct {
-			Stages []string `json:"stages"`
+			Stages      []string `json:"stages"`
+			Observation string   `json:"observation"` // "unsupported" when no agent runs in the terminal
 		} `json:"prompt"`
 	} `json:"send"`
 }
@@ -150,7 +169,15 @@ func isCode(err error, code string) bool {
 
 // workspace returns the absolute workspace path.
 func (o *Orca) workspace() (string, error) {
-	ws := o.p.Workspace
+	ws, err := ExpandWorkspace(o.p.Workspace)
+	if err != nil {
+		return "", fmt.Errorf("agent %q: %w", o.p.ID, err)
+	}
+	return ws, nil
+}
+
+// ExpandWorkspace returns the absolute path of a workspace: ~/ is the home folder.
+func ExpandWorkspace(ws string) (string, error) {
 	if strings.HasPrefix(ws, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -159,7 +186,7 @@ func (o *Orca) workspace() (string, error) {
 		ws = filepath.Join(home, ws[2:])
 	}
 	if !filepath.IsAbs(ws) {
-		return "", fmt.Errorf("agent %q: workspace %q is not an absolute path", o.p.ID, o.p.Workspace)
+		return "", fmt.Errorf("workspace %q is not an absolute path", ws)
 	}
 	return filepath.Clean(ws), nil
 }
@@ -168,7 +195,7 @@ func (o *Orca) workspace() (string, error) {
 func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) {
 	switch o.p.Session {
 	case config.SessionNew:
-		h, err := o.launch(ctx)
+		h, note, err := o.launch(ctx)
 		if err != nil {
 			return Result{}, err
 		}
@@ -176,7 +203,7 @@ func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) 
 		if err != nil {
 			return Result{}, err
 		}
-		return Result{Status: StatusSent, Detail: "new session " + h + ", " + detail, Handle: h}, nil
+		return Result{Status: StatusSent, Detail: "new session " + h + ", " + detail + note, Handle: h}, nil
 	case config.SessionWorktree:
 		return o.worktree(ctx, b)
 	default:
@@ -199,10 +226,31 @@ func (o *Orca) launchArgs(ws string) []string {
 	return args
 }
 
-// launch starts a new agent terminal in the workspace and returns its handle.
-// When Orca does not know the workspace and it is a git repository, launch adds
-// it with "orca repo add" and tries one more time.
-func (o *Orca) launch(ctx context.Context) (string, error) {
+// launch starts a new agent terminal in the workspace, names its tab, and
+// returns its handle and a note for the detail. When Orca does not know the
+// workspace and it is a git repository, launch adds it with "orca repo add"
+// and tries one more time.
+func (o *Orca) launch(ctx context.Context) (string, string, error) {
+	h, err := o.launchTerminal(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	return h, o.rename(ctx, h), nil
+}
+
+// TabTitle is the name of the Orca tab of a session that i2a starts.
+func TabTitle(a config.Agent, s config.Space) string { return a.Title() + " · " + s.Title() }
+
+// rename names the tab of a terminal that i2a started. A failure is a note
+// for the detail; the batch still goes.
+func (o *Orca) rename(ctx context.Context, handle string) string {
+	if err := o.call(ctx, nil, "terminal", "rename", "--terminal", handle, "--title", TabTitle(o.p, o.space)); err != nil {
+		return "; tab name not set: " + err.Error()
+	}
+	return ""
+}
+
+func (o *Orca) launchTerminal(ctx context.Context) (string, error) {
 	ws, err := o.workspace()
 	if err != nil {
 		return "", err
@@ -249,6 +297,10 @@ func (o *Orca) send(ctx context.Context, handle, prompt string) (string, error) 
 	if !sr.Send.Accepted {
 		return "", fmt.Errorf("orca terminal send: the terminal %s did not accept the input", handle)
 	}
+	if sr.Send.Prompt.Observation == "unsupported" {
+		// The text is in a shell or another program now. Do not press Enter again.
+		return "", fmt.Errorf("%w %s", errNoAgent, handle)
+	}
 	if slices.Contains(sr.Send.Prompt.Stages, "turn_started") {
 		return "turn started", nil
 	}
@@ -258,8 +310,10 @@ func (o *Orca) send(ctx context.Context, handle, prompt string) (string, error) 
 	return "turn not proven, Enter sent again", nil
 }
 
-// live reports whether a stored terminal still runs.
-func (o *Orca) live(ctx context.Context, handle string) (bool, error) {
+// orcaLive reports whether Orca runs the terminal and it can take input.
+// With needAgent, Orca must also report an agent in it (agentIdentity);
+// the field stays set for some seconds after the agent exits.
+func (o *Orca) orcaLive(ctx context.Context, handle string, needAgent bool) (bool, error) {
 	var sr showResult
 	err := o.call(ctx, &sr, "terminal", "show", "--terminal", handle)
 	if isCode(err, "terminal_handle_stale") || isCode(err, "terminal_not_found") {
@@ -272,51 +326,157 @@ func (o *Orca) live(ctx context.Context, handle string) (bool, error) {
 	// so orphaned is not a liveness signal. A closed terminal has an exit cause.
 	t := sr.Terminal
 	exited := len(t.ExitCause) > 0 && string(t.ExitCause) != "null"
-	return t.Connected && t.Writable && !exited, nil
+	return t.Connected && t.Writable && !exited && (!needAgent || t.AgentIdentity != ""), nil
+}
+
+// check reports whether a stored session can take a prompt, and returns it
+// with the terminal that runs it now:
+//   - the terminal runs exactly one Claude process with the stored Claude
+//     session (or the stored row has no Claude session yet: adopt it);
+//   - else exactly one other terminal runs the stored Claude session: follow it;
+//   - when the Claude sessions cannot be read, Orca must report an agent.
+func (o *Orca) check(ctx context.Context, ss inbox.Session) (inbox.Session, bool, error) {
+	o.orcaOnly = false
+	if ss.Handle == "" {
+		return ss, false, nil
+	}
+	if o.Claude != nil {
+		procs, err := o.Claude.InTerminal(ss.Handle)
+		o.orcaOnly = err != nil
+		if err == nil {
+			if len(procs) == 1 && (ss.AgentSession == "" || procs[0].SessionID == ss.AgentSession) {
+				ss.AgentSession = procs[0].SessionID
+				ok, err := o.orcaLive(ctx, ss.Handle, false)
+				return ss, ok, err
+			}
+			if ss.AgentSession == "" {
+				return ss, false, nil
+			}
+			others, err := o.Claude.WithSession(ss.AgentSession)
+			if err != nil || len(others) != 1 || others[0].Handle == "" || others[0].Handle == ss.Handle {
+				return ss, false, nil
+			}
+			ok, err := o.orcaLive(ctx, others[0].Handle, false)
+			if !ok || err != nil {
+				return ss, false, err
+			}
+			ss.Handle = others[0].Handle
+			return ss, true, nil
+		}
+	}
+	ok, err := o.orcaLive(ctx, ss.Handle, true)
+	return ss, ok, err
+}
+
+// claudeSession returns the Claude session of a terminal that i2a started,
+// or "" when it is not known. Claude writes its file while it starts, so
+// claudeSession tries for up to 5 seconds.
+func (o *Orca) claudeSession(handle string) string {
+	if o.Claude == nil {
+		return ""
+	}
+	for i := 0; i < 5; i++ {
+		procs, err := o.Claude.InTerminal(handle)
+		if err != nil {
+			return ""
+		}
+		if len(procs) == 1 {
+			return procs[0].SessionID
+		}
+		o.Sleep(time.Second)
+	}
+	return ""
+}
+
+// forget deletes the stored session of the space when it is handle.
+func (o *Orca) forget(ctx context.Context, handle string) {
+	if ss, err := o.sessions.Session(ctx, o.space.ID); err == nil && ss.Handle == handle {
+		_ = o.sessions.DeleteSession(ctx, o.space.ID)
+	}
 }
 
 func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
-	handle, hash, err := o.sessions.Session(ctx, o.space)
+	ss, err := o.sessions.Session(ctx, o.space.ID)
 	if err != nil {
 		return Result{}, err
 	}
 	why := "started session "
-	if handle != "" && hash != b.PrimerHash {
+	if ss.Handle != "" && ss.PrimerHash != b.PrimerHash && ss.PrimerHash != inbox.PrimerPending {
 		// The session got another primer, for example before the card section
 		// existed. Start a new session; the old terminal stays open for the user.
-		handle, why = "", "primer changed, started session "
+		ss.Handle, why = "", "primer changed, started session "
 	}
-	if handle != "" {
-		ok, err := o.live(ctx, handle)
+	if ss.Handle != "" {
+		cur, ok, err := o.check(ctx, ss)
 		if err != nil {
 			return Result{}, err
 		}
 		if !ok {
-			handle = ""
+			ss.Handle = ""
+		} else if cur != ss {
+			// Adopted the Claude session of the terminal, or followed the
+			// session to another terminal.
+			if err := o.sessions.SetSession(ctx, cur); err != nil {
+				return Result{}, err
+			}
+			ss = cur
 		}
 	}
-	if handle == "" {
-		h, err := o.launch(ctx)
-		if err != nil {
-			return Result{}, err
-		}
-		detail, err := o.submit(ctx, h, joinPrompts(b))
-		if err != nil {
-			return Result{}, err
-		}
-		// Store the handle only after the primer arrived, so a later batch never
-		// goes to a session without the primer.
-		if err := o.sessions.SetSession(ctx, o.space, h, b.PrimerHash, o.Now()); err != nil {
-			return Result{}, err
-		}
-		return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail, Handle: h}, nil
+	if ss.Handle == "" {
+		return o.startSession(ctx, b, why)
 	}
-	return o.sendIdle(ctx, handle, o.IdleTimeout, b.Prompt)
+	if ss.PrimerHash == inbox.PrimerPending {
+		// A session that the user linked: it did not get the primer yet.
+		res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, joinPrompts(b))
+		if errors.Is(err, errSessionGone) {
+			return o.startSession(ctx, b, "Claude session ended, started session ")
+		}
+		if err != nil || res.Status != StatusSent {
+			return res, err
+		}
+		ss.PrimerHash = b.PrimerHash
+		if err := o.sessions.SetSession(ctx, ss); err != nil {
+			return Result{}, err
+		}
+		res.Detail = "linked session, " + res.Detail + " with the primer"
+		return res, nil
+	}
+	res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, b.Prompt)
+	if errors.Is(err, errSessionGone) {
+		return o.startSession(ctx, b, "Claude session ended, started session ")
+	}
+	if err == nil && o.orcaOnly {
+		res.Detail += "; " + ErrClaudeUnknown.Error() + ", Orca check only"
+	}
+	return res, err
+}
+
+// startSession launches a new session with the primer and the batch, and
+// stores it for the space.
+func (o *Orca) startSession(ctx context.Context, b *render.Rendered, why string) (Result, error) {
+	h, note, err := o.launch(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	detail, err := o.submit(ctx, h, joinPrompts(b))
+	if err != nil {
+		return Result{}, err
+	}
+	// Store the handle only after the primer arrived, so a later batch never
+	// goes to a session without the primer.
+	ss := inbox.Session{Space: o.space.ID, Handle: h, AgentSession: o.claudeSession(h), PrimerHash: b.PrimerHash, CreatedAt: o.Now()}
+	if err := o.sessions.SetSession(ctx, ss); err != nil {
+		return Result{}, err
+	}
+	return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail + note, Handle: h}, nil
 }
 
 // sendIdle waits up to wait for the agent in a live terminal to be idle, then
-// sends the prompt. A busy agent gives held.
-func (o *Orca) sendIdle(ctx context.Context, handle string, wait time.Duration, prompt string) (Result, error) {
+// sends the prompt. A busy agent gives held. A shell is idle too, so when
+// session is known, sendIdle checks again that the terminal runs it, just
+// before it types: else errSessionGone. When no agent runs in the terminal,
+// the stored session of the space is deleted.
+func (o *Orca) sendIdle(ctx context.Context, handle, session string, wait time.Duration, prompt string) (Result, error) {
 	err := o.call(ctx, nil, "terminal", "wait", "--terminal", handle, "--for", "tui-idle",
 		"--timeout-ms", fmt.Sprint(wait.Milliseconds()))
 	if isCode(err, "timeout") {
@@ -325,24 +485,37 @@ func (o *Orca) sendIdle(ctx context.Context, handle string, wait time.Duration, 
 	if err != nil {
 		return Result{}, err
 	}
+	if o.Claude != nil && session != "" {
+		procs, err := o.Claude.InTerminal(handle)
+		if err == nil && (len(procs) != 1 || procs[0].SessionID != session) {
+			return Result{}, fmt.Errorf("%w %s", errSessionGone, handle)
+		}
+	}
 	detail, err := o.send(ctx, handle, prompt)
+	if errors.Is(err, errNoAgent) {
+		o.forget(ctx, handle)
+	}
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{Status: StatusSent, Detail: "sent to " + handle + ", " + detail, Handle: handle}, nil
 }
 
-// Ask sends an ask to the live terminal handle without the primer. When the
-// terminal does not run, the ask goes to the agent of the space as a batch
-// does: the reuse session, or a new session or worktree with the primer.
-func (o *Orca) Ask(ctx context.Context, handle string, wait time.Duration, a *render.Rendered) (Result, error) {
-	if handle != "" {
-		ok, err := o.live(ctx, handle)
+// Ask sends an ask to the terminal of the card without the primer, when that
+// terminal (or the terminal that runs its Claude session now) can take it.
+// Otherwise the ask goes to the agent of the space as a batch does: the reuse
+// session, or a new session or worktree with the primer.
+func (o *Orca) Ask(ctx context.Context, t Terminal, wait time.Duration, a *render.Rendered) (Result, error) {
+	if t.Handle != "" {
+		cur, ok, err := o.check(ctx, inbox.Session{Handle: t.Handle, AgentSession: t.AgentSession})
 		if err != nil {
 			return Result{}, err
 		}
 		if ok {
-			return o.sendIdle(ctx, handle, wait, a.Prompt)
+			res, err := o.sendIdle(ctx, cur.Handle, cur.AgentSession, wait, a.Prompt)
+			if !errors.Is(err, errSessionGone) {
+				return res, err
+			}
 		}
 	}
 	saved := o.IdleTimeout
@@ -368,11 +541,12 @@ func (o *Orca) worktree(ctx context.Context, b *render.Rendered) (Result, error)
 		return Result{}, fmt.Errorf("orca worktree create: worktree %s has no agent terminal in the result", wr.Worktree.ID)
 	}
 	h := wr.Launch.Outcome.Handle
+	note := o.rename(ctx, h)
 	detail, err := o.submit(ctx, h, joinPrompts(b))
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Status: StatusSent, Detail: "worktree " + wr.Worktree.ID + " session " + h + ", " + detail, Handle: h}, nil
+	return Result{Status: StatusSent, Detail: "worktree " + wr.Worktree.ID + " session " + h + ", " + detail + note, Handle: h}, nil
 }
 
 // ResolveBin returns the absolute path of the orca executable, or an error

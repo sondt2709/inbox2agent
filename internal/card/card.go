@@ -47,6 +47,25 @@ func Handle(v string) (string, string) {
 	return "", fmt.Sprintf("%s is not a terminal handle; the cards have no terminal", HandleEnv)
 }
 
+// SessionEnv names the variable in which Claude Code gives each command the
+// ID of its current session. /clear and /resume change it.
+const SessionEnv = "CLAUDE_CODE_SESSION_ID"
+
+var sessionRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// AgentSession returns the Claude session ID in v, or "" and a warning when
+// v is set and is not a UUID. An ask about the card goes to its terminal
+// only while that terminal runs this session.
+func AgentSession(v string) (string, string) {
+	switch {
+	case v == "":
+		return "", ""
+	case sessionRe.MatchString(v):
+		return v, ""
+	}
+	return "", fmt.Sprintf("%s is not a Claude session ID; the cards have no Claude session", SessionEnv)
+}
+
 // Input is one card as the agent writes it.
 type Input struct {
 	Category string  `json:"category"`

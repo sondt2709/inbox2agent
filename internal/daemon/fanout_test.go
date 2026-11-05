@@ -46,7 +46,8 @@ type spaceDriver struct {
 
 func (h *harness) bySpace(errs map[string]error) *spaceDriver {
 	d := &spaceDriver{by: map[string]*recorder{}, err: errs}
-	h.e.d.NewDriver = func(_ config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+	h.e.d.NewDriver = func(_ config.Agent, sp config.Space, _ agent.Sessions) (agent.Driver, error) {
+		space := sp.ID
 		r, ok := d.by[space]
 		if !ok {
 			r = &recorder{result: agent.Result{Status: agent.StatusSent}, err: d.err[space]}
@@ -151,7 +152,8 @@ func TestAStopBetweenTwoSpacesKeepsTheMessage(t *testing.T) {
 	h := newHarness(t, twoSpaces())
 	ctx, cancel := context.WithCancel(context.Background())
 	review := &recorder{result: agent.Result{Status: agent.StatusSent}}
-	h.e.d.NewDriver = func(_ config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+	h.e.d.NewDriver = func(_ config.Agent, sp config.Space, _ agent.Sessions) (agent.Driver, error) {
+		space := sp.ID
 		if space == "team" {
 			return &cancelDriver{cancel: cancel}, nil
 		}

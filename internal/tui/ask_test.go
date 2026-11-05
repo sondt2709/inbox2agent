@@ -23,7 +23,7 @@ func (a *tuiAgent) Deliver(context.Context, *render.Rendered) (agent.Result, err
 	return agent.Result{}, nil
 }
 
-func (a *tuiAgent) Ask(_ context.Context, _ string, wait time.Duration, r *render.Rendered) (agent.Result, error) {
+func (a *tuiAgent) Ask(_ context.Context, _ agent.Terminal, wait time.Duration, r *render.Rendered) (agent.Result, error) {
 	a.asks = append(a.asks, r)
 	a.wait = wait
 	return a.result, nil
@@ -35,7 +35,8 @@ func newAskFeed(t *testing.T) (*feedHarness, *tuiAgent) {
 	h := newFeedModel(t)
 	h.m.u.cfg.Agents[0].Driver, h.m.u.cfg.Agents[0].Workspace = config.DriverOrca, t.TempDir()
 	a := &tuiAgent{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_s, turn started", Handle: "term_s"}}
-	h.m.u.d.AskDriver = func(p config.Agent, space string, _ agent.Sessions) (agent.Driver, error) {
+	h.m.u.d.AskDriver = func(p config.Agent, sp config.Space, _ agent.Sessions) (agent.Driver, error) {
+		space := sp.ID
 		if p.ID != "triage" || space != config.UnsortedID {
 			t.Errorf("driver of agent %q for space %q", p.ID, space)
 		}

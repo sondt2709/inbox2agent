@@ -17,6 +17,9 @@ func (m *model) hintsAgents() []hint {
 	if m.agt >= len(m.u.cfg.Agents) {
 		return []hint{{"↑↓", "move"}, {"enter", "add an agent"}}
 	}
+	if m.u.cfg.Agents[m.agt].Driver == config.DriverOrca {
+		return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"s", "sessions"}, {"x", "delete"}}
+	}
 	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "delete"}}
 }
 
@@ -35,8 +38,34 @@ func (m *model) keyAgents(k string) tea.Cmd {
 		if m.agt < len(m.u.cfg.Agents) {
 			m.deleteWithReplacement("agent", m.u.cfg.Agents[m.agt].ID)
 		}
+	case "s":
+		if m.agt < len(m.u.cfg.Agents) && m.u.cfg.Agents[m.agt].Driver == config.DriverOrca {
+			return m.openSessions(m.u.cfg.Agents[m.agt])
+		}
 	}
 	return nil
+}
+
+// sessionLines names the stored session of each space of an agent, from
+// the store only: the 2 second refresh runs no orca command.
+func (m *model) sessionLines(id string) string {
+	stored := m.storedSessions()
+	var lines []string
+	for _, sp := range m.u.cfg.SpacesUsing("agent", id) {
+		ss := stored[sp.ID]
+		switch {
+		case ss.Handle == "":
+			lines = append(lines, sp.Title()+": no session")
+		case ss.AgentSession == "":
+			lines = append(lines, sp.Title()+": "+ss.Handle)
+		default:
+			lines = append(lines, sp.Title()+": "+ss.Handle+" · Claude "+shortID(ss.AgentSession))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(lines, "\n") + "\nPress s for the state of each session, to link a session, or to show it in Orca."
 }
 
 // usedBy names the spaces that use an agent or a schedule.
@@ -168,7 +197,11 @@ func (m *model) agentForm(id string) *form {
 		return validName(s)
 	})
 	if !isNew {
-		idField = noteField(m.usedBy("agent", id)+" Each space has its own session: the data of one space never goes to the session of another.", faint)
+		note := m.usedBy("agent", id) + " Each space has its own session: the data of one space never goes to the session of another."
+		if p.Driver == config.DriverOrca {
+			note += m.sessionLines(id)
+		}
+		idField = noteField(note, faint)
 	}
 	fm.fields = []*formField{
 		idField,

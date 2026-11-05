@@ -53,6 +53,8 @@ type Store interface {
 	SentReplies(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Reply, error)
 	ask.Store
 	Asks(ctx context.Context, cardIDs []int64) (map[int64][]inbox.Ask, error)
+	// Sessions returns the stored session of each space.
+	Sessions(ctx context.Context) ([]inbox.Session, error)
 	// Requeue makes the sent messages of a conversation after since pending
 	// again, for a space that the conversation joined.
 	Requeue(ctx context.Context, account, conversation string, since time.Time, forMeOnly bool, skip []string) (int64, error)
@@ -86,7 +88,9 @@ type Deps struct {
 	// Replier builds the source that sends a reply; the default is source.BuildReplier.
 	Replier func(cfg *config.Config, accountID string) (source.Replier, error)
 	// AskDriver builds the driver that sends an ask; the default is agent.New.
-	AskDriver func(a config.Agent, space string, s agent.Sessions) (agent.Driver, error)
+	AskDriver func(a config.Agent, space config.Space, s agent.Sessions) (agent.Driver, error)
+	// Inspector reads the sessions of an agent; the default is agent.NewInspector.
+	Inspector func(a config.Agent) *agent.Inspector
 	// CardCommand is the command of the card section in the primer of a new
 	// session; the default is this executable, with I2A_HOME when it is set.
 	CardCommand string
@@ -164,6 +168,9 @@ func newUI(d Deps) *ui {
 	}
 	if d.AskDriver == nil {
 		d.AskDriver = agent.New
+	}
+	if d.Inspector == nil {
+		d.Inspector = agent.NewInspector
 	}
 	if d.CardCommand == "" {
 		exe, err := os.Executable()

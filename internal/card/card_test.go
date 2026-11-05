@@ -185,3 +185,21 @@ func TestHandle(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentSession(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+		warn     bool
+	}{
+		{"", "", false},
+		{"04ebe19c-543e-42ff-8f84-ea13cea7a3ec", "04ebe19c-543e-42ff-8f84-ea13cea7a3ec", false},
+		{"04ebe19c-543e-42ff-8f84-ea13cea7a3e", "", true},
+		{"04EBE19C-543E-42FF-8F84-EA13CEA7A3EC", "", true},
+		{"04ebe19c-543e-42ff-8f84-ea13cea7a3ec; rm -rf /", "", true},
+	} {
+		got, w := AgentSession(tc.in)
+		if got != tc.want || (w != "") != tc.warn {
+			t.Errorf("AgentSession(%q) = %q, %q; want %q, warning %v", tc.in, got, w, tc.want, tc.warn)
+		}
+	}
+}

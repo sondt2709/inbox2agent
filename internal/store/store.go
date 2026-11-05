@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 7
+const SchemaVersion = 8
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   space       TEXT PRIMARY KEY,
   handle      TEXT NOT NULL,
   created_at  INTEGER NOT NULL,
-  primer_hash TEXT NOT NULL DEFAULT ''
+  primer_hash TEXT NOT NULL DEFAULT '',
+  agent_session TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS cards (
   id         INTEGER PRIMARY KEY,
@@ -87,7 +88,8 @@ CREATE TABLE IF NOT EXISTS cards (
   updated_at INTEGER NOT NULL,
   done_at    INTEGER,
   handle     TEXT NOT NULL DEFAULT '',
-  space      TEXT NOT NULL DEFAULT ''
+  space      TEXT NOT NULL DEFAULT '',
+  agent_session TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS cards_key ON cards(key) WHERE key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS cards_state ON cards(state, updated_at);
@@ -174,7 +176,8 @@ func (s *Store) migrate() error {
 	// TABLE IF NOT EXISTS does not change them. migrateV3 adds
 	// sessions.primer_hash, migrateV4 adds messages.thread_id, migrateV5
 	// adds cards.handle, migrateV6 renames the profile columns to space and
-	// migrateV7 adds messages.for_me, the deliveries and cards.space.
+	// migrateV7 adds messages.for_me, the deliveries and cards.space, and
+	// migrateV8 adds sessions.agent_session and cards.agent_session.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -219,7 +222,15 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.migrateV7()
+	if v < 7 {
+		if err := s.migrateV7(); err != nil {
+			return err
+		}
+	}
+	if err := s.migrateV8(); err != nil {
+		return fmt.Errorf("upgrade to schema version %d: %w (the backup is %s.v%d.bak)", SchemaVersion, err, s.path, v)
+	}
+	return nil
 }
 
 // backup writes a consistent copy of the store to <file>.v<version>.bak
@@ -377,6 +388,32 @@ func (s *Store) migrateV7() error {
 		return err
 	}
 	if _, err := tx.Exec(`UPDATE schema_version SET version = 7`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateV8 adds the Claude session of the terminal of a session and of a
+// card. One terminal can run Claude session A, then B, so the handle alone
+// does not name the conversation.
+func (s *Store) migrateV8() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	for _, table := range []string{"cards", "sessions"} {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = 'agent_session'`, table).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE ` + table + ` ADD COLUMN agent_session TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 8`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -755,22 +792,46 @@ func (s *Store) Counts(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// Session returns the stored terminal handle of a space and the hash of the
-// primer that the session got. The handle is "" when none exists.
-func (s *Store) Session(ctx context.Context, space string) (handle, primerHash string, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT handle, primer_hash FROM sessions WHERE space = ?`, space).Scan(&handle, &primerHash)
+// Session returns the stored session of a space. Handle is "" when none exists.
+func (s *Store) Session(ctx context.Context, space string) (inbox.Session, error) {
+	out := inbox.Session{Space: space}
+	var created int64
+	err := s.db.QueryRowContext(ctx, `SELECT handle, agent_session, primer_hash, created_at FROM sessions WHERE space = ?`, space).
+		Scan(&out.Handle, &out.AgentSession, &out.PrimerHash, &created)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", nil
+		return inbox.Session{Space: space}, nil
 	}
-	return handle, primerHash, err
+	out.CreatedAt = time.UnixMilli(created).UTC()
+	return out, err
 }
 
-// SetSession stores the terminal handle of a space and the hash of its primer.
-func (s *Store) SetSession(ctx context.Context, space, handle, primerHash string, now time.Time) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, created_at, primer_hash) VALUES (?, ?, ?, ?)
-	  ON CONFLICT(space) DO UPDATE SET handle = excluded.handle, created_at = excluded.created_at,
-	  primer_hash = excluded.primer_hash`, space, handle, now.UnixMilli(), primerHash)
+// SetSession stores the session of a space.
+func (s *Store) SetSession(ctx context.Context, ss inbox.Session) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, agent_session, created_at, primer_hash) VALUES (?, ?, ?, ?, ?)
+	  ON CONFLICT(space) DO UPDATE SET handle = excluded.handle, agent_session = excluded.agent_session,
+	  created_at = excluded.created_at, primer_hash = excluded.primer_hash`,
+		ss.Space, ss.Handle, ss.AgentSession, ss.CreatedAt.UnixMilli(), ss.PrimerHash)
 	return err
+}
+
+// Sessions returns the stored sessions of all spaces, by space.
+func (s *Store) Sessions(ctx context.Context) ([]inbox.Session, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT space, handle, agent_session, primer_hash, created_at FROM sessions ORDER BY space`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []inbox.Session
+	for rows.Next() {
+		var ss inbox.Session
+		var created int64
+		if err := rows.Scan(&ss.Space, &ss.Handle, &ss.AgentSession, &ss.PrimerHash, &created); err != nil {
+			return nil, err
+		}
+		ss.CreatedAt = time.UnixMilli(created).UTC()
+		out = append(out, ss)
+	}
+	return out, rows.Err()
 }
 
 // DeleteSession removes the stored handle of a space.

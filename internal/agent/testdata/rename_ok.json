@@ -1,0 +1,14 @@
+{
+  "id": "3a1b2a57-577c-45aa-9b5a-8cb27b9f3176",
+  "ok": true,
+  "result": {
+    "rename": {
+      "handle": "term_e552e3ac-2983-4e91-8613-2289863d0b03",
+      "tabId": "adea3b89-d5c1-498e-9da2-d6f71b90f9a4",
+      "title": "i2a: triage"
+    }
+  },
+  "_meta": {
+    "runtimeId": "aa494d4a-a574-4d47-8690-e07a79a7a963"
+  }
+}

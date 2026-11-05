@@ -257,6 +257,7 @@ func TestS29AgentSendsAReply(t *testing.T) {
 	orcaBin := needOrca(t)
 	w := mm.NewWorld(t)
 	p := newPerson(t, "S29")
+	p.realClaude()
 	p.addAccount(w, w.Selected)
 	ws := orcaWorkspace(t)
 	allowCommands(t, ws, p.home, "card", "reply")

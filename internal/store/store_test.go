@@ -145,23 +145,29 @@ func TestExpireAndPrune(t *testing.T) {
 func TestSessions(t *testing.T) {
 	s, _ := open(t)
 	ctx := context.Background()
-	if h, _, _ := s.Session(ctx, "triage"); h != "" {
-		t.Fatalf("handle = %q, want empty", h)
+	if ss, _ := s.Session(ctx, "triage"); ss.Handle != "" {
+		t.Fatalf("session = %+v, want no handle", ss)
 	}
-	if err := s.SetSession(ctx, "triage", "term_1", "hash1", time.Now()); err != nil {
+	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_1", PrimerHash: "hash1", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSession(ctx, "triage", "term_2", "hash2", time.Now()); err != nil {
+	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_2", AgentSession: "s2", PrimerHash: "hash2", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if h, ph, _ := s.Session(ctx, "triage"); h != "term_2" || ph != "hash2" {
-		t.Fatalf("session = %q %q, want term_2 hash2", h, ph)
+	if ss, _ := s.Session(ctx, "triage"); ss.Handle != "term_2" || ss.PrimerHash != "hash2" || ss.AgentSession != "s2" {
+		t.Fatalf("session = %+v, want term_2 s2 hash2", ss)
 	}
 	if err := s.DeleteSession(ctx, "triage"); err != nil {
 		t.Fatal(err)
 	}
-	if h, _, _ := s.Session(ctx, "triage"); h != "" {
-		t.Fatalf("handle after delete = %q", h)
+	if ss, _ := s.Session(ctx, "triage"); ss.Handle != "" {
+		t.Fatalf("session after delete = %+v", ss)
+	}
+	_ = s.SetSession(ctx, inbox.Session{Space: "b", Handle: "term_b", AgentSession: "sb", CreatedAt: time.Now()})
+	_ = s.SetSession(ctx, inbox.Session{Space: "a", Handle: "term_a", CreatedAt: time.Now()})
+	all, err := s.Sessions(ctx)
+	if err != nil || len(all) != 2 || all[0].Space != "a" || all[1].AgentSession != "sb" {
+		t.Errorf("Sessions = %+v, %v", all, err)
 	}
 }
 

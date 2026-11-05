@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,8 +159,8 @@ func TestMigrateV5RenamesProfileToSpace(t *testing.T) {
 	if err != nil || len(ds) != 4 || ds[0].Space != "triage" || ds[0].Agent != "triage" {
 		t.Errorf("dispatches = %+v, %v, want 4 with space and agent triage", ds, err)
 	}
-	if h, hash, err := s.Session(ctx, "triage"); err != nil || h != "term_a" || hash != "h1" {
-		t.Errorf("session of triage = %q %q %v", h, hash, err)
+	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" || ss.PrimerHash != "h1" {
+		t.Errorf("session of triage = %q %q %v", ss.Handle, ss.PrimerHash, err)
 	}
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM asks WHERE space = 'triage'`).Scan(&n); err != nil || n != 2 {
 		t.Errorf("asks of triage = %d, %v, want 2", n, err)
@@ -341,8 +342,8 @@ func TestMigrateV6AddsTheDeliveries(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if v, _ := s.Version(ctx); v != 7 {
-		t.Fatalf("version = %d, want 7", v)
+	if v, _ := s.Version(ctx); v != SchemaVersion {
+		t.Fatalf("version = %d, want %d", v, SchemaVersion)
 	}
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM deliveries WHERE space = 'triage' AND state = 'sent' AND dispatch_id = 1`).Scan(&n); err != nil || n != 3 {
@@ -460,5 +461,118 @@ func TestRequeueRemovesAnOldSkip(t *testing.T) {
 	got, _ := s.Pending(ctx)
 	if len(got) != 1 || got[0].Delivered["review"] != "" || got[0].Delivered["team"] != inbox.DeliverySkipped || got[0].Delivered["triage"] != inbox.StateSent {
 		t.Errorf("deliveries = %+v, want review free, team skipped, triage sent", got)
+	}
+}
+
+// v7Store writes a store of schema version 7 with the session term_a of triage.
+func v7Store(t *testing.T, path string) {
+	t.Helper()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSession(context.Background(), inbox.Session{Space: "triage", Handle: "term_a", PrimerHash: "h1", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`ALTER TABLE sessions DROP COLUMN agent_session`, `ALTER TABLE cards DROP COLUMN agent_session`,
+		`UPDATE schema_version SET version = 7`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+}
+
+func TestMigrateV7AddsTheClaudeSessions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "inbox.db")
+	v7Store(t, path)
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if v, _ := s.Version(ctx); v != 8 {
+		t.Fatalf("version = %d, want 8", v)
+	}
+	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" || ss.PrimerHash != "h1" || ss.AgentSession != "" {
+		t.Errorf("session = %+v, %v, want term_a with no Claude session", ss, err)
+	}
+	saved, err := s.SaveCards(ctx, []inbox.Card{{Category: inbox.CategoryInfo, Urgency: inbox.UrgencyLow, Title: "t",
+		Handle: "term_a", AgentSession: "04ebe19c-543e-42ff-8f84-ea13cea7a3ec"}}, time.Now())
+	if err != nil || len(saved) != 1 || saved[0].Space != "triage" {
+		t.Fatalf("saved = %+v, %v", saved, err)
+	}
+	if c, _ := s.Card(ctx, saved[0].ID, ""); c.AgentSession != "04ebe19c-543e-42ff-8f84-ea13cea7a3ec" {
+		t.Errorf("card = %+v, want the Claude session", c)
+	}
+	old, err := sql.Open("sqlite", "file:"+path+".v7.bak?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	var v int
+	if err := old.QueryRow(`SELECT version FROM schema_version`).Scan(&v); err != nil || v != 7 {
+		t.Errorf("backup version = %d, %v, want 7", v, err)
+	}
+}
+
+func TestMigrateV8FailureKeepsVersion7(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "inbox.db")
+	v7Store(t, path)
+	// A view in the place of the table sessions makes ALTER TABLE fail.
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`DROP TABLE sessions`, `CREATE VIEW sessions AS SELECT 'triage' AS space`} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	_, err = Open(path)
+	if err == nil || !strings.Contains(err.Error(), path+".v7.bak") {
+		t.Fatalf("err = %v, want the backup path", err)
+	}
+	db, _ = sql.Open("sqlite", "file:"+path+"?mode=ro")
+	defer db.Close()
+	var v int
+	if err := db.QueryRowContext(ctx, `SELECT version FROM schema_version`).Scan(&v); err != nil || v != 7 {
+		t.Errorf("version = %d, %v, want 7", v, err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'agent_session'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("cards.agent_session columns = %d, %v, want 0 after the rollback", n, err)
+	}
+}
+
+func TestSaveCardsKeepsTheClaudeSessionWithItsHandle(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	now := time.Now()
+	c := inbox.Card{Key: "k", Category: inbox.CategoryInfo, Urgency: inbox.UrgencyLow, Title: "t", Handle: "term_a", AgentSession: "s1"}
+	if _, err := s.SaveCards(ctx, []inbox.Card{c}, now); err != nil {
+		t.Fatal(err)
+	}
+	// The same card from another terminal of a non-Claude agent: no Claude session.
+	c.Handle, c.AgentSession = "term_b", ""
+	saved, err := s.SaveCards(ctx, []inbox.Card{c}, now)
+	if err != nil || saved[0].Result != inbox.SaveUnchanged || saved[0].Handle != "term_b" || saved[0].AgentSession != "" {
+		t.Errorf("saved = %+v, %v, want term_b with no Claude session", saved, err)
+	}
+	// The same terminal after /clear: a new Claude session for an unchanged card.
+	c.AgentSession = "s3"
+	saved, _ = s.SaveCards(ctx, []inbox.Card{c}, now)
+	if got, _ := s.Card(ctx, saved[0].ID, ""); got.AgentSession != "s3" {
+		t.Errorf("card = %+v, want the Claude session s3", got)
+	}
+	c.AgentSession = ""
+	// A call with no terminal keeps both.
+	c.Handle, c.AgentSession, c.Title = "", "s9", "t2"
+	saved, _ = s.SaveCards(ctx, []inbox.Card{c}, now)
+	if saved[0].Handle != "term_b" || saved[0].AgentSession != "s3" {
+		t.Errorf("saved = %+v, want term_b and s3 kept", saved)
 	}
 }

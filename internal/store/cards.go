@@ -16,7 +16,7 @@ import (
 // ErrNoCard is returned when no card matches an ID or a key.
 var ErrNoCard = errors.New("no card")
 
-const cardCols = `id, key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle, space`
+const cardCols = `id, key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle, space, agent_session`
 
 func scanCard(sc interface{ Scan(...any) error }) (inbox.Card, error) {
 	var c inbox.Card
@@ -24,7 +24,7 @@ func scanCard(sc interface{ Scan(...any) error }) (inbox.Card, error) {
 	var refs string
 	var created, updated int64
 	if err := sc.Scan(&c.ID, &key, &c.Category, &c.Urgency, &c.Group, &c.Title, &c.Body, &c.Reply,
-		&refs, &c.State, &created, &updated, &c.Handle, &c.Space); err != nil {
+		&refs, &c.State, &created, &updated, &c.Handle, &c.Space, &c.AgentSession); err != nil {
 		return c, err
 	}
 	c.Key = key.String
@@ -52,8 +52,8 @@ func sameContent(a, b inbox.Card) bool {
 // SaveCards saves the cards in one transaction. A card with a key that the
 // store has updates that card and makes it new again, unless all its fields
 // are the same. A card without a key is always added. The handle is not a
-// field of the agent: a new handle replaces the stored one, also for an
-// unchanged card, and an empty handle keeps it.
+// field of the agent: a new handle replaces the stored one and its Claude
+// session, also for an unchanged card, and an empty handle keeps both.
 func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time) ([]inbox.SavedCard, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -63,9 +63,13 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 	out := make([]inbox.SavedCard, 0, len(cards))
 	for _, c := range cards {
 		// The space of the card is the space of the session of its terminal.
+		// A terminal that now runs another Claude session is not that session.
 		c.Space = ""
-		if c.Handle != "" {
-			err := tx.QueryRowContext(ctx, `SELECT space FROM sessions WHERE handle = ?`, c.Handle).Scan(&c.Space)
+		if c.Handle == "" {
+			c.AgentSession = ""
+		} else {
+			err := tx.QueryRowContext(ctx, `SELECT space FROM sessions WHERE handle = ?
+			  AND (? = '' OR agent_session = '' OR agent_session = ?)`, c.Handle, c.AgentSession, c.AgentSession).Scan(&c.Space)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return nil, err
 			}
@@ -88,20 +92,20 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 			if c.Key != "" {
 				key = c.Key
 			}
-			res, err := tx.ExecContext(ctx, `INSERT INTO cards(key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle, space)
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`, key, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply,
-				refsJSON(c.Refs), now.UnixMilli(), now.UnixMilli(), c.Handle, c.Space)
+			res, err := tx.ExecContext(ctx, `INSERT INTO cards(key, category, urgency, grp, title, body, reply, refs, state, created_at, updated_at, handle, space, agent_session)
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)`, key, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply,
+				refsJSON(c.Refs), now.UnixMilli(), now.UnixMilli(), c.Handle, c.Space, c.AgentSession)
 			if err != nil {
 				return nil, err
 			}
 			sv.ID, _ = res.LastInsertId()
 			sv.Result, sv.State, sv.CreatedAt, sv.UpdatedAt = inbox.SaveAdded, inbox.CardNew, now.UTC(), now.UTC()
 		case sameContent(old, c):
-			if c.Handle != "" && c.Handle != old.Handle {
-				if _, err := tx.ExecContext(ctx, `UPDATE cards SET handle = ? WHERE id = ?`, c.Handle, old.ID); err != nil {
+			if c.Handle != "" && (c.Handle != old.Handle || c.AgentSession != old.AgentSession) {
+				if _, err := tx.ExecContext(ctx, `UPDATE cards SET handle = ?, agent_session = ? WHERE id = ?`, c.Handle, c.AgentSession, old.ID); err != nil {
 					return nil, err
 				}
-				old.Handle = c.Handle
+				old.Handle, old.AgentSession = c.Handle, c.AgentSession
 			}
 			if c.Space != "" && c.Space != old.Space {
 				if _, err := tx.ExecContext(ctx, `UPDATE cards SET space = ? WHERE id = ?`, c.Space, old.ID); err != nil {
@@ -114,13 +118,14 @@ func (s *Store) SaveCards(ctx context.Context, cards []inbox.Card, now time.Time
 		default:
 			if _, err := tx.ExecContext(ctx, `UPDATE cards SET category = ?, urgency = ?, grp = ?, title = ?, body = ?, reply = ?,
 			  refs = ?, state = 'new', updated_at = ?, done_at = NULL, handle = CASE WHEN ? = '' THEN handle ELSE ? END,
+			  agent_session = CASE WHEN ? = '' THEN agent_session ELSE ? END,
 			  space = CASE WHEN ? = '' THEN space ELSE ? END
 			  WHERE id = ?`, c.Category, c.Urgency, c.Group, c.Title, c.Body, c.Reply, refsJSON(c.Refs), now.UnixMilli(),
-				c.Handle, c.Handle, c.Space, c.Space, old.ID); err != nil {
+				c.Handle, c.Handle, c.Handle, c.AgentSession, c.Space, c.Space, old.ID); err != nil {
 				return nil, err
 			}
 			if c.Handle == "" {
-				sv.Handle = old.Handle
+				sv.Handle, sv.AgentSession = old.Handle, old.AgentSession
 			}
 			if c.Space == "" {
 				sv.Space = old.Space
