@@ -32,12 +32,13 @@
 
 ## 6. Docs and e2e
 
-- [ ] 6.1 Update `CLAUDE.md` (data flow, store version 9, the Mattermost facts) and the docs that list the data line fields
-- [ ] 6.2 Add an e2e scenario on Docker Mattermost: the user posts a root, another user replies in a channel at `mentions`; the dry-run digest has `reply_to` with `me: true`
-- [ ] 6.3 Run `task test`, `task lint`, `task e2e`, `task leakcheck`
+- [x] 6.1 Update `CLAUDE.md` (data flow, store version 9, the Mattermost facts) and the docs that list the data line fields
+- [x] 6.2 Add an e2e scenario on Docker Mattermost: the user posts a root, another user replies in a channel at `mentions`; the dry-run digest has `reply_to` with `me: true`
+- [x] 6.3 Run `task test`, `task lint`, `task e2e`, `task leakcheck`
 
 ## 7. Evidence
 
-- [ ] 7.1 Upgrade a copy of the real `inbox.db` in the scratchpad: backup, version 9, same row count
-- [ ] 7.2 Break each new test one time and confirm that it fails, then restore the code
-- [ ] 7.3 After the install, read the next real digests and record a WhatsApp line and a Mattermost line with `reply_to`
+- [x] 7.1 Upgrade a copy of the real `inbox.db` in the scratchpad: backup, version 9, same row count
+- [x] 7.2 Break each new test one time and confirm that it fails, then restore the code
+- [x] 7.3 Run the branch build in dry-run on the real Mattermost account (separate `I2A_HOME`) and record the `reply_to` lines
+- [ ] 7.4 After the install, read the next real WhatsApp digest and record a line with `reply_to` (a second WhatsApp connection would replace the connection of the daemon)
