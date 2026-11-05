@@ -1,0 +1,57 @@
+{
+    "order": [
+        "7trbcgeo17ya3ddxdopbu3myxh",
+        "c81kq7hbhfrf5btubac5zyesmh"
+    ],
+    "posts": {
+        "7trbcgeo17ya3ddxdopbu3myxh": {
+            "id": "7trbcgeo17ya3ddxdopbu3myxh",
+            "create_at": 1793853368270,
+            "update_at": 1793853368630,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "wmgz5sbpk7bzi8hputj31qx7fr",
+            "channel_id": "zasucaj4sbb87fkrih4z8nyxxc",
+            "root_id": "",
+            "original_id": "",
+            "message": "root by bob",
+            "type": "",
+            "props": {},
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "remote_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        },
+        "c81kq7hbhfrf5btubac5zyesmh": {
+            "id": "c81kq7hbhfrf5btubac5zyesmh",
+            "create_at": 1793853368191,
+            "update_at": 1793853368538,
+            "edit_at": 0,
+            "delete_at": 0,
+            "is_pinned": false,
+            "user_id": "8wirmpah43fy5qcw36i6wy95xw",
+            "channel_id": "zasucaj4sbb87fkrih4z8nyxxc",
+            "root_id": "",
+            "original_id": "",
+            "message": "question from alice",
+            "type": "",
+            "props": {},
+            "hashtags": "",
+            "file_ids": [],
+            "pending_post_id": "",
+            "remote_id": "",
+            "reply_count": 0,
+            "last_reply_at": 0,
+            "participants": null,
+            "metadata": {}
+        }
+    },
+    "next_post_id": "bm836ncjebgnigg8anhyq5tf7h",
+    "prev_post_id": "q3jq5pz1xpgyfex3y3mmywn7ko",
+    "first_inaccessible_post_time": 0
+}

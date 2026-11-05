@@ -6,8 +6,8 @@
 # 2. Run this script from the repository root:
 #    internal/source/mattermost/testdata/capture.sh
 #
-# The script makes users alice and bob, a team "fx", the channels "selected" and
-# "other", and a direct channel. Then bob writes the posts that the tests need.
+# The script makes users alice and bob, a team "fx", the channels "selected",
+# "other" and "threads", and a direct channel. Then bob writes the posts that the tests need.
 # It saves each response that the source reads, and manifest.json, which maps
 # each request to its file. Then alice sends two replies, as i2a does, and the
 # script saves the responses of the send requests (reply_*.json, not in the
@@ -42,8 +42,8 @@ BID=$(api "$B" GET /users/me | json '["id"]')
 TEAM=$(api "$A" POST /teams '{"name":"fx","display_name":"FX","type":"O"}' | json '["id"]')
 api "$A" POST "/teams/$TEAM/members" "{\"team_id\":\"$TEAM\",\"user_id\":\"$BID\"}" >/dev/null
 mkch() { api "$A" POST /channels "{\"team_id\":\"$TEAM\",\"name\":\"$1\",\"display_name\":\"$1\",\"type\":\"O\"}" | json '["id"]'; }
-SEL=$(mkch selected); OTH=$(mkch other)
-for c in $SEL $OTH; do api "$A" POST "/channels/$c/members" "{\"user_id\":\"$BID\"}" >/dev/null; done
+SEL=$(mkch selected); OTH=$(mkch other); THR=$(mkch threads)
+for c in $SEL $OTH $THR; do api "$A" POST "/channels/$c/members" "{\"user_id\":\"$BID\"}" >/dev/null; done
 DM=$(api "$B" POST /channels/direct "[\"$BID\",\"$AID\"]" | json '["id"]')
 
 post() { api "$1" POST /posts "{\"channel_id\":\"$2\",\"message\":\"$3\"$4}" | json '["id"]'; sleep 0.05; }
@@ -64,6 +64,16 @@ post "$B" "$OTH" "@alicex is someone else" "" >/dev/null
 ROOT=$(post "$B" "$DM" "direct hi alice" "")
 RID=$(post "$B" "$DM" "reply in thread" ",\"root_id\":\"$ROOT\"")
 
+# threads: replies with no mention under a root of alice and under a root of
+# bob. Two posts between the roots and the replies put the roots on an older
+# page when per_page is 2.
+AROOT=$(post "$A" "$THR" "question from alice" "")
+BROOT=$(post "$B" "$THR" "root by bob" "")
+post "$B" "$THR" "threads noise one" "" >/dev/null
+post "$B" "$THR" "threads noise two" "" >/dev/null
+post "$B" "$THR" "answer to alice" ",\"root_id\":\"$AROOT\"" >/dev/null
+post "$B" "$THR" "more on the root of bob" ",\"root_id\":\"$BROOT\"" >/dev/null
+
 PAT=$(api "$A" POST "/users/$AID/tokens" '{"description":"capture"}' | json '["token"]')
 
 manifest="{"
@@ -81,11 +91,13 @@ for c in json.load(open(sys.argv[1])):
 for ch in $CHANNELS; do
   name=${ch%%:*}; id=${ch#*:}
   save "posts_${name}_200_p0" GET "/channels/$id/posts?page=0&per_page=200"
-  for p in 0 1 2 3; do save "posts_${name}_2_p$p" GET "/channels/$id/posts?page=$p&per_page=2"; done
+  for p in 0 1 2 3 4; do save "posts_${name}_2_p$p" GET "/channels/$id/posts?page=$p&per_page=2"; done
 done
 save users_ids POST /users/ids "[\"$BID\",\"$AID\"]"
 save post_root GET "/posts/$ROOT"
 save post_reply GET "/posts/$RID"
+save post_threads_alice GET "/posts/$AROOT"
+save post_threads_bob GET "/posts/$BROOT"
 api "$PAT" GET /users/me/teams/unread | python3 -I -m json.tool > "$OUT/unread.json"
 # The send requests of i2a. They run after the saves above, so the post lists
 # above do not contain the replies.

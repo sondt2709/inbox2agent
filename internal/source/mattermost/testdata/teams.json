@@ -1,8 +1,8 @@
 [
     {
-        "id": "cjkixgxjctb9ifcadwc9cj43de",
-        "create_at": 1793266895775,
-        "update_at": 1793266895775,
+        "id": "1syjphsmpbg3dynimfw743pxny",
+        "create_at": 1793853366739,
+        "update_at": 1793853366739,
         "delete_at": 0,
         "display_name": "FX",
         "name": "fx",
@@ -11,7 +11,7 @@
         "type": "O",
         "company_name": "",
         "allowed_domains": "",
-        "invite_id": "3rajr6amztgyjfcexbtd963unw",
+        "invite_id": "edy98uwqh7nqm8yg51hqw7pzxr",
         "allow_open_invite": false,
         "scheme_id": null,
         "group_constrained": null,

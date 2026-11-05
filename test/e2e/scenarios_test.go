@@ -194,11 +194,18 @@ func (p *person) digests() []string {
 
 // item is one data line of a digest.
 type item struct {
+	ID        int64  `json:"id"`
 	Channel   string `json:"channel"`
 	Kind      string `json:"kind"`
 	Author    string `json:"author"`
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated"`
+	ReplyTo   *struct {
+		ID     int64  `json:"id"`
+		Author string `json:"author"`
+		Me     bool   `json:"me"`
+		Text   string `json:"text"`
+	} `json:"reply_to"`
 }
 
 // readDigest checks the fence structure and returns the data lines.

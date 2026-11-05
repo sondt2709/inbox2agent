@@ -1,24 +1,24 @@
 {
     "order": [
-        "pgxkfp6fi7dk7kpkirsijp5zec",
-        "z1gzitcon7bgdx7ezicbmhec7r"
+        "fqdu1xew9jdc9kg536xpstgg5e",
+        "dftdz9wqgfbpznjyrqgcmwfd7o"
     ],
     "posts": {
-        "pgxkfp6fi7dk7kpkirsijp5zec": {
-            "id": "pgxkfp6fi7dk7kpkirsijp5zec",
-            "create_at": 1793266895888,
-            "update_at": 1793266895888,
+        "dftdz9wqgfbpznjyrqgcmwfd7o": {
+            "id": "dftdz9wqgfbpznjyrqgcmwfd7o",
+            "create_at": 1793853366779,
+            "update_at": 1793853366779,
             "edit_at": 0,
             "delete_at": 0,
             "is_pinned": false,
-            "user_id": "wzt6q59wei8fbpn9ufeprft99h",
-            "channel_id": "jrb4jc7c1jbi5fkfexbjwyh9ja",
+            "user_id": "8wirmpah43fy5qcw36i6wy95xw",
+            "channel_id": "n36gctkkejgq9y5iwhx44xn9yo",
             "root_id": "",
             "original_id": "",
-            "message": "bob joined the team.",
+            "message": "alice joined the team.",
             "type": "system_join_team",
             "props": {
-                "username": "bob"
+                "username": "alice"
             },
             "hashtags": "",
             "file_ids": [],
@@ -28,21 +28,21 @@
             "participants": null,
             "metadata": {}
         },
-        "z1gzitcon7bgdx7ezicbmhec7r": {
-            "id": "z1gzitcon7bgdx7ezicbmhec7r",
-            "create_at": 1793266895817,
-            "update_at": 1793266895817,
+        "fqdu1xew9jdc9kg536xpstgg5e": {
+            "id": "fqdu1xew9jdc9kg536xpstgg5e",
+            "create_at": 1793853366885,
+            "update_at": 1793853366885,
             "edit_at": 0,
             "delete_at": 0,
             "is_pinned": false,
-            "user_id": "nxo8nu37rbny3cbni3id7m91sr",
-            "channel_id": "jrb4jc7c1jbi5fkfexbjwyh9ja",
+            "user_id": "wmgz5sbpk7bzi8hputj31qx7fr",
+            "channel_id": "n36gctkkejgq9y5iwhx44xn9yo",
             "root_id": "",
             "original_id": "",
-            "message": "alice joined the team.",
+            "message": "bob joined the team.",
             "type": "system_join_team",
             "props": {
-                "username": "alice"
+                "username": "bob"
             },
             "hashtags": "",
             "file_ids": [],

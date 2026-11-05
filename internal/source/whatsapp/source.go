@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
@@ -133,7 +136,11 @@ func collect(ctx context.Context, db *DB, s Settings, cur inbox.Cursor, now time
 		if r.FromMe || r.Time.Before(since) || !wanted(s, r) {
 			continue
 		}
-		msgs = append(msgs, message(s.ID, r))
+		m := message(s.ID, r)
+		if r.QuoteID != "" {
+			m.ReplyTo = replyRef(ctx, db, r)
+		}
+		msgs = append(msgs, m)
 	}
 	textBefore := since.Add(-time.Hour)
 	mediaBefore := textBefore
@@ -162,6 +169,26 @@ func wanted(s Settings, r Row) bool {
 	default:
 		return false
 	}
+}
+
+// replyRef returns the reference to the message that the row quotes. The
+// quoted text comes from raw. When the author is not known, it is the sender
+// name of the quoted row in the file, if the file has it.
+func replyRef(ctx context.Context, db *DB, r Row) *inbox.ReplyRef {
+	ref := &inbox.ReplyRef{Ext: r.QuoteID, Author: r.QuoteAuthor, Me: r.QuoteMe}
+	var msg waE2E.Message
+	if err := proto.Unmarshal(r.Raw, &msg); err == nil {
+		ref.Text = quoted(&msg)
+	}
+	if ref.Author == "" && !ref.Me {
+		if q, ok, err := db.Row(ctx, r.Chat, r.QuoteID); err == nil && ok {
+			ref.Me = q.FromMe
+			if !q.FromMe {
+				ref.Author = q.SenderName
+			}
+		}
+	}
+	return ref
 }
 
 func message(sourceID string, r Row) inbox.Message {

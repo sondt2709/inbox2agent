@@ -371,6 +371,17 @@ func rowFromEvent(ctx context.Context, v *events.Message, me Me, n names) (Row, 
 			}
 		}
 	}
+	if id, who, ok := quoteRef(v.Message); ok {
+		r.QuoteID, r.QuoteMe = id, me.is(who)
+		if !r.QuoteMe && !who.IsEmpty() {
+			r.QuoteAuthor = n.Name(ctx, who)
+			if r.QuoteAuthor == "" {
+				if p := n.Phone(ctx, who); p != "" {
+					r.QuoteAuthor = "+" + p
+				}
+			}
+		}
+	}
 	if kind == inbox.KindGroup {
 		r.Mention = !r.FromMe && MentionsMe(v.Message, me)
 	} else {

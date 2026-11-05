@@ -43,7 +43,7 @@
 The read level is the same choice for each kind of conversation:
 
 - `all`: each message.
-- `mentions`: the messages for you: a mention, a reply to you, or each message of a direct conversation.
+- `mentions`: the messages for you: a mention, a reply to you (a WhatsApp quote of your message, or a Mattermost reply in a thread that you started), or each message of a direct conversation.
 - `off`: no message.
 
 The built-in space **Unsorted** holds each conversation that no space lists, for example a new direct conversation. The dashboard calls it **Everything else**. It has its own read level for these conversations. It sends to an agent, or holds the messages until you add their conversations to a space. A conversation with the read level `off` in Unsorted is ignored.
@@ -237,7 +237,7 @@ How it works:
 
 1. The daemon reads each account on its `read_every` interval. It collects the messages of each conversation at its read level, and saves them in `inbox.db`.
 2. At each send time of the schedule of a space, the daemon finds the waiting messages whose conversations are in that space, and makes one batch. A space with no agent (Unsorted on hold) never sends; its messages wait until you move their conversations, or until they are older than `lookback`.
-3. The sanitizer writes each message as one JSON line in a fenced block with a random label, and writes the digest file.
+3. The sanitizer writes each message as one JSON line in a fenced block with a random label, and writes the digest file. When a message quotes an earlier message (WhatsApp) or replies in a thread (Mattermost), its line has `reply_to`: the `id` of the earlier message in `i2a` (0 when `i2a` does not have it), its `author`, `me` (true when you wrote it) and the first 200 characters of its `text`. So the agent can join the answer to the question.
 4. The driver gives the batch to the agent of the space, in the session of the space. When the driver reports `sent`, the messages are done. When it fails or the agent is busy, the messages wait for the next send time.
 5. The agent reads the batch and runs `i2a card add` with one card for each topic (see [Cards](#cards)).
 6. On macOS, `i2a card add` shows a notification for new cards, and the daemon shows one after each failed send. Each minute, the daemon also sends the asks that wait for a busy agent.
