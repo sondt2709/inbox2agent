@@ -479,7 +479,7 @@ func TestS32AgentAnswersAnAsk(t *testing.T) {
 		}
 		if got.UpdatedAt != first.UpdatedAt && got.State == inbox.CardNew {
 			t.Logf("S32 card after the ask: %+v", got)
-			tm.WaitFor(`updated`, 10*time.Second)
+			tm.WaitFor(`upd(ated|…)`, 10*time.Second) // a long group name of the agent cuts the row
 			tm.Shot("S32-feed-after-answer")
 			break
 		}
