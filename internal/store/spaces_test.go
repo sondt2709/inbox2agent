@@ -474,8 +474,8 @@ func v7Store(t *testing.T, path string) {
 	if err := s.SetSession(context.Background(), inbox.Session{Space: "triage", Handle: "term_a", PrimerHash: "h1", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`ALTER TABLE sessions DROP COLUMN agent_session`, `ALTER TABLE cards DROP COLUMN agent_session`,
-		`UPDATE schema_version SET version = 7`} {
+	for _, q := range append(dropV9, `ALTER TABLE sessions DROP COLUMN agent_session`, `ALTER TABLE cards DROP COLUMN agent_session`,
+		`UPDATE schema_version SET version = 7`) {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
@@ -492,8 +492,8 @@ func TestMigrateV7AddsTheClaudeSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if v, _ := s.Version(ctx); v != 8 {
-		t.Fatalf("version = %d, want 8", v)
+	if v, _ := s.Version(ctx); v != SchemaVersion {
+		t.Fatalf("version = %d, want %d", v, SchemaVersion)
 	}
 	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" || ss.PrimerHash != "h1" || ss.AgentSession != "" {
 		t.Errorf("session = %+v, %v, want term_a with no Claude session", ss, err)

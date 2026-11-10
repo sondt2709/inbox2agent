@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS wa_messages (
   text        TEXT NOT NULL,
   raw         BLOB,
   media       INTEGER NOT NULL DEFAULT 0,
+  quote_id     TEXT NOT NULL DEFAULT '',
+  quote_author TEXT NOT NULL DEFAULT '',
+  quote_me     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (chat, id)
 );
 CREATE INDEX IF NOT EXISTS wa_messages_ts ON wa_messages(ts);
@@ -75,9 +78,9 @@ func OpenDB(ctx context.Context, path string, log waLog.Logger) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("create tables in %s: %w", path, err)
 	}
-	if err := addMediaColumn(ctx, db); err != nil {
+	if err := addColumns(ctx, db); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("add the column media to %s: %w", path, err)
+		return nil, fmt.Errorf("add the new columns to %s: %w", path, err)
 	}
 	c := sqlstore.NewWithDB(db, "sqlite", log)
 	if err := c.Upgrade(ctx); err != nil {
@@ -87,18 +90,32 @@ func OpenDB(ctx context.Context, path string, log waLog.Logger) (*DB, error) {
 	return &DB{sql: db, Container: c}, nil
 }
 
-// addMediaColumn adds wa_messages.media to a file of an older version. The
-// old rows get 0, so the prune deletes them after lookback as before.
-func addMediaColumn(ctx context.Context, db *sql.DB) error {
-	var n int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('wa_messages') WHERE name = 'media'`).Scan(&n); err != nil {
-		return err
+// newColumns are the columns of wa_messages that a file of an older version
+// does not have. media: the old rows get 0, so the prune deletes them after
+// lookback as before. quote_*: the old rows have no quote reference.
+var newColumns = []string{
+	"media INTEGER NOT NULL DEFAULT 0",
+	"quote_id TEXT NOT NULL DEFAULT ''",
+	"quote_author TEXT NOT NULL DEFAULT ''",
+	"quote_me INTEGER NOT NULL DEFAULT 0",
+}
+
+// addColumns adds the newColumns that the file does not have.
+func addColumns(ctx context.Context, db *sql.DB) error {
+	for _, col := range newColumns {
+		name, _, _ := strings.Cut(col, " ")
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('wa_messages') WHERE name = ?`, name).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, `ALTER TABLE wa_messages ADD COLUMN `+col); err != nil {
+			return err
+		}
 	}
-	if n > 0 {
-		return nil
-	}
-	_, err := db.ExecContext(ctx, `ALTER TABLE wa_messages ADD COLUMN media INTEGER NOT NULL DEFAULT 0`)
-	return err
+	return nil
 }
 
 // Close closes the file.
@@ -127,13 +144,19 @@ type Row struct {
 	Raw        []byte // the protobuf of waE2E.Message
 	Media      bool   // the message has a file that i2a download can save
 	ChatName   string // from wa_chats, when read
+	// QuoteID is the ID of the message that this message quotes; "" for no quote.
+	QuoteID     string
+	QuoteAuthor string // the contact name or "+<phone>" of the author of the quoted message; "" when not known or QuoteMe
+	QuoteMe     bool   // the user wrote the quoted message
 }
 
 // SaveMessage stores a message. It ignores a message that is stored already.
 func (d *DB) SaveMessage(ctx context.Context, r Row) error {
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO wa_messages(chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw, media)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(chat, id) DO NOTHING`,
-		r.Chat, r.ID, r.Sender, r.SenderName, r.Phone, r.Kind, r.FromMe, r.Mention, r.Time.UnixMilli(), r.Text, r.Raw, r.Media)
+	_, err := d.sql.ExecContext(ctx, `INSERT INTO wa_messages(chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw, media,
+		quote_id, quote_author, quote_me)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(chat, id) DO NOTHING`,
+		r.Chat, r.ID, r.Sender, r.SenderName, r.Phone, r.Kind, r.FromMe, r.Mention, r.Time.UnixMilli(), r.Text, r.Raw, r.Media,
+		r.QuoteID, r.QuoteAuthor, r.QuoteMe)
 	return err
 }
 
@@ -142,9 +165,10 @@ func (d *DB) SaveMessage(ctx context.Context, r Row) error {
 func (d *DB) Row(ctx context.Context, chat, id string) (Row, bool, error) {
 	var r Row
 	var ts int64
-	err := d.sql.QueryRowContext(ctx, `SELECT rowid, chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw, media
+	err := d.sql.QueryRowContext(ctx, `SELECT rowid, chat, id, sender, sender_name, phone, kind, from_me, mention, ts, text, raw, media,
+		quote_id, quote_author, quote_me
 		FROM wa_messages WHERE chat = ? AND id = ?`, chat, id).Scan(&r.RowID, &r.Chat, &r.ID, &r.Sender, &r.SenderName, &r.Phone,
-		&r.Kind, &r.FromMe, &r.Mention, &ts, &r.Text, &r.Raw, &r.Media)
+		&r.Kind, &r.FromMe, &r.Mention, &ts, &r.Text, &r.Raw, &r.Media, &r.QuoteID, &r.QuoteAuthor, &r.QuoteMe)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Row{}, false, nil
 	}
@@ -159,7 +183,7 @@ func (d *DB) Row(ctx context.Context, chat, id string) (Row, bool, error) {
 // with the chat name.
 func (d *DB) Messages(ctx context.Context, after int64, limit int) ([]Row, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT m.rowid, m.chat, m.id, m.sender, m.sender_name, m.phone, m.kind, m.from_me,
-		m.mention, m.ts, m.text, m.raw, coalesce(c.name, '')
+		m.mention, m.ts, m.text, m.raw, m.quote_id, m.quote_author, m.quote_me, coalesce(c.name, '')
 		FROM wa_messages m LEFT JOIN wa_chats c ON c.jid = m.chat
 		WHERE m.rowid > ? ORDER BY m.rowid LIMIT ?`, after, limit)
 	if err != nil {
@@ -171,7 +195,7 @@ func (d *DB) Messages(ctx context.Context, after int64, limit int) ([]Row, error
 		var r Row
 		var ts int64
 		if err := rows.Scan(&r.RowID, &r.Chat, &r.ID, &r.Sender, &r.SenderName, &r.Phone, &r.Kind, &r.FromMe,
-			&r.Mention, &ts, &r.Text, &r.Raw, &r.ChatName); err != nil {
+			&r.Mention, &ts, &r.Text, &r.Raw, &r.QuoteID, &r.QuoteAuthor, &r.QuoteMe, &r.ChatName); err != nil {
 			return nil, err
 		}
 		r.Time = time.UnixMilli(ts)

@@ -1,0 +1,23 @@
+{
+    "id": "7trbcgeo17ya3ddxdopbu3myxh",
+    "create_at": 1793853368270,
+    "update_at": 1793853368630,
+    "edit_at": 0,
+    "delete_at": 0,
+    "is_pinned": false,
+    "user_id": "wmgz5sbpk7bzi8hputj31qx7fr",
+    "channel_id": "zasucaj4sbb87fkrih4z8nyxxc",
+    "root_id": "",
+    "original_id": "",
+    "message": "root by bob",
+    "type": "",
+    "props": {},
+    "hashtags": "",
+    "file_ids": [],
+    "pending_post_id": "",
+    "remote_id": "",
+    "reply_count": 1,
+    "last_reply_at": 0,
+    "participants": null,
+    "metadata": {}
+}

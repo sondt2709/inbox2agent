@@ -1,0 +1,23 @@
+{
+    "id": "c81kq7hbhfrf5btubac5zyesmh",
+    "create_at": 1793853368191,
+    "update_at": 1793853368538,
+    "edit_at": 0,
+    "delete_at": 0,
+    "is_pinned": false,
+    "user_id": "8wirmpah43fy5qcw36i6wy95xw",
+    "channel_id": "zasucaj4sbb87fkrih4z8nyxxc",
+    "root_id": "",
+    "original_id": "",
+    "message": "question from alice",
+    "type": "",
+    "props": {},
+    "hashtags": "",
+    "file_ids": [],
+    "pending_post_id": "",
+    "remote_id": "",
+    "reply_count": 1,
+    "last_reply_at": 0,
+    "participants": null,
+    "metadata": {}
+}

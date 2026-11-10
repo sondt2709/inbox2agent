@@ -86,7 +86,7 @@ func (rp *replay) count(prefix string) int {
 func fixtureNow(t *testing.T) time.Time {
 	t.Helper()
 	var newest int64
-	for _, n := range []string{"selected", "other", "direct"} {
+	for _, n := range []string{"selected", "other", "direct", "threads"} {
 		b, err := os.ReadFile("testdata/posts_" + n + "_200_p0.json")
 		if err != nil {
 			t.Fatal(err)
@@ -149,7 +149,7 @@ func TestCollectReadLevels(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []string{"selected one", "selected two", "selected three", "selected four",
-			"@alice please check the report.", "direct hi alice", "reply in thread"}
+			"@alice please check the report.", "direct hi alice", "reply in thread", "answer to alice"}
 		got := texts(msgs)
 		if strings.Join(got, "|") != strings.Join(want, "|") {
 			t.Fatalf("per_page=%d: messages =\n  %q\nwant\n  %q", perPage, got, want)
@@ -168,6 +168,12 @@ func TestCollectReadLevels(t *testing.T) {
 		if msgs[5].ThreadID != "" || msgs[6].ThreadID != msgs[5].ExternalID {
 			t.Errorf("thread IDs = %q and %q, want \"\" and the root %q", msgs[5].ThreadID, msgs[6].ThreadID, msgs[5].ExternalID)
 		}
+		if r := msgs[6].ReplyTo; r == nil || *r != (inbox.ReplyRef{Ext: msgs[5].ExternalID, Author: "bob", Text: "direct hi alice"}) {
+			t.Errorf("reply reference of the direct reply = %+v", r)
+		}
+		if msgs[5].ReplyTo != nil {
+			t.Errorf("root has the reply reference %+v", msgs[5].ReplyTo)
+		}
 		if msgs[4].ChannelName != "other" || msgs[4].ChannelKind != inbox.KindChannel {
 			t.Errorf("mention message = %+v", msgs[4])
 		}
@@ -176,11 +182,14 @@ func TestCollectReadLevels(t *testing.T) {
 		for _, m := range msgs {
 			forMe = append(forMe, m.ForMe)
 		}
-		if want := []bool{false, false, false, false, true, true, true}; !slices.Equal(forMe, want) {
+		if want := []bool{false, false, false, false, true, true, true, true}; !slices.Equal(forMe, want) {
 			t.Errorf("ForMe = %v, want %v", forMe, want)
 		}
-		if len(cur) != 5 { // mentions on: all 5 member channels have new posts
-			t.Errorf("cursor has %d channels, want 5: %v", len(cur), cur)
+		if len(cur) != 6 { // mentions on: all 6 member channels have new posts
+			t.Errorf("cursor has %d channels, want 6: %v", len(cur), cur)
+		}
+		if n := rp.count("GET /posts/"); n != 0 {
+			t.Errorf("the source read %d roots with GET, want 0: the pages hold them", n)
 		}
 		if rp.count("POST /users/ids") == 0 {
 			t.Error("authors were not resolved")
@@ -303,7 +312,7 @@ func TestListChannels(t *testing.T) {
 		}
 		got = append(got, s)
 	}
-	want := "channel:off-topic|channel:other*|channel:selected|channel:town-square|direct:@bob"
+	want := "channel:off-topic|channel:other*|channel:selected|channel:threads|channel:town-square|direct:@bob"
 	if strings.Join(got, "|") != want {
 		t.Fatalf("channels = %q\nwant %q", strings.Join(got, "|"), want)
 	}
@@ -385,7 +394,7 @@ func TestCollectDirectChannelOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(texts(msgs), "|"); got != "@alice please check the report." {
-		t.Fatalf("messages = %q, want only the mention", got)
+	if got := strings.Join(texts(msgs), "|"); got != "@alice please check the report.|answer to alice" {
+		t.Fatalf("messages = %q, want only the mention and the reply to the user", got)
 	}
 }

@@ -104,6 +104,23 @@ func quoted(m *waE2E.Message) string {
 	return q
 }
 
+// quoteRef returns the ID and the author of the message that m quotes, and
+// false when m quotes no message. The author is the zero JID when the
+// context does not name it.
+func quoteRef(m *waE2E.Message) (string, types.JID, bool) {
+	ci := contextInfo(m)
+	if ci == nil || ci.GetQuotedMessage() == nil || ci.GetStanzaID() == "" {
+		return "", types.JID{}, false
+	}
+	var who types.JID
+	if p := ci.GetParticipant(); p != "" {
+		if j, err := types.ParseJID(p); err == nil {
+			who = j
+		}
+	}
+	return ci.GetStanzaID(), who, true
+}
+
 type withContext interface {
 	GetContextInfo() *waE2E.ContextInfo
 }

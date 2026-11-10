@@ -2,7 +2,9 @@ package mattermost
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 	"sort"
@@ -39,14 +41,21 @@ type Source struct {
 	mu    sync.Mutex
 	me    *User
 	users map[string]string // user ID -> username
+	roots map[string]Post   // thread root ID -> root post, a cache for the reply references
 }
+
+// maxRoots limits the root cache. A full cache is emptied.
+const maxRoots = 1000
+
+// quoteMax limits the root text in a reply reference.
+const quoteMax = 200
 
 // New returns a source.
 func New(s Settings, client *Client) *Source {
 	if s.PerPage <= 0 {
 		s.PerPage = 200
 	}
-	return &Source{s: s, client: client, users: map[string]string{}}
+	return &Source{s: s, client: client, users: map[string]string{}, roots: map[string]Post{}}
 }
 
 // ID returns the source ID.
@@ -304,8 +313,23 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 		next[ch.ID] = strconv.FormatInt(newest, 10)
 
 		var authors []string
+		roots := map[string]Post{} // root ID -> root; absent when not known
 		for _, p := range posts {
 			authors = append(authors, p.UserID)
+			if p.RootID == "" || p.UserID == me.ID || p.DeleteAt != 0 || p.Type != "" {
+				continue
+			}
+			if _, done := roots[p.RootID]; done {
+				continue
+			}
+			r, ok, err := src.root(ctx, p.RootID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("channel %s: %w", ch.label, err)
+			}
+			if ok {
+				roots[p.RootID] = r
+				authors = append(authors, r.UserID)
+			}
 		}
 		if err := src.usernames(ctx, authors); err != nil {
 			return nil, nil, err
@@ -318,7 +342,18 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 			if p.UserID == me.ID || p.DeleteAt != 0 || p.Type != "" {
 				continue
 			}
-			forMe := ch.Type == "D" || mention.MatchString(p.Message)
+			var ref *inbox.ReplyRef
+			if p.RootID != "" {
+				ref = &inbox.ReplyRef{Ext: p.RootID}
+				if r, ok := roots[p.RootID]; ok {
+					ref.Me, ref.Text = r.UserID == me.ID, snippet(r.Message)
+					if !ref.Me {
+						ref.Author = src.username(r.UserID)
+					}
+				}
+			}
+			// A reply in a thread whose root the user wrote is for the user.
+			forMe := ch.Type == "D" || mention.MatchString(p.Message) || (ref != nil && ref.Me)
 			if !all && !forMe {
 				continue
 			}
@@ -335,6 +370,7 @@ func (src *Source) Collect(ctx context.Context, cur inbox.Cursor, now time.Time)
 				URL:         strings.TrimRight(src.s.URL, "/") + "/" + team + "/pl/" + p.ID,
 				CreatedAt:   time.UnixMilli(p.CreateAt).UTC(),
 				ForMe:       forMe,
+				ReplyTo:     ref,
 			})
 		}
 	}
@@ -352,6 +388,8 @@ func (src *Source) level(id string) string {
 
 // newPosts reads pages of a channel, newest first, until it reaches a post
 // that is not newer than since. It returns the new posts and the newest create time.
+// The pages can also hold thread roots that are not in Order; newPosts keeps
+// them in the root cache.
 func (src *Source) newPosts(ctx context.Context, channelID string, since int64) ([]Post, int64, error) {
 	var out []Post
 	newest := since
@@ -361,6 +399,7 @@ func (src *Source) newPosts(ctx context.Context, channelID string, since int64) 
 			return nil, 0, err
 		}
 		done := len(pl.Order) < src.s.PerPage
+		src.keepRoots(pl.Posts)
 		for _, id := range pl.Order {
 			p, ok := pl.Posts[id]
 			if !ok {
@@ -380,6 +419,52 @@ func (src *Source) newPosts(ctx context.Context, channelID string, since int64) 
 		}
 	}
 	return out, newest, nil
+}
+
+// keepRoots puts the root posts of a page in the cache.
+func (src *Source) keepRoots(posts map[string]Post) {
+	src.mu.Lock()
+	defer src.mu.Unlock()
+	for id, p := range posts {
+		if p.RootID != "" {
+			continue
+		}
+		if len(src.roots) >= maxRoots {
+			clear(src.roots)
+		}
+		src.roots[id] = p
+	}
+}
+
+// root returns the thread root post, from the cache or with GET /posts/{id}.
+// It returns false for a root that the server does not give (HTTP 403 or 404)
+// or that is deleted. Other errors fail the poll.
+func (src *Source) root(ctx context.Context, id string) (Post, bool, error) {
+	src.mu.Lock()
+	p, ok := src.roots[id]
+	src.mu.Unlock()
+	if !ok {
+		var err error
+		p, err = src.client.GetPost(ctx, id)
+		var api *APIError
+		if errors.As(err, &api) && (api.Status == http.StatusForbidden || api.Status == http.StatusNotFound) {
+			return Post{}, false, nil
+		}
+		if err != nil {
+			return Post{}, false, fmt.Errorf("thread root %s: %w", id, err)
+		}
+		src.keepRoots(map[string]Post{id: p})
+	}
+	return p, p.DeleteAt == 0, nil
+}
+
+// snippet returns at most quoteMax characters of a text, on one line.
+func snippet(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > quoteMax {
+		s = string(r[:quoteMax]) + "…"
+	}
+	return s
 }
 
 // mentionMatcher matches "@username" as a whole word. Mattermost usernames can

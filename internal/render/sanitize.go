@@ -75,6 +75,29 @@ type Item struct {
 	URL       string `json:"url"`
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated"`
+	ReplyTo   *Reply `json:"reply_to,omitempty"`
+}
+
+// replyMax limits the text of the earlier message in reply_to.
+const replyMax = 200
+
+// Reply is the earlier message that a message quotes or answers in a thread.
+type Reply struct {
+	ID     int64  `json:"id"` // the row ID of the earlier message; 0 when the store does not have it
+	Author string `json:"author"`
+	Me     bool   `json:"me"`
+	Text   string `json:"text"`
+}
+
+func reply(r *inbox.ReplyRef) *Reply {
+	if r == nil {
+		return nil
+	}
+	text, cut := Sanitize(strings.Join(strings.Fields(r.Text), " "), replyMax)
+	if cut {
+		text += "…"
+	}
+	return &Reply{ID: r.ID, Author: field(r.Author), Me: r.Me, Text: text}
 }
 
 func field(s string) string {
@@ -90,7 +113,7 @@ func Items(msgs []inbox.Message, maxChars int) []Item {
 		out = append(out, Item{
 			ID: m.ID, N: i + 1, Source: field(m.SourceType), SourceID: field(m.SourceID), Channel: field(m.ChannelName),
 			Kind: field(m.ChannelKind), Author: field(m.Author), Time: m.CreatedAt.UTC().Format(time.RFC3339),
-			URL: field(m.URL), Text: text, Truncated: cut,
+			URL: field(m.URL), Text: text, Truncated: cut, ReplyTo: reply(m.ReplyTo),
 		})
 	}
 	return out

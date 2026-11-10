@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 8
+const SchemaVersion = 9
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS messages (
   dispatch_id   INTEGER,
   state         TEXT NOT NULL DEFAULT 'pending',
   for_me        INTEGER NOT NULL DEFAULT 1,
+  reply_ext     TEXT NOT NULL DEFAULT '',
+  reply_author  TEXT NOT NULL DEFAULT '',
+  reply_me      INTEGER NOT NULL DEFAULT 0,
+  reply_text    TEXT NOT NULL DEFAULT '',
   UNIQUE(source_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS messages_state ON messages(state, created_at);
@@ -177,7 +181,8 @@ func (s *Store) migrate() error {
 	// sessions.primer_hash, migrateV4 adds messages.thread_id, migrateV5
 	// adds cards.handle, migrateV6 renames the profile columns to space and
 	// migrateV7 adds messages.for_me, the deliveries and cards.space, and
-	// migrateV8 adds sessions.agent_session and cards.agent_session.
+	// migrateV8 adds sessions.agent_session and cards.agent_session, and
+	// migrateV9 adds the reply reference of the messages.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -197,38 +202,20 @@ func (s *Store) migrate() error {
 	if err := s.backup(v); err != nil {
 		return err
 	}
-	if v < 2 {
-		if err := s.migrateV2(); err != nil {
-			return err
-		}
+	steps := []struct {
+		to  int
+		run func() error
+	}{
+		{2, s.migrateV2}, {3, s.migrateV3}, {4, s.migrateV4}, {5, s.migrateV5},
+		{6, s.migrateV6}, {7, s.migrateV7}, {8, s.migrateV8}, {9, s.migrateV9},
 	}
-	if v < 3 {
-		if err := s.migrateV3(); err != nil {
-			return err
+	for _, st := range steps {
+		if v >= st.to {
+			continue
 		}
-	}
-	if v < 4 {
-		if err := s.migrateV4(); err != nil {
-			return err
+		if err := st.run(); err != nil {
+			return fmt.Errorf("upgrade to schema version %d: %w (the backup is %s.v%d.bak)", st.to, err, s.path, v)
 		}
-	}
-	if v < 5 {
-		if err := s.migrateV5(); err != nil {
-			return err
-		}
-	}
-	if v < 6 {
-		if err := s.migrateV6(); err != nil {
-			return err
-		}
-	}
-	if v < 7 {
-		if err := s.migrateV7(); err != nil {
-			return err
-		}
-	}
-	if err := s.migrateV8(); err != nil {
-		return fmt.Errorf("upgrade to schema version %d: %w (the backup is %s.v%d.bak)", SchemaVersion, err, s.path, v)
 	}
 	return nil
 }
@@ -419,6 +406,36 @@ func (s *Store) migrateV8() error {
 	return tx.Commit()
 }
 
+// migrateV9 adds the reply reference of a message: the external ID, the
+// author, the user flag and the text of the earlier message that the message
+// quotes or answers in a thread.
+func (s *Store) migrateV9() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	for _, col := range []string{
+		"reply_ext TEXT NOT NULL DEFAULT ''", "reply_author TEXT NOT NULL DEFAULT ''",
+		"reply_me INTEGER NOT NULL DEFAULT 0", "reply_text TEXT NOT NULL DEFAULT ''",
+	} {
+		name, _, _ := strings.Cut(col, " ")
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = ?`, name).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE messages ADD COLUMN ` + col); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 9`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // migrateV2 adds the previewed state. Version 1 marked the messages of
 // dry-run batches sent, so a real driver never got them.
 func (s *Store) migrateV2() error {
@@ -472,8 +489,9 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	defer tx.Rollback() //nolint:errcheck // no effect after Commit
 
 	ins, err := tx.PrepareContext(ctx, `INSERT INTO messages
-	  (source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, collected_at, state, for_me)
-	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+	  (source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, collected_at, state, for_me,
+	   reply_ext, reply_author, reply_me, reply_text)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
 	  ON CONFLICT(source_id, external_id) DO NOTHING`)
 	if err != nil {
 		return 0, err
@@ -484,8 +502,13 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 		if m.SourceID != sourceID {
 			return 0, fmt.Errorf("message %s has source %q, want %q", m.ExternalID, m.SourceID, sourceID)
 		}
+		var r inbox.ReplyRef
+		if m.ReplyTo != nil {
+			r = *m.ReplyTo
+		}
 		res, err := ins.ExecContext(ctx, m.SourceID, m.SourceType, m.ExternalID, m.ChannelID, m.ChannelName,
-			m.ChannelKind, m.ThreadID, m.Author, m.Text, m.URL, m.CreatedAt.UnixMilli(), now.UnixMilli(), m.ForMe)
+			m.ChannelKind, m.ThreadID, m.Author, m.Text, m.URL, m.CreatedAt.UnixMilli(), now.UnixMilli(), m.ForMe,
+			r.Ext, r.Author, r.Me, r.Text)
 		if err != nil {
 			return 0, fmt.Errorf("save message %s: %w", m.ExternalID, err)
 		}
@@ -502,7 +525,12 @@ func (s *Store) SavePoll(ctx context.Context, sourceID string, msgs []inbox.Mess
 	return added, tx.Commit()
 }
 
-const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, space, for_me`
+// messageCols are the columns that scanMessages reads. The subquery finds the
+// row ID of the earlier message of a reply reference (0 when the store does
+// not have it); the unique index on (source_id, external_id) serves it.
+const messageCols = `id, source_id, source_type, external_id, channel_id, channel_name, channel_kind, thread_id, author, text, url, created_at, state, space, for_me,
+  reply_ext, reply_author, reply_me, reply_text,
+  coalesce((SELECT r.id FROM messages r WHERE r.source_id = messages.source_id AND r.external_id = messages.reply_ext AND messages.reply_ext != ''), 0)`
 
 func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	defer rows.Close()
@@ -510,9 +538,14 @@ func scanMessages(rows *sql.Rows) ([]inbox.Message, error) {
 	for rows.Next() {
 		var m inbox.Message
 		var created int64
+		var r inbox.ReplyRef
 		if err := rows.Scan(&m.ID, &m.SourceID, &m.SourceType, &m.ExternalID, &m.ChannelID, &m.ChannelName,
-			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Space, &m.ForMe); err != nil {
+			&m.ChannelKind, &m.ThreadID, &m.Author, &m.Text, &m.URL, &created, &m.State, &m.Space, &m.ForMe,
+			&r.Ext, &r.Author, &r.Me, &r.Text, &r.ID); err != nil {
 			return nil, err
+		}
+		if r.Ext != "" {
+			m.ReplyTo = &r
 		}
 		m.CreatedAt = time.UnixMilli(created).UTC()
 		out = append(out, m)

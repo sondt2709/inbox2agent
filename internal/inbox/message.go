@@ -43,6 +43,9 @@ type Message struct {
 	// conversation, a mention of the user or a reply to the user. A link
 	// with the read level mentions gets only these messages.
 	ForMe bool
+	// ReplyTo is the earlier message that this message quotes (WhatsApp) or
+	// answers in a thread (Mattermost); nil when it answers no message.
+	ReplyTo *ReplyRef
 	// Delivered is the state of the delivery of the message to each space
 	// that got it (sent or previewed). Store.Pending fills it.
 	Delivered map[string]string
@@ -51,3 +54,12 @@ type Message struct {
 // Cursor is the position of a source, as key and value pairs.
 // Each source decides its keys, for example one key for each channel.
 type Cursor map[string]string
+
+// ReplyRef is the reference of a message to an earlier message.
+type ReplyRef struct {
+	Ext    string // the external ID of the earlier message
+	ID     int64  // the row ID of the earlier message in the store; 0 when the store does not have it
+	Author string // the author of the earlier message; "" when not known or when Me is true
+	Me     bool   // the user wrote the earlier message
+	Text   string // the start of the text of the earlier message
+}
