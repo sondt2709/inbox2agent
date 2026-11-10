@@ -577,7 +577,8 @@ func TestS20FullScreenTUI(t *testing.T) {
 	p.addAccount(w, w.Selected)
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
-	s := tm.WaitFor(`Everything else · conversations in no space`, 30*time.Second)
+	tm.WaitFor(`Everything else · conversations in no space`, 30*time.Second)
+	s := tm.WaitFor(`# selected`, 30*time.Second) // the listing of the account gives the names
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	head := strings.Join(strings.Fields(lines[0]), " ")
 	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*ctrl\+r run now$`).MatchString(head) {

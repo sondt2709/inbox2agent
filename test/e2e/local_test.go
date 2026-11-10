@@ -153,7 +153,7 @@ func TestS14OrcaNewSessionPointer(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S14: can you review the release notes by Friday?")
 
 	s, code := p.run("run --once")
-	if code != 0 || !strings.Contains(s, "batch of Unsorted (orca, 1 messages): sent - new session term_") {
+	if code != 0 || !strings.Contains(s, "batch of Unsorted (orca · claude, 1 messages): sent - new session term_") {
 		t.Fatalf("exit %d, screen:\n%s", code, s)
 	}
 	h := handleRe.FindString(s)
@@ -246,7 +246,7 @@ func TestS17OrcaNotReachable(t *testing.T) {
 	}
 	p.editConfig(func(c *config.Config) { c.Unsorted.Agent.OrcaBin = bin })
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "batch of Unsorted (orca, 1 messages): sent") {
+	if code != 0 || !strings.Contains(s, "batch of Unsorted (orca · claude, 1 messages): sent") {
 		t.Fatalf("after the fix: exit %d, screen:\n%s", code, s)
 	}
 	closeTerminal(bin, handleRe.FindString(s))
@@ -344,7 +344,7 @@ func TestS21DryRunThenOrcaLongPrimer(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S21: second message, after the change to Orca")
 	s, code = p.run("run --once")
 	flat := strings.ReplaceAll(s, "\n", "")
-	if code != 0 || !strings.Contains(flat, "batch of Unsorted (orca, 2 messages): sent - new session term_") || !strings.Contains(flat, "turn started") {
+	if code != 0 || !strings.Contains(flat, "batch of Unsorted (orca · claude, 2 messages): sent - new session term_") || !strings.Contains(flat, "turn started") {
 		t.Fatalf("orca: exit %d, screen:\n%s", code, s)
 	}
 	h := handleRe.FindString(s)
@@ -519,8 +519,8 @@ func TestS43OrcaClaudeExitedInTheSession(t *testing.T) {
 	h1 := handleRe.FindString(s)
 	t.Cleanup(func() { closeTerminal(bin, h1) })
 	readAgent(t, bin, h1, "S43 first", "S43/orca-terminal-1.txt")
-	if title := orcaTitle(t, bin, h1); title != "triage · Unsorted" {
-		t.Errorf("tab name = %q, want %q", title, "triage · Unsorted")
+	if title := orcaTitle(t, bin, h1); title != "i2a · Unsorted" {
+		t.Errorf("tab name = %q, want %q", title, "i2a · Unsorted")
 	}
 	first := p.session(config.UnsortedID)
 	if first.Handle != h1 || first.AgentSession == "" {
