@@ -122,8 +122,8 @@ func TestS31AskTheAgent(t *testing.T) {
 	p := askSetup(t, "S31", "mm:s31")
 	orcaBin, calls := fakeOrca(t)
 	p.editConfig(func(c *config.Config) {
-		pr := &c.Agents[0]
-		pr.Driver, pr.Workspace, pr.Session, pr.OrcaBin = config.DriverOrca, t.TempDir(), config.SessionReuse, orcaBin
+		pr := &c.Unsorted.Agent
+		pr.Driver, pr.Folder, pr.Session, pr.OrcaBin = config.DriverOrca, t.TempDir(), config.SessionReuse, orcaBin
 	})
 
 	tm := p.term("")

@@ -49,10 +49,10 @@ driver = "dry-run"
 		t.Fatal(err)
 	}
 	s, code := p.run("status")
-	if code != 0 || !strings.Contains(s, "i2a converted the configuration to version 2") || !strings.Contains(s, "config.toml.v1.bak") {
+	if code != 0 || !strings.Contains(s, "i2a converted the configuration from version 1 to version 3") || !strings.Contains(s, "config.toml.v1.bak") {
 		t.Fatalf("status: exit %d:\n%s", code, s)
 	}
-	for _, want := range []string{`Agent "triage": the batch template is not used.`, "reviewer  reviewer", "unsorted  Unsorted   triage"} {
+	for _, want := range []string{`Agent "triage": the batch template is not used.`, "reviewer  reviewer", "unsorted  Unsorted   dry-run"} {
 		if !strings.Contains(strings.Join(strings.Fields(s), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Errorf("status has no %q:\n%s", want, s)
 		}
@@ -62,8 +62,8 @@ driver = "dry-run"
 		t.Fatalf("backup = %q, %v", bak, err)
 	}
 	c := p.config()
-	if c.Version != 2 || c.Route("work", w.Selected) != "reviewer" || c.Schedules[0].Every.String() != "10m" ||
-		c.Schedules[0].Hours != "08:00-20:00" || c.Agents[0].Batch != "" {
+	if c.Version != 3 || c.Route("work", w.Selected) != "reviewer" || c.Schedules[0].Every.String() != "10m" ||
+		c.Schedules[0].Hours != "08:00-20:00" || c.Unsorted.Agent.Driver != config.DriverDryRun {
 		t.Fatalf("converted config = %+v", c)
 	}
 	// The second load has nothing to convert.
@@ -79,8 +79,7 @@ func TestS38TwoSpacesFromOneAccount(t *testing.T) {
 	p := newPerson(t, "S38")
 	p.addAccount(w)
 	p.editConfig(func(c *config.Config) {
-		c.Agents = append(c.Agents, config.NewAgent("reviewer"))
-		c.Spaces = append(c.Spaces, config.Space{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "review", Name: "Review", Agent: config.NewAgent("review"), Schedule: "always"})
 	})
 	// An agent adds the channel to Review by hand: Review is the last [[spaces]].
 	s := p.writeConfigText(func(text string) string {
@@ -106,8 +105,8 @@ func TestS38TwoSpacesFromOneAccount(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S38 release notes are ready")
 	w.Post(t, w.Bob, w.Direct, "S38 lunch at noon?")
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "batch of Unsorted to triage (dry-run, 1 messages)") ||
-		!strings.Contains(s, "batch of Review to reviewer (dry-run, 1 messages)") {
+	if code != 0 || !strings.Contains(s, "batch of Unsorted (dry-run, 1 messages)") ||
+		!strings.Contains(s, "batch of Review (dry-run, 1 messages)") {
 		t.Fatalf("run --once: exit %d:\n%s", code, s)
 	}
 	var all []string
@@ -128,8 +127,8 @@ func TestS39SortAHeldConversation(t *testing.T) {
 	p := newPerson(t, "S39")
 	p.addAccount(w)
 	p.editConfig(func(c *config.Config) {
-		c.Unsorted.Agent = ""
-		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"})
+		c.Unsorted.Paused = true
+		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always"})
 	})
 	w.Post(t, w.Bob, w.Direct, "S39 can you review my PR?")
 	s, code := p.run("run --once")
@@ -137,7 +136,7 @@ func TestS39SortAHeldConversation(t *testing.T) {
 		t.Fatalf("first run: exit %d:\n%s", code, s)
 	}
 	s, _ = p.run("status")
-	if !regexp.MustCompile(`unsorted\s+Unsorted\s+-\s+always\s+hold: does not send\s+1 waiting`).MatchString(s) {
+	if !regexp.MustCompile(`unsorted\s+Unsorted\s+dry-run\s+always\s+hold: does not send\s+1 waiting`).MatchString(s) {
 		t.Fatalf("status:\n%s", s)
 	}
 	// An agent sorts the conversation by hand: Team is the last [[spaces]].
@@ -145,7 +144,7 @@ func TestS39SortAHeldConversation(t *testing.T) {
 		return text + "\n[[spaces.conversations]]\naccount = 'work'\nid = '" + w.Direct + "'\nread = 'all'\n"
 	})
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "batch of Team to triage (dry-run, 1 messages)") {
+	if code != 0 || !strings.Contains(s, "batch of Team (dry-run, 1 messages)") {
 		t.Fatalf("second run: exit %d:\n%s", code, s)
 	}
 	if got := texts(readDigest(t, p.digests()[0])); !slices.Equal(got, []string{"S39 can you review my PR?"}) {
@@ -158,7 +157,7 @@ func TestS39SortAHeldConversation(t *testing.T) {
 func TestS40EditFromAnotherProcess(t *testing.T) {
 	p := newPerson(t, "S40")
 	c := config.Default()
-	c.Spaces = []config.Space{{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"}}
+	c.Spaces = []config.Space{{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always"}}
 	if err := config.Save(p.configFile(), c); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +167,7 @@ func TestS40EditFromAnotherProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.WriteString("\n[[spaces]]\nid = 'side-project'\nname = 'Side project'\nagent = 'triage'\nschedule = 'always'\n")
+	_, err = f.WriteString("\n[[spaces]]\nid = 'side-project'\nname = 'Side project'\nschedule = 'always'\n")
 	f.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +176,7 @@ func TestS40EditFromAnotherProcess(t *testing.T) {
 	if !strings.Contains(s, "changed in another process") {
 		t.Errorf("the status line does not say that the file changed:\n%s", s)
 	}
-	openSection(tm, 3, `Lookback\s+1d`)
+	openSection(tm, 2, `Lookback\s+1d`)
 	tm.Press("Enter", `▌ Lookback`, 5*time.Second)
 	tm.Replace("2d")
 	tm.Press("C-s", `Saved the settings`, 5*time.Second)
@@ -200,11 +199,10 @@ func TestS42OneChannelInTwoSpaces(t *testing.T) {
 	p := newPerson(t, "S42")
 	p.addAccount(w)
 	p.editConfig(func(c *config.Config) {
-		c.Agents = append(c.Agents, config.NewAgent("reviewer"))
 		c.Spaces = append(c.Spaces,
-			config.Space{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always",
+			config.Space{ID: "review", Name: "Review", Agent: config.NewAgent("review"), Schedule: "always",
 				Conversations: []config.Conversation{{Account: "work", ID: w.Selected, Read: config.ReadAll}}},
-			config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"})
+			config.Space{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always"})
 	})
 	// An agent adds the same channel to Team by hand: Team is the last [[spaces]].
 	p.writeConfigText(func(text string) string {
@@ -217,8 +215,8 @@ func TestS42OneChannelInTwoSpaces(t *testing.T) {
 	w.Post(t, w.Bob, w.Selected, "S42 notes are ready")
 	w.Post(t, w.Bob, w.Selected, "@"+w.Alice.Name+" S42 please check")
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "batch of Review to reviewer (dry-run, 2 messages)") ||
-		!strings.Contains(s, "batch of Team to triage (dry-run, 1 messages)") {
+	if code != 0 || !strings.Contains(s, "batch of Review (dry-run, 2 messages)") ||
+		!strings.Contains(s, "batch of Team (dry-run, 1 messages)") {
 		t.Fatalf("run --once: exit %d:\n%s", code, s)
 	}
 	by := map[string][]string{}
@@ -236,5 +234,111 @@ func TestS42OneChannelInTwoSpaces(t *testing.T) {
 	}
 	if s, _ := p.run("run --once"); !strings.Contains(s, "no batch to send") {
 		t.Errorf("the second run sent again:\n%s", s)
+	}
+}
+
+// S45: the user pauses a space in the dashboard. A run sends nothing to it,
+// and its message waits. After the user resumes it, the next run sends it.
+func TestS45PauseASpace(t *testing.T) {
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S45")
+	p.addAccount(w)
+	p.editConfig(func(c *config.Config) {
+		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always",
+			Conversations: []config.Conversation{{Account: "work", ID: w.Selected, Read: config.ReadAll}}})
+	})
+	tm := p.term("config")
+	tm.WaitFor(`Status\s+● Sending`, 30*time.Second) // the panel of Team, the first space
+	tm.Press("Enter", `enter spaces`, 5*time.Second) // the panel; the cursor is on the conversation
+	for range 4 {
+		tm.Keys("Up") // When, Session, Agent, Status
+	}
+	tm.Press("Enter", `Status\s+○ Paused: does not send`, 5*time.Second)
+	tm.WaitFor(`○ Team`, 5*time.Second)
+	tm.Shot("S45-team-paused")
+	tm.Press("q", `\[exit 0\]`, 5*time.Second)
+	if c := p.config(); !c.Spaces[0].Paused {
+		t.Fatalf("the file does not have paused = true for Team")
+	}
+
+	w.Post(t, w.Bob, w.Selected, "S45 the release waits for you")
+	s, code := p.run("run --once")
+	if code != 0 || !strings.Contains(s, "collected 1 new messages") || strings.Contains(s, "batch of Team") {
+		t.Fatalf("paused run: exit %d:\n%s", code, s)
+	}
+	s, _ = p.run("status")
+	if !regexp.MustCompile(`team\s+Team\s+dry-run\s+always\s+paused: does not send\s+1 waiting`).MatchString(s) {
+		t.Fatalf("status:\n%s", s)
+	}
+
+	p.editConfig(func(c *config.Config) { c.Spaces[0].Paused = false })
+	s, code = p.run("run --once")
+	if code != 0 || !strings.Contains(s, "batch of Team (dry-run, 1 messages)") {
+		t.Fatalf("run after resume: exit %d:\n%s", code, s)
+	}
+}
+
+// S46: a version 2 file converts to version 3 at the first load. Each space
+// gets its agent and its instruction, Unsorted on hold is paused, the old
+// text stays in config.toml.v2.bak, and the report names each change.
+func TestS46ConvertAVersion2File(t *testing.T) {
+	p := newPerson(t, "S46")
+	v2 := `version = 2
+[[agents]]
+id = 'review-bot'
+driver = 'dry-run'
+workspace = '/tmp/review'
+primer = 'Review each pull request.'
+[[agents]]
+id = 'unused'
+[[schedules]]
+id = 'always'
+every = '15m'
+[unsorted]
+agent = ''
+schedule = 'always'
+[[spaces]]
+id = 'review'
+name = 'Review'
+agent = 'review-bot'
+schedule = 'always'
+[[spaces]]
+id = 'team'
+name = 'Team'
+agent = 'review-bot'
+schedule = 'always'
+`
+	if err := os.WriteFile(p.configFile(), []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, code := p.run("status")
+	flat := strings.Join(strings.Fields(s), " ")
+	for _, want := range []string{
+		"i2a converted the configuration from version 2 to version 3",
+		"config.toml.v2.bak",
+		`Agent "review-bot": copied into the spaces review and team.`,
+		`Agent "unused" was used by no space; i2a removed it.`,
+		"Unsorted held its messages (agent = ''); it is paused now",
+		`Space "review" uses the dry-run driver.`,
+	} {
+		if code != 0 || !strings.Contains(flat, want) {
+			t.Errorf("status (exit %d) has no %q:\n%s", code, want, s)
+		}
+	}
+	if bak, err := os.ReadFile(p.configFile() + ".v2.bak"); err != nil || string(bak) != v2 {
+		t.Fatalf("backup = %q, %v", bak, err)
+	}
+	b, _ := os.ReadFile(p.configFile())
+	text := string(b)
+	for _, want := range []string{"version = 3", "[spaces.agent]", "folder = '/tmp/review'", "instruction = 'Review each pull request.'", "paused = true"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("config.toml has no %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "[[agents]]") {
+		t.Errorf("config.toml still has [[agents]]")
+	}
+	if s, _ := p.run("status"); strings.Contains(s, "converted") {
+		t.Errorf("the second load converted again:\n%s", s)
 	}
 }

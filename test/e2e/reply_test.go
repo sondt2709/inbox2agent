@@ -263,7 +263,7 @@ func TestS29AgentSendsAReply(t *testing.T) {
 	allowCommands(t, ws, p.home, "card", "reply")
 	p.editConfig(orcaAgent(orcaBin, ws, config.SessionReuse, config.PayloadInline))
 	p.editConfig(func(c *config.Config) {
-		c.Agents[0].Primer = "You are my inbox assistant. Read the messages and report each topic as a card.\n" +
+		c.Unsorted.Instruction = "You are my inbox assistant. Read the messages and report each topic as a card.\n" +
 			"When a message only reports news and needs no decision from me, thank the sender with one short sentence:\n" +
 			"  I2A_HOME=" + p.home + " I2A_SECRET_BACKEND=file " + bin + " reply --to <id> <<'EOF'\n  <text>\n  EOF\n" +
 			"The id is the \"id\" of the message. Do not send any other reply."

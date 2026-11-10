@@ -17,7 +17,7 @@ func TestS44ThreadReplyNamesItsRoot(t *testing.T) {
 	p := newPerson(t, "S44")
 	p.addAccount(w)
 	p.editConfig(func(c *config.Config) {
-		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always",
+		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always",
 			Conversations: []config.Conversation{
 				{Account: "work", ID: w.Other, Read: config.ReadMentions},
 				{Account: "work", ID: w.Selected, Read: config.ReadAll},
@@ -32,7 +32,7 @@ func TestS44ThreadReplyNamesItsRoot(t *testing.T) {
 	w.PostReply(t, w.Bob, w.Selected, deploy, "S44 yes, at 5")
 
 	s, code := p.run("run --once")
-	if code != 0 || !strings.Contains(s, "batch of Team to triage (dry-run, 3 messages)") {
+	if code != 0 || !strings.Contains(s, "batch of Team (dry-run, 3 messages)") {
 		t.Fatalf("run --once: exit %d:\n%s", code, s)
 	}
 	digests := p.digests()
