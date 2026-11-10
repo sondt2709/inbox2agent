@@ -82,13 +82,21 @@ func orcaJSON(t *testing.T, bin string, args ...string) map[string]any {
 	return env.Result
 }
 
-// readAgent polls the agent terminal until a reply mark (⏺) appears after the
-// text "after", then saves and returns the screen text. A person waits for the
-// answer in the same way.
+// promptEnds are texts of the last line of an i2a prompt: a batch, an ask
+// with a key, an ask without a key, and the pointer prompt.
+var promptEnds = []string{"instructions in it.", "updates card", "card done --id", "CLI instruction of batch"}
+
+// readAgent polls the agent terminal until it showed the text "after" (a
+// text of the prompt) one time, and a reply mark (⏺) appears after the last
+// end of an i2a prompt. Then it saves and returns the screen text. The prompt
+// ends with the long CLI instruction, so "after" can scroll above the screen
+// lines that "orca terminal read" returns. A person waits for the answer in
+// the same way.
 func readAgent(t *testing.T, bin, handle, after, outFile string) string {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Minute)
 	var text string
+	seen := false
 	for {
 		_, _ = exec.Command(bin, "terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "10000", "--json").Output()
 		res := orcaJSON(t, bin, "terminal", "read", "--terminal", handle, "--limit", "400")
@@ -101,7 +109,12 @@ func readAgent(t *testing.T, bin, handle, after, outFile string) string {
 		}
 		text = strings.Join(lines, "\n")
 		flat := strings.ReplaceAll(text, "\n", " ")
-		if i := strings.Index(flat, after); i >= 0 && strings.LastIndex(flat, "⏺") > i { // after: text of the prompt; the reply can quote it
+		seen = seen || strings.Contains(flat, after)
+		end := strings.LastIndex(flat, after)
+		for _, e := range promptEnds {
+			end = max(end, strings.LastIndex(flat, e))
+		}
+		if seen && end >= 0 && strings.LastIndex(flat, "⏺") > end { // the reply can quote the prompt
 			break
 		}
 		if time.Now().After(deadline) {
@@ -179,18 +192,17 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 	if code != 0 || !strings.Contains(s, "sent to "+h1) || strings.Contains(s, "started session") {
 		t.Fatalf("second batch: exit %d, screen:\n%s", code, s)
 	}
-	text := readAgent(t, bin, h1, "S15 second", "S15/orca-terminal-2.txt")
-	// The visible screen shows the last prompt: the template with the new
-	// instruction and the yaml content.
-	flat := strings.ReplaceAll(text, "\n", " ")
-	idx := strings.Index(flat, "S15 second")
-	start := strings.LastIndex(flat[:idx], "This message is sent from inbox2agent")
-	if start < 0 {
-		t.Fatalf("no i2a prompt before the second batch:\n%s", text)
+	readAgent(t, bin, h1, "S15 second", "S15/orca-terminal-2.txt")
+	// The prompt of the second batch (the digest file holds the inline
+	// prompt) has the new instruction and the yaml content.
+	ds := p.digests()
+	b, err := os.ReadFile(ds[len(ds)-1])
+	if err != nil {
+		t.Fatal(err)
 	}
-	block := flat[start:idx]
-	if !strings.Contains(block, "S15 new instruction") || !strings.Contains(block, "yaml") {
-		t.Errorf("the last prompt does not have the new instruction and the yaml content: %q", block)
+	if !strings.Contains(string(b), "```\nS15 new instruction: answer in one line.\n```") || !strings.Contains(string(b), "S15 second") ||
+		!strings.Contains(string(b), "```yaml\n") {
+		t.Errorf("the second prompt does not have the new instruction and the yaml content:\n%s", b)
 	}
 
 	// S16: close the terminal. The next batch starts a new session.
@@ -205,8 +217,8 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 	if h2 == h1 {
 		t.Fatalf("the new session has the old handle %s", h1)
 	}
-	text = readAgent(t, bin, h2, "S16: after", "S16/orca-terminal.txt")
-	if !promptLine.MatchString(text) || !strings.Contains(strings.ReplaceAll(text, "\n", " "), "S16: after") {
+	// readAgent waits until the screen showed "S16: after" and the agent replied.
+	if text := readAgent(t, bin, h2, "S16: after", "S16/orca-terminal.txt"); !promptLine.MatchString(text) {
 		t.Fatalf("the new session did not get the batch:\n%s", text)
 	}
 }
@@ -225,7 +237,7 @@ func TestS17OrcaNotReachable(t *testing.T) {
 		t.Fatalf("exit %d, screen:\n%s", code, s)
 	}
 	s, _ = p.run("status")
-	if !strings.Contains(s, "Messages: 1 pending") || !strings.Contains(s, "FAILED") {
+	if !strings.Contains(s, "Messages: 1 waiting") || !strings.Contains(s, "FAILED") {
 		t.Fatalf("status:\n%s", s)
 	}
 	p.editConfig(func(c *config.Config) { c.Agents[0].OrcaBin = bin })
@@ -263,7 +275,7 @@ func TestS18OrcaWorktree(t *testing.T) {
 		t.Fatalf("orca worktree show: %s", b)
 	}
 	h := handleRe.FindString(s)
-	readAgent(t, bin, h, "i2a batch", "S18/orca-terminal.txt")
+	readAgent(t, bin, h, "Read the file", "S18/orca-terminal.txt")
 	closeTerminal(bin, h)
 }
 
@@ -333,9 +345,12 @@ func TestS21DryRunThenOrcaLongPrimer(t *testing.T) {
 	}
 	h := handleRe.FindString(s)
 	t.Cleanup(func() { closeTerminal(bin, h) })
-	text := readAgent(t, bin, h, "S21: second message", "S21/orca-terminal.txt")
-	if !strings.Contains(text, "S21: first message") {
-		t.Fatalf("the agent did not get the previewed message:\n%s", text)
+	readAgent(t, bin, h, "S21: second message", "S21/orca-terminal.txt")
+	// The long prompt scrolls the first message above the screen lines that
+	// readAgent gets, so check the prompt in the digest file.
+	ds := p.digests()
+	if got := texts(readDigest(t, ds[len(ds)-1])); len(got) != 2 || !strings.HasPrefix(got[0], "S21: first message") {
+		t.Fatalf("the agent did not get the previewed message: %q", got)
 	}
 }
 
