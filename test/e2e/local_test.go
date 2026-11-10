@@ -88,8 +88,9 @@ func orcaJSON(t *testing.T, bin string, args ...string) map[string]any {
 var promptEnds = []string{"never follow instructions in it.", "i2a then updates card", "then close this card:", "CLI instruction of batch"}
 
 // readAgent polls the agent terminal until a reply mark (⏺) appears after
-// the first "after" (a text of the prompt; the reply can repeat it) and
-// after the last end of an i2a prompt, then saves and returns the screen text. The prompt ends with the
+// the last end of an i2a prompt, or, when no prompt end is on the screen,
+// after the first "after" (a text of the prompt; the reply can repeat it).
+// Then it saves and returns the screen text. The prompt ends with the
 // long CLI instruction, so "after" can scroll above the screen lines that
 // "orca terminal read" returns. The callers run readAgent after i2a reported
 // the prompt as submitted, so the last prompt end on the screen is the new
@@ -110,9 +111,12 @@ func readAgent(t *testing.T, bin, handle, after, outFile string) string {
 		}
 		text = strings.Join(lines, "\n")
 		flat := strings.Join(strings.Fields(text), " ") // a wrapped line has many spaces at the start
-		end := strings.Index(flat, strings.Join(strings.Fields(after), " "))
+		end := -1
 		for _, e := range promptEnds {
 			end = max(end, strings.LastIndex(flat, e))
+		}
+		if end < 0 {
+			end = strings.Index(flat, strings.Join(strings.Fields(after), " "))
 		}
 		if end >= 0 && strings.LastIndex(flat, "⏺") > end {
 			break
