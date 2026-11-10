@@ -68,7 +68,7 @@ Alternative: keep `[[agents]]` as shared presets and add `instruction` and `fold
 
 ### D3. Removed items
 
-`Config.Agents`, `Config.Agent(id)`, `KindAgent`, `SpacesUsing("agent")`, `Replace("agent")`, the Agents section (`tab_agents.go` keeps only the form builder of an agent, used by the Spaces panel), the agent pick dialog, the "agents" count of the daemon log, and the Agents part of `i2a status`.
+`Config.Agents`, `Config.Agent(id)`, `KindAgent`, `SpacesUsing("agent")`, `Replace("agent")`, the Agents section (`tab_agents.go` is removed; `agent_form.go` has the agent form of a space, the schedule delete with a replacement, and `usedBy`), the agent pick dialog, the "agents" count of the daemon log, and the Agents part of `i2a status`.
 
 ### D4. Paused spaces
 

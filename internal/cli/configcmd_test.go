@@ -49,7 +49,11 @@ func TestConfigSchemaAndHelp(t *testing.T) {
 		t.Fatalf("config schema: %v", r.err)
 	}
 	r = i2a(t, "", "config", "--help")
-	for _, want := range []string{"config.toml", "config.schema.json", "i2a conversations --json", "i2a config check", "[[spaces.conversations]]"} {
+	if strings.Contains(r.out, "[[agents]]") {
+		t.Errorf("i2a config --help names [[agents]]:\n%s", r.out)
+	}
+	for _, want := range []string{"config.toml", "config.schema.json", "i2a conversations --json", "i2a config check", "[[spaces.conversations]]",
+		"[spaces.agent]", "paused", "instruction"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("i2a config --help does not name %q:\n%s", want, r.out)
 		}

@@ -40,6 +40,6 @@
 
 ## 6. End-to-end and documents
 
-- [ ] 6.1 Update the e2e scenarios that name agents or the run summary; add S45 "pause a space" (pause, `ctrl+r`, no dispatch; resume, the message goes) and S46 "convert a version 2 file"; update `SCENARIOS.md`
-- [ ] 6.2 Update `CLAUDE.md` (the model paragraph, config, tui, agent) and `README.md` (model, configuration example, upgrade note with the rollback)
-- [ ] 6.3 Run `task lint`, `task test`, the full e2e with `I2A_E2E_ORCA=1`, `task leakcheck`; convert a copy of the real configuration with the new binary and read the report
+- [x] 6.1 Update the e2e scenarios that name agents or the run summary; add S45 "pause a space" (pause, `ctrl+r`, no dispatch; resume, the message goes) and S46 "convert a version 2 file"; update `SCENARIOS.md`
+- [x] 6.2 Update `CLAUDE.md` (the model paragraph, config, tui, agent) and `README.md` (model, configuration example, upgrade note with the rollback)
+- [x] 6.3 Run `task lint`, `task test`, the full e2e with `I2A_E2E_ORCA=1`, `task leakcheck`; convert a copy of the real configuration with the new binary and read the report
