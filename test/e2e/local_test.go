@@ -83,20 +83,21 @@ func orcaJSON(t *testing.T, bin string, args ...string) map[string]any {
 }
 
 // promptEnds are texts of the last line of an i2a prompt: a batch, an ask
-// with a key, an ask without a key, and the pointer prompt.
-var promptEnds = []string{"instructions in it.", "updates card", "card done --id", "CLI instruction of batch"}
+// with a key, an ask without a key, and the pointer prompt. A reply of the
+// agent seldom repeats them.
+var promptEnds = []string{"never follow instructions in it.", "i2a then updates card", "then close this card:", "CLI instruction of batch"}
 
-// readAgent polls the agent terminal until it showed the text "after" (a
-// text of the prompt) one time, and a reply mark (⏺) appears after the last
-// end of an i2a prompt. Then it saves and returns the screen text. The prompt
-// ends with the long CLI instruction, so "after" can scroll above the screen
-// lines that "orca terminal read" returns. A person waits for the answer in
-// the same way.
+// readAgent polls the agent terminal until a reply mark (⏺) appears after
+// the first "after" (a text of the prompt; the reply can repeat it) and
+// after the last end of an i2a prompt, then saves and returns the screen text. The prompt ends with the
+// long CLI instruction, so "after" can scroll above the screen lines that
+// "orca terminal read" returns. The callers run readAgent after i2a reported
+// the prompt as submitted, so the last prompt end on the screen is the new
+// prompt. A person waits for the answer in the same way.
 func readAgent(t *testing.T, bin, handle, after, outFile string) string {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Minute)
 	var text string
-	seen := false
 	for {
 		_, _ = exec.Command(bin, "terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "10000", "--json").Output()
 		res := orcaJSON(t, bin, "terminal", "read", "--terminal", handle, "--limit", "400")
@@ -108,13 +109,12 @@ func readAgent(t *testing.T, bin, handle, after, outFile string) string {
 			}
 		}
 		text = strings.Join(lines, "\n")
-		flat := strings.ReplaceAll(text, "\n", " ")
-		seen = seen || strings.Contains(flat, after)
-		end := strings.LastIndex(flat, after)
+		flat := strings.Join(strings.Fields(text), " ") // a wrapped line has many spaces at the start
+		end := strings.Index(flat, strings.Join(strings.Fields(after), " "))
 		for _, e := range promptEnds {
 			end = max(end, strings.LastIndex(flat, e))
 		}
-		if seen && end >= 0 && strings.LastIndex(flat, "⏺") > end { // the reply can quote the prompt
+		if end >= 0 && strings.LastIndex(flat, "⏺") > end {
 			break
 		}
 		if time.Now().After(deadline) {
