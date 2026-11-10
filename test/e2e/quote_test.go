@@ -57,7 +57,7 @@ func TestS44ThreadReplyNamesItsRoot(t *testing.T) {
 		t.Errorf("reply under the root of bob: reply_to = %+v, want the id %d of the root", r, root.ID)
 	}
 	b, _ := os.ReadFile(digests[0])
-	if !strings.Contains(string(b), "The field reply_to names the earlier message") {
+	if !strings.Contains(string(b), "`reply_to` is the earlier message that a message quotes or answers in a thread") {
 		t.Errorf("digest has no reply_to note:\n%s", b)
 	}
 }

@@ -121,10 +121,10 @@ func closeTerminal(bin, handle string) {
 
 var handleRe = regexp.MustCompile(`term_[0-9a-f-]{36}`)
 
-// primerLine matches lines that only the primer has: its first line, or
-// lines of the card section at its end. "orca terminal read" returns only the
-// last screen lines, so the start of a long primer can be above them.
-var primerLine = regexp.MustCompile(`You are my inbox assistant|card add <<'EOF'|Write one card for each topic|card done --key <key>`)
+// promptLine matches lines that only an i2a prompt has: its first line, or
+// lines of the CLI instruction at its end. "orca terminal read" returns only
+// the last screen lines, so the start of a long prompt can be above them.
+var promptLine = regexp.MustCompile(`This message is sent from inbox2agent|card add <<'EOF'|Write one card for each topic|card done --key <key>`)
 
 func TestS14OrcaNewSessionPointer(t *testing.T) {
 	bin := needOrca(t)
@@ -141,13 +141,13 @@ func TestS14OrcaNewSessionPointer(t *testing.T) {
 	}
 	h := handleRe.FindString(s)
 	t.Cleanup(func() { closeTerminal(bin, h) })
-	text := readAgent(t, bin, h, "i2a batch", "S14/orca-terminal.txt")
+	text := readAgent(t, bin, h, "Read the file", "S14/orca-terminal.txt")
 	digest := p.digests()[0]
 	if !strings.Contains(strings.ReplaceAll(text, "\n", ""), filepath.Base(digest)) {
 		t.Fatalf("the agent terminal does not show the digest path %s:\n%s", digest, text)
 	}
-	if !primerLine.MatchString(text) {
-		t.Fatalf("the agent terminal does not show the primer:\n%s", text)
+	if !promptLine.MatchString(text) {
+		t.Fatalf("the agent terminal does not show the i2a prompt:\n%s", text)
 	}
 	if !strings.Contains(text, "⏺") {
 		t.Fatalf("the agent did not reply:\n%s", text)
@@ -171,29 +171,29 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 	t.Cleanup(func() { closeTerminal(bin, h1) })
 	readAgent(t, bin, h1, "S15 first", "S15/orca-terminal-1.txt")
 
+	// The user changes the instruction. Each prompt has the instruction, so
+	// the next batch goes to the same terminal with the new instruction.
+	p.editConfig(func(c *config.Config) { c.Agents[0].Primer = "S15 new instruction: answer in one line." })
 	w.Post(t, w.Bob, w.Selected, "S15 second: please approve the budget")
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "sent to "+h1) {
+	if code != 0 || !strings.Contains(s, "sent to "+h1) || strings.Contains(s, "started session") {
 		t.Fatalf("second batch: exit %d, screen:\n%s", code, s)
 	}
 	text := readAgent(t, bin, h1, "S15 second", "S15/orca-terminal-2.txt")
-	// The visible screen shows the last prompt. In reuse mode it is the batch
-	// prompt only: it starts with "i2a batch" and has no primer.
+	// The visible screen shows the last prompt: the template with the new
+	// instruction and the yaml content.
 	flat := strings.ReplaceAll(text, "\n", " ")
 	idx := strings.Index(flat, "S15 second")
-	start := strings.LastIndex(flat[:idx], "❯ ")
+	start := strings.LastIndex(flat[:idx], "This message is sent from inbox2agent")
 	if start < 0 {
-		t.Fatalf("no prompt before the second batch:\n%s", text)
+		t.Fatalf("no i2a prompt before the second batch:\n%s", text)
 	}
 	block := flat[start:idx]
-	if !strings.Contains(block, "i2a batch") || !strings.Contains(block, "i2a-data-") {
-		t.Errorf("the last prompt is not an inline batch: %q", block)
-	}
-	if strings.Contains(block, "You are my inbox assistant") {
-		t.Errorf("the primer was sent again: %q", block)
+	if !strings.Contains(block, "S15 new instruction") || !strings.Contains(block, "yaml") {
+		t.Errorf("the last prompt does not have the new instruction and the yaml content: %q", block)
 	}
 
-	// S16: close the terminal. The next batch starts a new session with the primer.
+	// S16: close the terminal. The next batch starts a new session.
 	closeTerminal(bin, h1)
 	w.Post(t, w.Bob, w.Selected, "S16: after the terminal closed")
 	s, code = p.run("run --once")
@@ -206,8 +206,8 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 		t.Fatalf("the new session has the old handle %s", h1)
 	}
 	text = readAgent(t, bin, h2, "S16: after", "S16/orca-terminal.txt")
-	if !primerLine.MatchString(text) || !strings.Contains(strings.ReplaceAll(text, "\n", " "), "S16: after") {
-		t.Fatalf("the new session did not get the primer and the batch:\n%s", text)
+	if !promptLine.MatchString(text) || !strings.Contains(strings.ReplaceAll(text, "\n", " "), "S16: after") {
+		t.Fatalf("the new session did not get the batch:\n%s", text)
 	}
 }
 
@@ -306,7 +306,7 @@ func TestS19LaunchAgent(t *testing.T) {
 }
 
 // S21: the user first runs a dry run, then changes the agent to Orca with a
-// new session, the inline payload and a long primer in Vietnamese. The agent
+// new session, the inline payload and a long instruction in Vietnamese. The agent
 // gets the previewed message and the new one, and its turn starts.
 func TestS21DryRunThenOrcaLongPrimer(t *testing.T) {
 	bin := needOrca(t)
@@ -365,7 +365,7 @@ func allowCommands(t *testing.T, ws, home string, subcommands ...string) {
 }
 
 // S25: the full return path. bob posts; i2a sends the batch to a real Claude
-// session in Orca; the agent follows the card section of the primer and runs
+// session in Orca; the agent follows the CLI instruction of the prompt and runs
 // "i2a card add"; the card refers to the message.
 func TestS25AgentAddsCard(t *testing.T) {
 	orcaBin := needOrca(t)

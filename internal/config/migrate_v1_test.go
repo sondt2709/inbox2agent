@@ -74,10 +74,10 @@ func TestMigrateV1ProfilesAndChannelRoutes(t *testing.T) {
 	if c.Unsorted.Agent != "triage" || c.Unsorted.Read != ReadMentions || c.Unsorted.Schedule != "default" {
 		t.Errorf("Unsorted = %+v", c.Unsorted)
 	}
-	if got := c.Agents[0].Batch; got != "{{.Count}} from {{.Accounts}} for {{.Agent}}" {
-		t.Errorf("batch template = %q", got)
+	if got := c.Agents[0].Batch; got != "" {
+		t.Errorf("batch template = %q, want none", got)
 	}
-	if !strings.Contains(c.Migration.Text(), `Agent "triage": the templates use {{.Accounts}}`) {
+	if !strings.Contains(c.Migration.Text(), `Agent "triage": the batch template is not used.`) {
 		t.Errorf("report:\n%s", c.Migration.Text())
 	}
 }

@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"slices"
 	"time"
 
@@ -89,11 +88,6 @@ func isV1(b []byte) (bool, error) {
 	return false, nil
 }
 
-var (
-	reSources = regexp.MustCompile(`\.Sources\b`)
-	reProfile = regexp.MustCompile(`\.Profile\b`)
-)
-
 // migrateV1 converts a version 1 file as the design of introduce-spaces says
 // (D9): sources become accounts, profiles become agents, the timing becomes
 // the schedule "default", each profile that a channel uses becomes a space,
@@ -138,9 +132,9 @@ func migrateV1(b []byte) (*Config, error) {
 			a.MessageMaxChars = p.MessageMaxChars
 		}
 		a.Model, a.OrcaBin = p.Model, p.OrcaBin
-		a.Primer, a.Batch = rewriteTemplate(p.Primer), rewriteTemplate(p.Batch)
-		if a.Primer != p.Primer || a.Batch != p.Batch {
-			note("Agent %q: the templates use {{.Accounts}} and {{.Agent}} now, not {{.Sources}} and {{.Profile}}.", a.ID)
+		a.Primer = p.Primer
+		if p.Batch != "" {
+			note("Agent %q: the batch template is not used. Each batch has the instruction (primer), the messages and the i2a commands.", a.ID)
 		}
 		c.Agents = append(c.Agents, a)
 	}
@@ -214,10 +208,6 @@ func migrateV1(b []byte) (*Config, error) {
 	}
 	c.Migration = m
 	return c, nil
-}
-
-func rewriteTemplate(s string) string {
-	return reProfile.ReplaceAllString(reSources.ReplaceAllString(s, ".Accounts"), ".Agent")
 }
 
 func orStr(s, def string) string {

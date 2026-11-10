@@ -52,7 +52,7 @@ driver = "dry-run"
 	if code != 0 || !strings.Contains(s, "i2a converted the configuration to version 2") || !strings.Contains(s, "config.toml.v1.bak") {
 		t.Fatalf("status: exit %d:\n%s", code, s)
 	}
-	for _, want := range []string{"templates use {{.Accounts}}", "reviewer  reviewer", "unsorted  Unsorted   triage"} {
+	for _, want := range []string{`Agent "triage": the batch template is not used.`, "reviewer  reviewer", "unsorted  Unsorted   triage"} {
 		if !strings.Contains(strings.Join(strings.Fields(s), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Errorf("status has no %q:\n%s", want, s)
 		}
@@ -63,7 +63,7 @@ driver = "dry-run"
 	}
 	c := p.config()
 	if c.Version != 2 || c.Route("work", w.Selected) != "reviewer" || c.Schedules[0].Every.String() != "10m" ||
-		c.Schedules[0].Hours != "08:00-20:00" || c.Agents[0].Batch != "{{.Count}} new messages from {{.Accounts}}" {
+		c.Schedules[0].Hours != "08:00-20:00" || c.Agents[0].Batch != "" {
 		t.Fatalf("converted config = %+v", c)
 	}
 	// The second load has nothing to convert.

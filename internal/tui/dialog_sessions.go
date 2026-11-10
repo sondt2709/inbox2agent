@@ -177,12 +177,12 @@ func (m *model) linkSession(d *sessionsDialog, sp config.Space, input string) (s
 		}
 	}
 	save := func() tea.Cmd {
-		ss := inbox.Session{Space: sp.ID, Handle: p.Handle, AgentSession: p.SessionID, PrimerHash: inbox.PrimerPending, CreatedAt: m.now()}
+		ss := inbox.Session{Space: sp.ID, Handle: p.Handle, AgentSession: p.SessionID, CreatedAt: m.now()}
 		if err := m.u.d.Store.SetSession(m.ctx, ss); err != nil {
 			d.msg, d.isErr = "Cannot link: "+err.Error(), true
 			return nil
 		}
-		d.msg, d.isErr = fmt.Sprintf("Linked %s (Claude %s) to %s. The next batch sends the primer there.", p.Handle, shortID(p.SessionID), sp.Title()), false
+		d.msg, d.isErr = fmt.Sprintf("Linked %s (Claude %s) to %s. The next batch goes there.", p.Handle, shortID(p.SessionID), sp.Title()), false
 		m.buildForm(true)
 		return m.loadSessions(d.agent)
 	}

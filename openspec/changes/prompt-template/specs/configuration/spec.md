@@ -13,7 +13,7 @@ The system SHALL validate the configuration when it loads it and when the TUI or
 
 #### Scenario: Three backticks in the instruction
 - **WHEN** the agent `triage` has a `primer` with a line of three backticks
-- **THEN** the system reports `agents[0].primer: the instruction cannot contain three backticks (```)` and does not start
+- **THEN** the system reports `agent "triage".primer: the instruction cannot contain three backticks (```)` and does not start
 
 #### Scenario: Old batch template
 - **WHEN** an agent has a `batch` template and the user saves another field in the dashboard

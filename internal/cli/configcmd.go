@@ -13,7 +13,6 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/notify"
-	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/store"
 	"github.com/sondt2709/inbox2agent/internal/tui"
 )
@@ -87,9 +86,6 @@ templates. With no file, check config.toml. The command writes no file.`,
 				return exitError{code: 1, msg: "cannot read " + path + ": " + err.Error()}
 			}
 			c, err := config.Parse(b)
-			if err == nil {
-				err = render.CheckAgents(c)
-			}
 			if err != nil {
 				return exitError{code: 1, msg: "The file " + path + " is not valid: " + err.Error()}
 			}

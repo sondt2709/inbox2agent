@@ -165,3 +165,26 @@ func TestItem(t *testing.T) {
 		t.Error("a change of the agent did not change the space item")
 	}
 }
+
+// The batch template is not used: the file loads, and the next save drops it.
+func TestSaveDropsTheBatchTemplate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := Save(path, Default()); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	text := strings.Replace(string(b), "id = 'triage'\n", "id = 'triage'\nbatch = '{{.Count}} new messages'\n", 1)
+	if !strings.Contains(text, "batch = ") {
+		t.Fatal("the test did not add the batch field")
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Update(path, addSpace("s1")); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(path)
+	if strings.Contains(string(b), "batch = ") || !strings.Contains(string(b), "id = 's1'") {
+		t.Errorf("saved file:\n%s", b)
+	}
+}

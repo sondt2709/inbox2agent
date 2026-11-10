@@ -60,7 +60,7 @@ func TestAskCommand(t *testing.T) {
 	if r.out != "sent to the agent of the space Unsorted (term_card). Ask 1.\n" {
 		t.Errorf("output = %q", r.out)
 	}
-	if len(a.asks) != 1 || a.handles[0] != "term_card" || !strings.Contains(a.asks[0].Prompt, "--- ask ---\nAdd the effort in hours.\n--- end ---") {
+	if len(a.asks) != 1 || a.handles[0] != "term_card" || !strings.Contains(a.asks[0].Prompt, "):\nAdd the effort in hours.\n```") {
 		t.Fatalf("asks = %v to %v", a.asks, a.handles)
 	}
 

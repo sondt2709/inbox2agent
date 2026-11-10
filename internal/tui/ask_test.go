@@ -81,8 +81,8 @@ func TestFeedAskTheAgent(t *testing.T) {
 		t.Fatalf("asks = %d, wait %s", len(a.asks), a.wait)
 	}
 	p := a.asks[0].Prompt
-	if !strings.Contains(p, "--- ask ---\nCheck the auth code and give me the effort.\n--- end ---") ||
-		!strings.Contains(p, `"title":"Correct your reply to Lena"`) || !strings.Contains(p, `card add and the key "mm:lena"`) {
+	if !strings.Contains(p, "):\nCheck the auth code and give me the effort.\n```") ||
+		!strings.Contains(p, "title: Correct your reply to Lena") || !strings.Contains(p, `card add and the key "mm:lena"`) {
 		t.Errorf("prompt = %s", p)
 	}
 	s = screen(h.m)

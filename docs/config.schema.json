@@ -53,7 +53,7 @@
         "additionalProperties": false,
         "properties": {
           "batch": {
-            "description": "A Go template of the prompt of each batch. Empty: the built-in prompt.",
+            "description": "Not used. i2a removes it at the next save.",
             "type": "string"
           },
           "cli": {
@@ -122,7 +122,7 @@
             "type": "string"
           },
           "primer": {
-            "description": "A Go template of the first prompt of a session. Empty: the built-in primer.",
+            "description": "The instruction to the agent. i2a sends it with each batch and each ask, before the messages. Plain text, not a template. It cannot contain three backticks. Empty: the built-in instruction.",
             "type": "string"
           },
           "session": {

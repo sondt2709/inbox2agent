@@ -229,9 +229,6 @@ func (u *ui) commit(change func(*config.Config) error, tokens map[string]string,
 		if err := c.Validate(); err != nil {
 			return err
 		}
-		if err := render.CheckAgents(c); err != nil {
-			return err
-		}
 		for id, tok := range tokens {
 			if err := u.d.Secrets.Set(secretsKey(id), tok); err != nil {
 				return fmt.Errorf("save the token of %s in %s: %w", id, u.d.Secrets.Backend(), err)

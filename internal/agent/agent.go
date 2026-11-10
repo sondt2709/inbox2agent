@@ -42,8 +42,8 @@ type Terminal struct {
 	AgentSession string
 }
 
-// Sessions stores the session of each space: the terminal handle, its
-// Claude session and the hash of the primer that the session got. Two
+// Sessions stores the session of each space: the terminal handle and its
+// Claude session. Two
 // spaces with the same agent have two sessions, so the data of one space
 // never enters the session of another.
 type Sessions interface {

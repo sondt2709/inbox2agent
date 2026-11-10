@@ -79,7 +79,7 @@ Alternative: keep a user template with `{{instruction}}` and `{{content}}`. Reje
 
 - The instruction comes from the field `primer` of the agent until change B moves it into the space. `DefaultInstruction` is used when the field is empty. It keeps rule 3 of the old default primer: summarise each message in one line, mark the messages that need my action, and suggest a short reply where it helps.
 - The text is plain. i2a does not run it as a template. A `{{` in the text goes to the agent as typed. The files of the known installation have no `{{` in a primer.
-- `config.Validate` refuses three backticks in `primer` with: `agents[i].primer: the instruction cannot contain three backticks (```)`. The TUI form uses the same check. `render.CheckAgents` and `render.CheckTemplate` are removed, because no template remains. Their callers use `Validate` only.
+- `config.Validate` refuses three backticks in `primer` with: `agent "<id>".primer: the instruction cannot contain three backticks (```)`. The TUI form uses the same check. `render.CheckAgents` and `render.CheckTemplate` are removed, because no template remains. Their callers use `Validate` only.
 - The ask puts the question of the user after the instruction, in the same fence:
 
   ```

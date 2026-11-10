@@ -199,7 +199,7 @@ func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) 
 		if err != nil {
 			return Result{}, err
 		}
-		detail, err := o.submit(ctx, h, joinPrompts(b))
+		detail, err := o.submit(ctx, h, b.Prompt)
 		if err != nil {
 			return Result{}, err
 		}
@@ -209,10 +209,6 @@ func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) 
 	default:
 		return o.reuse(ctx, b)
 	}
-}
-
-func joinPrompts(b *render.Rendered) string {
-	return strings.TrimSpace(b.Primer) + "\n\n" + strings.TrimSpace(b.Prompt)
 }
 
 // launchArgs starts an agent without --prompt. With --prompt, Orca types the
@@ -400,12 +396,8 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	why := "started session "
-	if ss.Handle != "" && ss.PrimerHash != b.PrimerHash && ss.PrimerHash != inbox.PrimerPending {
-		// The session got another primer, for example before the card section
-		// existed. Start a new session; the old terminal stays open for the user.
-		ss.Handle, why = "", "primer changed, started session "
-	}
+	// Each prompt has the instruction and the CLI instruction, so any live
+	// session of the space can take it: no prompt change starts a new session.
 	if ss.Handle != "" {
 		cur, ok, err := o.check(ctx, ss)
 		if err != nil {
@@ -423,23 +415,7 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		}
 	}
 	if ss.Handle == "" {
-		return o.startSession(ctx, b, why)
-	}
-	if ss.PrimerHash == inbox.PrimerPending {
-		// A session that the user linked: it did not get the primer yet.
-		res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, joinPrompts(b))
-		if errors.Is(err, errSessionGone) {
-			return o.startSession(ctx, b, "Claude session ended, started session ")
-		}
-		if err != nil || res.Status != StatusSent {
-			return res, err
-		}
-		ss.PrimerHash = b.PrimerHash
-		if err := o.sessions.SetSession(ctx, ss); err != nil {
-			return Result{}, err
-		}
-		res.Detail = "linked session, " + res.Detail + " with the primer"
-		return res, nil
+		return o.startSession(ctx, b, "started session ")
 	}
 	res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, b.Prompt)
 	if errors.Is(err, errSessionGone) {
@@ -451,24 +427,24 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 	return res, err
 }
 
-// startSession launches a new session with the primer and the batch, and
-// stores it for the space.
+// startSession launches a new session with the prompt, and stores it for the
+// space.
 func (o *Orca) startSession(ctx context.Context, b *render.Rendered, why string) (Result, error) {
 	h, note, err := o.launch(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	detail, err := o.submit(ctx, h, joinPrompts(b))
+	detail, err := o.submit(ctx, h, b.Prompt)
 	if err != nil {
 		return Result{}, err
 	}
-	// Store the handle only after the primer arrived, so a later batch never
-	// goes to a session without the primer.
-	ss := inbox.Session{Space: o.space.ID, Handle: h, AgentSession: o.claudeSession(h), PrimerHash: b.PrimerHash, CreatedAt: o.Now()}
+	// Store the handle only after the prompt arrived: a terminal that never
+	// took a prompt is not the session of the space.
+	ss := inbox.Session{Space: o.space.ID, Handle: h, AgentSession: o.claudeSession(h), CreatedAt: o.Now()}
 	if err := o.sessions.SetSession(ctx, ss); err != nil {
 		return Result{}, err
 	}
-	return Result{Status: StatusSent, Detail: why + h + " with the primer, " + detail + note, Handle: h}, nil
+	return Result{Status: StatusSent, Detail: why + h + ", " + detail + note, Handle: h}, nil
 }
 
 // sendIdle waits up to wait for the agent in a live terminal to be idle, then
@@ -501,10 +477,10 @@ func (o *Orca) sendIdle(ctx context.Context, handle, session string, wait time.D
 	return Result{Status: StatusSent, Detail: "sent to " + handle + ", " + detail, Handle: handle}, nil
 }
 
-// Ask sends an ask to the terminal of the card without the primer, when that
-// terminal (or the terminal that runs its Claude session now) can take it.
-// Otherwise the ask goes to the agent of the space as a batch does: the reuse
-// session, or a new session or worktree with the primer.
+// Ask sends an ask to the terminal of the card, when that terminal (or the
+// terminal that runs its Claude session now) can take it. Otherwise the ask
+// goes to the agent of the space as a batch does: the reuse session, or a new
+// session or worktree.
 func (o *Orca) Ask(ctx context.Context, t Terminal, wait time.Duration, a *render.Rendered) (Result, error) {
 	if t.Handle != "" {
 		cur, ok, err := o.check(ctx, inbox.Session{Handle: t.Handle, AgentSession: t.AgentSession})
@@ -542,7 +518,7 @@ func (o *Orca) worktree(ctx context.Context, b *render.Rendered) (Result, error)
 	}
 	h := wr.Launch.Outcome.Handle
 	note := o.rename(ctx, h)
-	detail, err := o.submit(ctx, h, joinPrompts(b))
+	detail, err := o.submit(ctx, h, b.Prompt)
 	if err != nil {
 		return Result{}, err
 	}
