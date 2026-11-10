@@ -639,8 +639,8 @@ func TestS22ReadOneDirectConversation(t *testing.T) {
 	tm.Press("Enter", `is in Bob\. Saved`, 5*time.Second)
 	// Everything else is the second row; its first row is its read level.
 	tm.Press("Down", `▌● Everything else`, 5*time.Second)
-	tm.Press("Enter", `▌  (#|@|⧉) `, 5*time.Second) // the panel, on the first conversation
-	tm.Keys("Up", "Up", "Up", "Up", "Up") // When, Session, Agent, Status, the read level
+	tm.Press("Enter", `▌  (#|@|⧉) `, 5*time.Second)                                  // the panel, on the first conversation
+	tm.Keys("Up", "Up", "Up", "Up", "Up")                                            // When, Session, Agent, Status, the read level
 	tm.Press("Right", `New and other conversations: Ignored\. Saved`, 5*time.Second) // Only for me → Ignored
 	tm.Press("q", `Saved /`, 5*time.Second)
 
