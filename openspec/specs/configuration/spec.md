@@ -33,27 +33,8 @@ When the user selects the `orca` driver for an agent, the TUI SHALL show a warni
 - **WHEN** the user sets the driver of an agent to `orca` in the TUI
 - **THEN** the screen shows the permission warning before the user saves the agent
 
-### Requirement: Configuration validation of version 2
-The system SHALL validate the configuration when it loads it and when the TUI or a command saves it. Durations SHALL use Go duration syntax. `hours` SHALL be empty or `HH:MM-HH:MM`. `days` SHALL contain only `mon` to `sun`. `inline_max_bytes` SHALL be between 1,024 and 65,536. IDs of accounts, agents, schedules and spaces SHALL be unique in their kind and SHALL be 1 to 32 lowercase letters, digits, `-` or `_`. The `primer` of an agent (the instruction) SHALL NOT contain three backticks. The references SHALL follow the requirement "References between items" of the `spaces` capability. The system SHALL report all problems at one time, each with its field. The system SHALL read the `batch` field of an agent, SHALL NOT use it, and SHALL NOT write it at the next save.
-
-#### Scenario: Invalid duration
-- **WHEN** a schedule has `every = "ten minutes"`
-- **THEN** the system reports the field name and the invalid value and does not start
-
-#### Scenario: Invalid day
-- **WHEN** a schedule has `days = ["monday"]`
-- **THEN** the system reports that `monday` is not one of `mon` to `sun`
-
-#### Scenario: Three backticks in the instruction
-- **WHEN** the agent `triage` has a `primer` with a line of three backticks
-- **THEN** the system reports `agent "triage".primer: the instruction cannot contain three backticks (```)` and does not start
-
-#### Scenario: Old batch template
-- **WHEN** an agent has a `batch` template and the user saves another field in the dashboard
-- **THEN** the file loads with no error, and the saved file has no `batch` field
-
 ### Requirement: Dashboard tabs
-The system SHALL provide a full-screen dashboard in the alternate screen with three areas: Feed, Spaces and Setup. Setup SHALL have the sections Accounts, Agents, Schedules, Settings and Send log, in this order. The header SHALL show the areas as `Feed`, `Spaces` and `Setup` with no numbers, with the number of new cards after Feed and the number of new conversations after Spaces. The line under the header SHALL show the sections of Setup when Setup is open, and else the result of the last run. `i2a` with no arguments SHALL open the Feed; `i2a config` SHALL open the Spaces area. A mouse click on an area or a section SHALL open it. The keys `1` to `3` SHALL NOT open an area. `tab` and `shift+tab` SHALL go to the next and the previous section, in the order Feed, Spaces, Accounts, Agents, Schedules, Settings, Send log. Forms SHALL stay in the detail panel, as before. `q` SHALL quit; `?` SHALL show the model of i2a and all keys.
+The system SHALL provide a full-screen dashboard in the alternate screen with three areas: Feed, Spaces and Setup. Setup SHALL have the sections Accounts, Schedules, Settings and Send log, in this order. The header SHALL show the areas as `Feed`, `Spaces` and `Setup` with no numbers, with the number of new cards after Feed and the number of new conversations after Spaces. The line under the header SHALL show the sections of Setup when Setup is open, and else the result of the last run. `i2a` with no arguments SHALL open the Feed; `i2a config` SHALL open the Spaces area. A mouse click on an area or a section SHALL open it. The keys `1` to `3` SHALL NOT open an area. `tab` and `shift+tab` SHALL go to the next and the previous section, in the order Feed, Spaces, Accounts, Schedules, Settings, Send log. Forms SHALL stay in the detail panel, as before. `q` SHALL quit; `?` SHALL show the model of i2a and all keys.
 
 #### Scenario: Header
 - **WHEN** the user runs `i2a config` in a window of 120 × 40, with 3 new conversations
@@ -61,7 +42,7 @@ The system SHALL provide a full-screen dashboard in the alternate screen with th
 
 #### Scenario: Setup sections
 - **WHEN** the user clicks `Setup`
-- **THEN** the line under the header shows Accounts, Agents, Schedules, Settings and Send log, and a click on Agents opens Agents
+- **THEN** the line under the header shows Accounts, Schedules, Settings and Send log, and no Agents section
 
 #### Scenario: Feed first
 - **WHEN** the user runs `i2a` with no arguments
@@ -86,27 +67,16 @@ The Accounts section of Setup SHALL list the accounts at the left with their nam
 - **WHEN** the user selects a paired WhatsApp account and a Mattermost account
 - **THEN** the WhatsApp detail shows the phone number in international format and the profile name, and the Mattermost detail shows the server URL and the username
 
-### Requirement: Agents tab
-The Agents tab SHALL list the agents with their driver. The detail panel SHALL show the spaces that use the agent, the sentence "Each space has its own session", one line for each of these spaces with its stored terminal handle and short Claude session ID, and the form: name, driver, CLI, workspace, session, payload, limits and instruction. The Instruction field SHALL say that i2a sends it with each batch, and SHALL show the error "the instruction cannot contain three backticks (```)" for such a text. The form SHALL NOT have a batch prompt field. Delete SHALL follow the requirement "References between items" of the `spaces` capability. For an `orca` agent, the key `s` SHALL open the sessions dialog: one row for each space that uses the agent, with the terminal handle, the Claude session ID, the Claude session name and the state (`live`, `no Claude`, `other session`, `closed`, `no agent` for an agent that is not Claude Code, `unknown`). In the dialog, `l` SHALL link a session to the selected space, `u` SHALL unlink it, and `o` SHALL show its terminal in Orca with `orca terminal switch`.
-
-#### Scenario: Used by
-- **WHEN** the user selects the agent `claude-work` that `acme` and `borealis` use
-- **THEN** the detail panel shows Acme and Project Borealis as users of the agent, each with its terminal handle
-
-#### Scenario: Sessions dialog
-- **WHEN** the user presses `s` on the agent `triage`, and the space Triage has the live terminal `term_a` with Claude session `S`
-- **THEN** the dialog shows Triage with `term_a`, the first 8 characters of `S`, the Claude session name and `live`
-
-#### Scenario: Instruction with three backticks
-- **WHEN** the user types a line of three backticks in the Instruction field and saves
-- **THEN** the form shows "the instruction cannot contain three backticks (```)" and the file does not change
-
 ### Requirement: Schedules tab
-The Schedules tab SHALL list the schedules with their `every` value. The detail panel SHALL show the schedule text, the next send time, the spaces that use it, the fields name, send every, days and hours, and a line of today from 00:00 to 24:00 with a mark for each send time and a mark for the current time.
+The Schedules tab SHALL list the schedules with their `every` value. The detail panel SHALL show the schedule text, the next send time, the spaces that use it, the fields name, send every, days and hours, and a line of today from 00:00 to 24:00 with a mark for each send time and a mark for the current time. The When dialog of a space SHALL list the schedules to pick one, then "Rename <schedule>…", which changes the name of the schedule (its ID stays), and "Edit the times of <schedule> in Setup", which opens the Schedules tab with that schedule and its form.
 
 #### Scenario: Day off
 - **WHEN** the user turns off Thursday in the schedule `always` on a Thursday
 - **THEN** the line of today shows no send mark, and the next send time is Friday 00:00
+
+#### Scenario: Rename from a space
+- **WHEN** the user presses `enter` on the row When of Review, chooses "Rename default…" and types "Work hours"
+- **THEN** the file has `name = "Work hours"` for the schedule `default`, its ID stays `default`, and each space that uses it shows "Work hours"
 
 ### Requirement: Settings tab
 The Settings tab SHALL show `lookback`, `retention`, the notifications, the lowest card urgency for a notification, the notifier (`via`), the Feed notifications in iTerm2 (`terminal`), the line of `i2a notify status` for the notifier that i2a uses now with the hint "run i2a notify setup", and the background service with the keys `i` (install or restart) and `u` (uninstall).
@@ -260,14 +230,14 @@ The system SHALL generate a JSON Schema (draft 2020-12) of `config.toml` from th
 - **THEN** the output has both problems, and the exit code is 1
 
 ### Requirement: Help for agents
-`i2a config --help` SHALL explain the file for an agent: the path of `config.toml`, the five items and their keys, that `i2a conversations --json` gives the conversation IDs, that `i2a config check` checks a file, that a running dashboard and daemon load a changed file, and that a writer writes a temporary file and renames it.
+`i2a config --help` SHALL explain the file for an agent: the path of `config.toml`, the four items (accounts, schedules, spaces with their agent and instruction, Unsorted) and their keys, that `i2a conversations --json` gives the conversation IDs, that `i2a config check` checks a file, that a running dashboard and daemon load a changed file, and that a writer writes a temporary file and renames it.
 
 #### Scenario: Agent reads the help
 - **WHEN** an agent runs `i2a config --help`
-- **THEN** the output names `config.toml`, `i2a conversations --json`, `i2a config check` and `config.schema.json`
+- **THEN** the output names `config.toml`, `[spaces.agent]`, `paused`, `i2a conversations --json`, `i2a config check` and `config.schema.json`, and does not name `[[agents]]`
 
 ### Requirement: Spaces area
-The Spaces area SHALL list at the left each space, then Everything else (the Unsorted space), New conversations with their count, Ignored with its count, and "+ New space". A space SHALL show `●` when it has an agent and `○` when it holds, the number of its conversations and the number of waiting messages. The panel at the right SHALL be one list. For a space, its first rows SHALL be Name, Sends to and When, and a line SHALL show the last send. Its conversation rows SHALL follow, each with the kind mark, the name, the account, the read level ("All messages" or "Only for me"), the other spaces of the conversation ("also in …"), and the time of the last message. The recent sends of the space SHALL follow. `enter` or `→` in the list at the left SHALL move the keyboard to the panel, and `esc` or `←` on a settings row SHALL move it back. In the panel, `enter` on a settings row SHALL open a dialog that saves at once; `←` and `→` on a conversation row SHALL change the read level of the link; `x` SHALL remove the conversation from the space; `enter` SHALL open the spaces dialog; `space` SHALL select the row; `n` SHALL rename the conversation. `x` on a space in the list at the left SHALL delete the space, and its conversations that no other space lists SHALL go to Everything else. `R` SHALL run the selected space. Each change SHALL write the configuration file and SHALL show "Saved" with the change in the status line.
+The Spaces area SHALL list at the left each space, then Everything else (the Unsorted space), New conversations with their count, Ignored with its count, and "+ New space". A space SHALL show `●` when it sends and `○` when it is paused, the number of its conversations and the number of waiting messages. The panel at the right SHALL be one list. For a space, its first rows SHALL be Name, Status, Agent, Session and When, and a line SHALL show the last send. Its conversation rows SHALL follow, each with the kind mark, the name, the account, the read level ("All messages" or "Only for me"), the other spaces of the conversation ("also in …"), and the time of the last message. The recent sends of the space SHALL follow. `enter` or `→` in the list at the left SHALL move the keyboard to the panel, and `esc` or `←` on a settings row SHALL move it back. In the panel, `enter` on Status SHALL pause or resume the space and save at once; `enter` on Agent SHALL show the agent form of the space in the panel (driver, the Orca warning, CLI, folder, session, model, payload, inline limit, message limit, instruction), which saves with "Save changes" or `ctrl+s` and closes with `esc`; `enter` or `s` on Session SHALL open the sessions dialog of the space; `enter` on When SHALL open the When dialog; `enter` on Name SHALL open the rename dialog. On a conversation row, `←` and `→` SHALL change the read level of the link; `x` SHALL remove the conversation from the space; `enter` SHALL open the spaces dialog; `space` SHALL select the row; `n` SHALL rename the conversation. `x` on a space in the list at the left SHALL delete the space, and its conversations that no other space lists SHALL go to Everything else. `R` SHALL run the selected space. Each change SHALL write the configuration file and SHALL show "Saved" with the change in the status line. A new space SHALL get a copy of the agent of the selected space, or of Unsorted, with no instruction.
 
 #### Scenario: Change the read level of a link
 - **WHEN** `# release` is in the space Review with "All messages", and the user selects its row in Review and presses `→`
@@ -277,16 +247,28 @@ The Spaces area SHALL list at the left each space, then Everything else (the Uns
 - **WHEN** `# release` is only in Review, and the user presses `x` on its row in Review
 - **THEN** the file lists `# release` in no space, and the row shows in Everything else
 
-#### Scenario: Agent of a space
-- **WHEN** the user presses `enter` on the row "Sends to" of Review and chooses the agent `reviewer`
-- **THEN** the file has `agent = "reviewer"` for Review, with no Save button
+#### Scenario: Pause a space
+- **WHEN** the user presses `enter` on the row Status of Review
+- **THEN** the file has `paused = true` for Review, the row says "Paused", and the list at the left shows `○` for Review
+
+#### Scenario: Edit the agent of a space
+- **WHEN** the user presses `enter` on the row Agent of Review, sets the folder to `~/review` and the instruction to "Review the pull requests", and presses `ctrl+s`
+- **THEN** the file has `folder = "~/review"` and `instruction = "Review the pull requests"` for Review only, and the panel shows the rows again
+
+#### Scenario: Session row
+- **WHEN** the space Review has the stored terminal `term_a` and the Claude session `04ebe19c-…`
+- **THEN** the row Session shows `term_a` and `04ebe19c`, and `enter` opens the sessions dialog of Review
 
 ### Requirement: Everything else
-The Spaces area SHALL show the Unsorted space as "Everything else". Its rows SHALL be "New and other conversations read" (the level `unsorted.read`), "Sends to" (with "hold"), "When", and the conversations that are in no space and are not ignored, newest activity first. `←` and `→` on a conversation row SHALL write an Unsorted entry with that level. `i` SHALL ignore the conversation.
+The Spaces area SHALL show the Unsorted space as "Everything else". Its rows SHALL be "New and other conversations read" (the level `unsorted.read`), Status ("Sending", or "Hold: does not send"), Agent, Session, When, and the conversations that are in no space and are not ignored, newest activity first. `←` and `→` on a conversation row SHALL write an Unsorted entry with that level. `i` SHALL ignore the conversation.
 
 #### Scenario: Ignore a conversation
 - **WHEN** the user presses `i` on `# random` in Everything else
 - **THEN** the file lists `# random` in `[unsorted]` with `read = "off"`, and the row shows in Ignored
+
+#### Scenario: Send everything else
+- **WHEN** Everything else holds its messages, and the user presses `enter` on its row Status
+- **THEN** the file has `paused = false` in `[unsorted]`, and the row says "Sending"
 
 ### Requirement: Spaces dialog of a conversation
 The dialog SHALL list each space with a check mark and the read level of the conversation in that space, then "Ignore this conversation" and "+ New space". `space` SHALL check or uncheck a row; `←` and `→` SHALL change the level of a checked space; `enter` SHALL save and close; `esc` SHALL close with no change. With no space checked and no Ignore, the conversation SHALL be in Everything else. Ignore SHALL uncheck all spaces. For a selection of many conversations, the dialog SHALL start with the spaces of the first one and SHALL save the same spaces for all of them. When the user checks a space that the conversation was not in, the dialog SHALL show the option "Also send the messages of the last <lookback> to the new spaces", off by default.
@@ -329,11 +311,11 @@ A conversation SHALL be new when an account lists it, the configuration has no e
 - **THEN** the file lists `# release` in Review again
 
 ### Requirement: Link a session to a space
-In the sessions dialog, `l` SHALL open an input for a terminal handle (`term_…`) or a Claude session ID (a UUID). The system SHALL find the other ID from the running Claude processes and SHALL require exactly one Claude process. It SHALL ask for a confirmation when the `cwd` of the process is outside the workspace of the agent, or when another space has the same Claude session. The link SHALL store the handle, the Claude session ID and the primer hash `pending` for the space. Unlink SHALL delete the stored session of the space; the old terminal stays open.
+The sessions dialog SHALL show the space, its terminal handle, the Claude session ID, the Claude session name and the state (`live`, `no Claude`, `other session`, `closed`, `no agent` for an agent that is not Claude Code, `unknown`). `o` SHALL show the terminal in Orca with `orca terminal switch`. `l` SHALL open an input for a terminal handle (`term_…`) or a Claude session ID (a UUID). The system SHALL find the other ID from the running Claude processes and SHALL require exactly one Claude process. It SHALL ask for a confirmation when the `cwd` of the process is outside the folder of the agent of the space, or when another space has the same Claude session. The link SHALL store the handle and the Claude session ID for the space. Unlink (`u`) SHALL delete the stored session of the space; the old terminal stays open.
 
 #### Scenario: Link by handle
-- **WHEN** the user links `term_c` to the space Triage, and `term_c` runs one Claude process with session `S` in the workspace of the agent
-- **THEN** the store has `term_c` and `S` for Triage, and the next batch of Triage sends the primer and the batch to `term_c`
+- **WHEN** the user links `term_c` to the space Triage, and `term_c` runs one Claude process with session `S` in the folder of the agent
+- **THEN** the store has `term_c` and `S` for Triage, and the next batch of Triage goes to `term_c`
 
 #### Scenario: Link by Claude session ID
 - **WHEN** the user links the Claude session `S`, and `S` runs in `term_c`
@@ -357,4 +339,23 @@ In the sessions dialog, `l` SHALL open an input for a terminal handle (`term_…
 #### Scenario: Old file
 - **WHEN** `config.toml` has a `[notify]` table with only `enabled` and `min_urgency`
 - **THEN** the system loads it with `via = "auto"` and `terminal = "iterm2"`
+
+### Requirement: Configuration validation
+The system SHALL validate the configuration when it loads it and when the TUI or a command saves it. Durations SHALL use Go duration syntax. `hours` SHALL be empty or `HH:MM-HH:MM`. `days` SHALL contain only `mon` to `sun`. IDs of accounts, schedules and spaces SHALL be unique in their kind and SHALL be 1 to 32 lowercase letters, digits, `-` or `_`. For the agent of each space and of Unsorted, `driver` SHALL be `orca` or `dry-run`, `session` SHALL be `new`, `reuse` or `worktree`, `payload` SHALL be `pointer` or `inline`, `inline_max_bytes` SHALL be between 1,024 and 65,536, `message_max_chars` SHALL be between 100 and 20,000, and an `orca` agent SHALL have a `folder` and a `cli`. The `instruction` of a space SHALL NOT contain three backticks. The references SHALL follow the requirement "References between items" of the `spaces` capability. The system SHALL report all problems at one time, each with its field and its space.
+
+#### Scenario: Invalid duration
+- **WHEN** a schedule has `every = "ten minutes"`
+- **THEN** the system reports the field name and the invalid value and does not start
+
+#### Scenario: Invalid day
+- **WHEN** a schedule has `days = ["monday"]`
+- **THEN** the system reports that `monday` is not one of `mon` to `sun`
+
+#### Scenario: Three backticks in the instruction
+- **WHEN** the space `triage` has an `instruction` with a line of three backticks
+- **THEN** the system reports `space "triage".instruction: the instruction cannot contain three backticks (```)` and does not start
+
+#### Scenario: Orca agent with no folder
+- **WHEN** the space `triage` has an `orca` agent with no `folder`
+- **THEN** the system reports `space "triage".agent.folder: the orca driver needs a folder`
 

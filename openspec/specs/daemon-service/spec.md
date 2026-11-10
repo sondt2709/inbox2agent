@@ -91,11 +91,15 @@ The daemon SHALL close the connection of each source when it loads a new configu
 - **THEN** `<data>/whatsapp-<id>.lock` is not locked any more
 
 ### Requirement: Status command
-`i2a status` SHALL print the configuration and data paths, the accounts with their state, each space with its agent, schedule, next send time and number of waiting messages, the number of unsorted conversations and the agent or "hold" of Unsorted, the agents, the schedules, the message counts, the last dispatches and the service state.
+`i2a status` SHALL print the configuration and data paths, the accounts with their state, each space with the description of its agent (or "paused"), its schedule, the next send time and the number of waiting messages, the number of unsorted conversations and the agent or "hold" of Unsorted, the schedules, the message counts, the last dispatches and the service state. It SHALL NOT print a list of agents.
 
 #### Scenario: Space line
-- **WHEN** the space `acme` uses `claude-work` and `work-hours`, has 6 waiting messages, and the next send time is 14:45
-- **THEN** `i2a status` prints a line with `acme`, `claude-work`, `work-hours`, `next 14:45` and `6 waiting`
+- **WHEN** the space `acme` has an `orca` agent with `cli = "claude"`, the schedule `work-hours`, 6 waiting messages, and the next send time is 14:45
+- **THEN** `i2a status` prints a line with `acme`, `orca · claude`, `work-hours`, `next 14:45` and `6 waiting`
+
+#### Scenario: Paused space line
+- **WHEN** the space `iso` is paused and has 2 waiting messages
+- **THEN** `i2a status` prints a line with `iso`, `paused: does not send` and `2 waiting`
 
 ### Requirement: Daemon API on a Unix socket
 The daemon SHALL serve HTTP on the Unix socket `<data>/i2a.sock` with the mode 0600. When that path is longer than 103 bytes, the daemon SHALL use `$TMPDIR/i2a-<hash>.sock` and SHALL write its path to `<data>/i2a.sock.path`. The daemon SHALL remove an old socket file when it starts (it holds the daemon lock) and SHALL remove the socket file when it stops. The API SHALL have these endpoints:
