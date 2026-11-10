@@ -34,7 +34,7 @@ When the user selects the `orca` driver for an agent, the TUI SHALL show a warni
 - **THEN** the screen shows the permission warning before the user saves the agent
 
 ### Requirement: Configuration validation of version 2
-The system SHALL validate the configuration when it loads it and when the TUI or a command saves it. Durations SHALL use Go duration syntax. `hours` SHALL be empty or `HH:MM-HH:MM`. `days` SHALL contain only `mon` to `sun`. `inline_max_bytes` SHALL be between 1,024 and 65,536. IDs of accounts, agents, schedules and spaces SHALL be unique in their kind and SHALL be 1 to 32 lowercase letters, digits, `-` or `_`. The references SHALL follow the requirement "References between items" of the `spaces` capability. The system SHALL report all problems at one time, each with its field.
+The system SHALL validate the configuration when it loads it and when the TUI or a command saves it. Durations SHALL use Go duration syntax. `hours` SHALL be empty or `HH:MM-HH:MM`. `days` SHALL contain only `mon` to `sun`. `inline_max_bytes` SHALL be between 1,024 and 65,536. IDs of accounts, agents, schedules and spaces SHALL be unique in their kind and SHALL be 1 to 32 lowercase letters, digits, `-` or `_`. The `primer` of an agent (the instruction) SHALL NOT contain three backticks. The references SHALL follow the requirement "References between items" of the `spaces` capability. The system SHALL report all problems at one time, each with its field. The system SHALL read the `batch` field of an agent, SHALL NOT use it, and SHALL NOT write it at the next save.
 
 #### Scenario: Invalid duration
 - **WHEN** a schedule has `every = "ten minutes"`
@@ -43,6 +43,14 @@ The system SHALL validate the configuration when it loads it and when the TUI or
 #### Scenario: Invalid day
 - **WHEN** a schedule has `days = ["monday"]`
 - **THEN** the system reports that `monday` is not one of `mon` to `sun`
+
+#### Scenario: Three backticks in the instruction
+- **WHEN** the agent `triage` has a `primer` with a line of three backticks
+- **THEN** the system reports `agent "triage".primer: the instruction cannot contain three backticks (```)` and does not start
+
+#### Scenario: Old batch template
+- **WHEN** an agent has a `batch` template and the user saves another field in the dashboard
+- **THEN** the file loads with no error, and the saved file has no `batch` field
 
 ### Requirement: Dashboard tabs
 The system SHALL provide a full-screen dashboard in the alternate screen with three areas: Feed, Spaces and Setup. Setup SHALL have the sections Accounts, Agents, Schedules, Settings and Send log, in this order. The header SHALL show the areas as `Feed`, `Spaces` and `Setup` with no numbers, with the number of new cards after Feed and the number of new conversations after Spaces. The line under the header SHALL show the sections of Setup when Setup is open, and else the result of the last run. `i2a` with no arguments SHALL open the Feed; `i2a config` SHALL open the Spaces area. A mouse click on an area or a section SHALL open it. The keys `1` to `3` SHALL NOT open an area. `tab` and `shift+tab` SHALL go to the next and the previous section, in the order Feed, Spaces, Accounts, Agents, Schedules, Settings, Send log. Forms SHALL stay in the detail panel, as before. `q` SHALL quit; `?` SHALL show the model of i2a and all keys.
@@ -79,7 +87,7 @@ The Accounts section of Setup SHALL list the accounts at the left with their nam
 - **THEN** the WhatsApp detail shows the phone number in international format and the profile name, and the Mattermost detail shows the server URL and the username
 
 ### Requirement: Agents tab
-The Agents tab SHALL list the agents with their driver. The detail panel SHALL show the spaces that use the agent, the sentence "Each space has its own session", one line for each of these spaces with its stored terminal handle and short Claude session ID, and the form: name, driver, CLI, workspace, session, payload, limits and prompts. Delete SHALL follow the requirement "References between items" of the `spaces` capability. For an `orca` agent, the key `s` SHALL open the sessions dialog: one row for each space that uses the agent, with the terminal handle, the Claude session ID, the Claude session name and the state (`live`, `no Claude`, `other session`, `closed`, `no agent` for an agent that is not Claude Code, `unknown`). In the dialog, `l` SHALL link a session to the selected space, `u` SHALL unlink it, and `o` SHALL show its terminal in Orca with `orca terminal switch`.
+The Agents tab SHALL list the agents with their driver. The detail panel SHALL show the spaces that use the agent, the sentence "Each space has its own session", one line for each of these spaces with its stored terminal handle and short Claude session ID, and the form: name, driver, CLI, workspace, session, payload, limits and instruction. The Instruction field SHALL say that i2a sends it with each batch, and SHALL show the error "the instruction cannot contain three backticks (```)" for such a text. The form SHALL NOT have a batch prompt field. Delete SHALL follow the requirement "References between items" of the `spaces` capability. For an `orca` agent, the key `s` SHALL open the sessions dialog: one row for each space that uses the agent, with the terminal handle, the Claude session ID, the Claude session name and the state (`live`, `no Claude`, `other session`, `closed`, `no agent` for an agent that is not Claude Code, `unknown`). In the dialog, `l` SHALL link a session to the selected space, `u` SHALL unlink it, and `o` SHALL show its terminal in Orca with `orca terminal switch`.
 
 #### Scenario: Used by
 - **WHEN** the user selects the agent `claude-work` that `acme` and `borealis` use
@@ -88,6 +96,10 @@ The Agents tab SHALL list the agents with their driver. The detail panel SHALL s
 #### Scenario: Sessions dialog
 - **WHEN** the user presses `s` on the agent `triage`, and the space Triage has the live terminal `term_a` with Claude session `S`
 - **THEN** the dialog shows Triage with `term_a`, the first 8 characters of `S`, the Claude session name and `live`
+
+#### Scenario: Instruction with three backticks
+- **WHEN** the user types a line of three backticks in the Instruction field and saves
+- **THEN** the form shows "the instruction cannot contain three backticks (```)" and the file does not change
 
 ### Requirement: Schedules tab
 The Schedules tab SHALL list the schedules with their `every` value. The detail panel SHALL show the schedule text, the next send time, the spaces that use it, the fields name, send every, days and hours, and a line of today from 00:00 to 24:00 with a mark for each send time and a mark for the current time.
