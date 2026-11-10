@@ -523,7 +523,7 @@ func TestS11S12DaemonTicksAndSingleInstance(t *testing.T) {
 	d.WaitFor(`daemon started`, 20*time.Second)
 	d.WaitFor(`msg=poll account=work new=0`, 20*time.Second)
 	w.Post(t, w.Bob, w.Selected, "posted while the daemon runs")
-	d.WaitFor(`msg=dispatch space=unsorted agent=triage driver=dry-run messages=1`, 75*time.Second)
+	d.WaitFor(`msg=dispatch space=unsorted agent=dry-run messages=1`, 75*time.Second)
 	ds := p.digests()
 	if len(ds) != 1 || !slices.Contains(texts(readDigest(t, ds[0])), "posted while the daemon runs") {
 		t.Fatalf("digests = %v", ds)
@@ -562,7 +562,7 @@ func TestS13ScheduleHours(t *testing.T) {
 		t.Fatalf("digests = %d, want 0", n)
 	}
 	s, _ = p.run("status")
-	if !strings.Contains(s, "Messages: 1 waiting") || !regexp.MustCompile(`unsorted\s+Unsorted\s+triage\s+always\s+next (\S+ )?\d\d:\d\d\s+1 waiting`).MatchString(s) {
+	if !strings.Contains(s, "Messages: 1 waiting") || !regexp.MustCompile(`unsorted\s+Unsorted\s+dry-run\s+always\s+next (\S+ )?\d\d:\d\d\s+1 waiting`).MatchString(s) {
 		t.Fatalf("status:\n%s", s)
 	}
 }
@@ -640,7 +640,7 @@ func TestS22ReadOneDirectConversation(t *testing.T) {
 	// Everything else is the second row; its first row is its read level.
 	tm.Press("Down", `▌● Everything else`, 5*time.Second)
 	tm.Press("Enter", `▌  (#|@|⧉) `, 5*time.Second) // the panel, on the first conversation
-	tm.Keys("Up", "Up", "Up")
+	tm.Keys("Up", "Up", "Up", "Up", "Up") // When, Session, Agent, Status, the read level
 	tm.Press("Right", `New and other conversations: Ignored\. Saved`, 5*time.Second) // Only for me → Ignored
 	tm.Press("q", `Saved /`, 5*time.Second)
 

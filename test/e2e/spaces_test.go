@@ -87,7 +87,7 @@ func TestS38TwoSpacesFromOneAccount(t *testing.T) {
 	})
 	// The terminal can break the line in a word, so compare without spaces.
 	squash := func(s string) string { return strings.Join(strings.Fields(s), "") }
-	if !strings.Contains(squash(s), squash("is valid: 1 account, 2 agents, 1 schedule, 1 space and Unsorted, 1 conversation")) {
+	if !strings.Contains(squash(s), squash("is valid: 1 account, 1 schedule, 1 space and Unsorted, 1 conversation")) {
 		t.Fatalf("config check:\n%s", s)
 	}
 	// The JSON is longer than the terminal: the shell writes it to a file.
@@ -312,7 +312,9 @@ schedule = 'always'
 		t.Fatal(err)
 	}
 	s, code := p.run("status")
-	flat := strings.Join(strings.Fields(s), " ")
+	// The terminal can break a line in a word, so compare without spaces.
+	squash := func(s string) string { return strings.Join(strings.Fields(s), "") }
+	flat := squash(s)
 	for _, want := range []string{
 		"i2a converted the configuration from version 2 to version 3",
 		"config.toml.v2.bak",
@@ -321,7 +323,7 @@ schedule = 'always'
 		"Unsorted held its messages (agent = ''); it is paused now",
 		`Space "review" uses the dry-run driver.`,
 	} {
-		if code != 0 || !strings.Contains(flat, want) {
+		if code != 0 || !strings.Contains(flat, squash(want)) {
 			t.Errorf("status (exit %d) has no %q:\n%s", code, want, s)
 		}
 	}

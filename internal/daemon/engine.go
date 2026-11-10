@@ -520,7 +520,7 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 	if err := e.d.Store.FinishDispatchStates(ctx, id, out.Status, br.Detail, s.ID, state, ids, states); err != nil {
 		return fail(id, err)
 	}
-	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "status", out.Status,
+	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.Title(), "messages", len(msgs), "status", out.Status,
 		"detail", br.Detail, "digest", r.DigestPath)
 	return br
 }
