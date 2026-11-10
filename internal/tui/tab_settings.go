@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/notify"
 )
 
 // keySettings installs and uninstalls the service when the form does not have the keyboard.
@@ -61,6 +62,11 @@ func (m *model) settingsForm() *form {
 			m.u.cfg.Notify.Enabled),
 		choiceField("urgency", "Notify from", "The lowest card urgency that gives a notification. Cards with a lower urgency show only in the Feed.",
 			[]string{"high", "normal", "low"}, []string{"High", "Normal", "Low"}, m.u.cfg.Notify.MinUrgency),
+		choiceField("via", "Notifier", "Auto tries the Orca plugin of i2a, then terminal-notifier, then osascript. A selected notifier falls back to osascript.",
+			notify.Vias, []string{"Auto", "Orca", "terminal-notifier", "osascript"}, m.u.cfg.Notify.Via),
+		choiceField("terminal", "Feed in iTerm2", "While the Feed is open in iTerm2, iTerm2 shows the card notifications, and the notifier shows none.",
+			[]string{config.TerminalITerm2, config.TerminalOff}, []string{"On", "Off"}, m.u.cfg.Notify.Terminal),
+		noteField(m.notifierText(), faint),
 		noteField("Service", boldStyle),
 		noteField(m.serviceText(), faint),
 		noteField("When a space sends is in its schedule (Setup › Schedules). How often i2a reads an account is in the account (Setup › Accounts).", faint),
@@ -70,6 +76,11 @@ func (m *model) settingsForm() *form {
 		{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
 	}
 	return fm
+}
+
+// notifierText names the notifiers that i2a tries now, for the Settings tab.
+func (m *model) notifierText() string {
+	return "i2a tries " + notify.Describe(m.u.cfg.Notify.Via, m.u.d.Notifiers()) + ". Run i2a notify setup to install terminal-notifier or the Orca plugin."
 }
 
 func (m *model) serviceText() string {
@@ -92,9 +103,11 @@ func (m *model) saveSettings() tea.Cmd {
 	lookback, _ := config.ParseDuration(fm.field("lookback").value())
 	retention, _ := config.ParseDuration(fm.field("retention").value())
 	enabled, urgency := fm.field("notify").value() == "on", fm.field("urgency").value()
+	via, terminal := fm.field("via").value(), fm.field("terminal").value()
 	if err := m.commitForm(fm, func(c *config.Config) error {
 		c.Settings.Lookback, c.Settings.Retention = lookback, retention
 		c.Notify.Enabled, c.Notify.MinUrgency = enabled, urgency
+		c.Notify.Via, c.Notify.Terminal = via, terminal
 		return nil
 	}, nil); err != nil {
 		saveError(fm, err)

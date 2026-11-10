@@ -26,6 +26,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
@@ -101,6 +102,13 @@ type Deps struct {
 	// Events reads the events of the daemon; an error means that no daemon answers.
 	Events func(ctx context.Context) (<-chan daemon.Event, error)
 
+	// FeedNotes returns the escape sequence that shows one card note in the
+	// terminal. Run sets it when the Feed runs in iTerm2 and holds
+	// feed-notify.lock; nil: the Feed shows no notification.
+	FeedNotes func(n notify.Note) string
+	// Notifiers finds the notifiers on this Mac; the default is notify.Detect.
+	Notifiers func() []notify.Found
+
 	ServiceStatus    func() (service.State, error)
 	InstallService   func() (string, error) // installs or restarts the LaunchAgent; returns its path
 	UninstallService func() (string, error)
@@ -166,6 +174,9 @@ func newUI(d Deps) *ui {
 			return daemon.BuildReplier(cfg, accountID, env)
 		}
 	}
+	if d.Notifiers == nil {
+		d.Notifiers = notify.Detect
+	}
 	if d.AskDriver == nil {
 		d.AskDriver = agent.New
 	}
@@ -184,6 +195,9 @@ func newUI(d Deps) *ui {
 
 // Run shows the dashboard until the user quits.
 func Run(ctx context.Context, d Deps) error {
+	if release := feedNotes(ctx, &d); release != nil {
+		defer release()
+	}
 	m := newModel(ctx, newUI(d))
 	if _, err := tea.NewProgram(m, tea.WithContext(ctx)).Run(); err != nil && !errors.Is(err, tea.ErrInterrupted) {
 		return err
@@ -326,4 +340,25 @@ func newID(base string, used func(string) bool) string {
 		id = fmt.Sprintf("%s%d", base, i)
 	}
 	return id
+}
+
+// feedNotes sets d.FeedNotes and takes feed-notify.lock when the Feed shows
+// the card notifications: [notify] enabled, terminal = "iterm2", the Feed runs
+// in iTerm2, and tmux (when the Feed is inside it) passes escape sequences.
+// It returns the release of the lock, or nil.
+func feedNotes(ctx context.Context, d *Deps) func() {
+	c := d.Config
+	if c == nil || !c.Notify.Enabled || c.Notify.Terminal != config.TerminalITerm2 || notify.Off() || !notify.ITerm2(os.Getenv) {
+		return nil
+	}
+	tmux := notify.InTmux(os.Getenv)
+	if tmux && !notify.TmuxPassthrough(ctx) {
+		return nil
+	}
+	release, ok := notify.HoldFeedLock(d.Paths.DataDir)
+	if !ok {
+		return nil
+	}
+	d.FeedNotes = func(n notify.Note) string { return notify.OSC9(notify.OSC9Text(n), tmux) }
+	return release
 }

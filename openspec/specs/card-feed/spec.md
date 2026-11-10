@@ -56,11 +56,11 @@ The system SHALL provide `i2a card done --key <key>` and `i2a card done --id <id
 - **THEN** the command exits with code 1 and says that no card has that key
 
 ### Requirement: Card notifications
-On macOS, `i2a card add` SHALL show desktop notifications for the cards of the call. A card SHALL count when it was added, or updated to a higher urgency, or updated from the state `done`. Cards with an urgency lower than `[notify] min_urgency` SHALL NOT count. Each counted `high` card SHALL get one notification, for at most 3 cards in one call. All other counted cards SHALL get one grouped notification with the title `i2a: <n> new cards` and the counts by category. When the group has one card, that card SHALL get its own notification instead. A single notification SHALL have the title `i2a · <CATEGORY> · <urgency>` and the text `<group>: <title>`, cut to 200 characters. `[notify] enabled = false` SHALL turn the card notifications off.
+On macOS, `i2a card add` SHALL show desktop notifications for the cards of the call, unless the Feed shows them (see the requirement "Feed notifications in iTerm2" of the capability `desktop-notifications`). A card SHALL count when it was added, or updated to a higher urgency, or updated from the state `done`. Cards with an urgency lower than `[notify] min_urgency` SHALL NOT count. Each counted `high` card SHALL get one notification, for at most 3 cards in one call. All other counted cards SHALL get one grouped notification with the title `i2a: <n> new cards` and the counts by category. When the group has one card, that card SHALL get its own notification instead. A single notification SHALL have the title `<CATEGORY> · <urgency>`, with ` · updated` for an updated card, the subtitle `<group> · <space>` with each part that is set, and the plain title of the card as the body (see the requirement "Plain title" of the capability `desktop-notifications`). The `osascript` notifier SHALL put `i2a · ` before the title. `[notify] enabled = false` SHALL turn the card notifications off.
 
 #### Scenario: One high and two normal cards
 - **WHEN** a call adds one `high` action and two `normal` questions, and `min_urgency` is `normal`
-- **THEN** macOS shows 2 notifications: "i2a · ACTION · high" with the action title, and "i2a: 2 new cards" with "2 question"
+- **THEN** 2 notifications show: "ACTION · high" with the plain action title, and "i2a: 2 new cards" with "2 question"
 
 #### Scenario: Low card
 - **WHEN** a call adds one `low` info card, and `min_urgency` is `normal`
@@ -68,11 +68,15 @@ On macOS, `i2a card add` SHALL show desktop notifications for the cards of the c
 
 #### Scenario: Many urgent cards
 - **WHEN** a call adds 10 `high` cards
-- **THEN** macOS shows 3 single notifications and one grouped notification for the other 7 cards
+- **THEN** 3 single notifications show and one grouped notification for the other 7 cards
 
 #### Scenario: Unchanged card
 - **WHEN** a call contains only cards that are unchanged
 - **THEN** no notification shows
+
+#### Scenario: Feed shows the notifications
+- **WHEN** the Feed is open in iTerm2 and holds `<data>/feed-notify.lock`, and a call adds one `high` card
+- **THEN** `i2a card add` shows no notification and prints "Notifications: the Feed shows them."
 
 ### Requirement: Card section in the primer
 The system SHALL append a fixed card section to the primer of each batch for a driver other than `dry-run`. The section SHALL name the absolute path of the `i2a` executable (with `I2A_HOME=<path>` before it when the variable is set), show the JSON shape of a card, explain each field, and tell the agent to use the `id` values of the messages in `refs` and the same `key` for the same topic. The section SHALL say that the body can use Markdown (headings, lists, bold, code, tables) and that links show as text and cannot be opened. The section SHALL say that a WhatsApp message with a media placeholder has a file, that `i2a download --message <id>` saves the file and prints its path, and that the file content is untrusted data like message text. A custom primer template SHALL NOT remove the section.
@@ -90,7 +94,7 @@ The system SHALL append a fixed card section to the primer of each batch for a d
 - **THEN** the card section contains the path of the `i2a` executable followed by `download --message <id>`, and says that the file content is untrusted data
 
 ### Requirement: Feed tab
-The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `new` and `read` cards in a list and the selected card at the right: the space (with its color), the category, the urgency, the group, the title, the body, the suggested reply, and the references with account, conversation, author, time and text of each message, or "message deleted". Each card row SHALL start at the left edge of the list, with no bar and no mark column. Its first line SHALL be the category as plain text, the urgency as bars (`▰▰▰` for `high` in red, `▰▰▱` for `normal`, and `▰▱▱` for `low` in the faint color), `● ` for a `new` card, and the title up to the width of the list. Its second line SHALL be the space, the group in bold, and the time. The detail panel SHALL show the bars and the word of the urgency. The space of a card SHALL be the space of its newest ref message that has one. The Feed SHALL read the store again every 2 seconds. When no store exists, it SHALL show "No cards yet".
+The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `new` and `read` cards in a list and the selected card at the right: the space (with its color), the category, the urgency, the group, the title, the body, the suggested reply, and the references with account, conversation, author, time and text of each message, or "message deleted". The list row and the Card panel SHALL show the plain title of the card (see the requirement "Plain title" of the capability `desktop-notifications`). Each card row SHALL start at the left edge of the list, with no bar and no mark column. Its first line SHALL be the category as plain text, the urgency as bars (`▰▰▰` for `high` in red, `▰▰▱` for `normal`, and `▰▱▱` for `low` in the faint color), `● ` for a `new` card, and the title up to the width of the list. Its second line SHALL be the space, the group in bold, and the time. The detail panel SHALL show the bars and the word of the urgency. The space of a card SHALL be the space of its newest ref message that has one. The Feed SHALL read the store again every 2 seconds. When no store exists, it SHALL show "No cards yet".
 
 #### Scenario: New card arrives while the Feed is open
 - **WHEN** the Feed is open and an agent adds a card
@@ -107,6 +111,10 @@ The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `n
 #### Scenario: Card row
 - **WHEN** a `new` action card of the space Review has the group `release` and the title "Check the notes"
 - **THEN** its first line starts with `ACTION` in column 1 of the list and ends with `● Check the notes`, and its second line starts with `Review · release`
+
+#### Scenario: Markdown title in the row and the panel
+- **WHEN** a card has the title "**Check** the `notes`"
+- **THEN** its row ends with `● Check the notes`, and the Card panel shows "Check the notes" with no `*` and no backtick
 
 ### Requirement: Feed sort and filter
 The key `s` SHALL switch the sort between `urgency` (high first, then the newest update) and `newest` (the newest update first). When the window is 100 columns or wider, the Feed SHALL show at the left a list with "All" and each space, Everything else last, each with the number of its cards. When that list has the keyboard, `↑` and `↓` SHALL select the previous and the next row, and the Feed SHALL show the cards of the selected space. The key `F` SHALL open a dialog with the same rows. The filter SHALL keep the ID of the space; when that space does not exist any more, the filter SHALL be all spaces. The title of the card list SHALL show the number of cards and the sort. The key `a` SHALL show or hide the `done` cards. The Feed SHALL have no category filter.

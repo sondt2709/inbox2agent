@@ -230,7 +230,7 @@ func TestS36MarkdownBody(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(p.home, "config.toml"), []byte("version = 2\n[[agents]]\nid = \"triage\"\ndriver = \"dry-run\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, code := p.addCards(`[{"category":"action","urgency":"high","title":"S36 release is blocked",
+	s, code := p.addCards(`[{"category":"action","urgency":"high","title":"**S36** release is ` + "`blocked`" + `",
 	  "body":"## Status\n\n**Blocked**: QA needs your sign-off.\n\n- Login timeout\n- Export size\n\n| Issue | Owner |\n|---|---|\n| Login | QA |\n\nSee [the run](https://ci.example.com/run/42).",
 	  "reply":"**Yes**, ship it."}]`)
 	if code != 0 {
@@ -243,7 +243,7 @@ func TestS36MarkdownBody(t *testing.T) {
 			t.Errorf("the Feed does not show %q:\n%s", want, s)
 		}
 	}
-	for _, bad := range []string{"**Blocked**", "## Status", "|---|", "[the run]"} {
+	for _, bad := range []string{"**Blocked**", "## Status", "|---|", "[the run]", "**S36**", "`blocked`"} {
 		if strings.Contains(s, bad) {
 			t.Errorf("the Feed shows the raw mark %q:\n%s", bad, s)
 		}
