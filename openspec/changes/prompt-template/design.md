@@ -153,6 +153,13 @@ Alternative: keep the nonce label. Rejected: with no three backticks in the cont
 - `inbox.Session.PrimerHash` and `inbox.PrimerPending` are removed. The sessions dialog link stores an empty hash, and its message becomes "Linked … The next batch goes there."
 - The CLI instruction is `CardSection` with the same commands, under the D1 heading. It goes with each prompt, so a change of the `i2a` path never restarts a session.
 
+### D7. Send to a new terminal only when the agent runs (added during apply)
+
+- Finding during apply (local Orca e2e, 2026-11-11): `orca agent launch` returned a terminal that showed a shell for some seconds. `tui-idle` was satisfied on the shell, the send returned `observation: "unsupported"`, and the dispatch was `failed` (S14, then S25). In S25 the text then arrived in Claude, so the batch was a false failure.
+- Risk: when no agent starts, Orca types the prompt into the shell and presses Enter. The old JSON data lines do not run as commands. In the YAML content, each line of a message text is plain text, so a line such as `rm -rf ~` can run.
+- `Orca.submit` calls `waitAgent` first: each second for up to `StartTimeout`, the terminal must run exactly one interactive Claude process (`ClaudeFinder.InTerminal`), or Orca must report `agentIdentity` (another CLI, or the Claude files cannot be read). Else the driver returns `errNoAgentStarted` and types nothing.
+- Alternative: keep the JSON lines. Rejected: the user asked for YAML, and the check also removes the false failures.
+
 ## Risks / Trade-offs
 
 - [Each batch repeats the instruction and the CLI instruction, about 2 to 5 KB] → `inline_max_bytes` counts only the content (D5), so the share of message data stays the same. The token cost per batch goes up by about 1,000 tokens.
@@ -160,6 +167,7 @@ Alternative: keep the nonce label. Rejected: with no three backticks in the cont
 - [A configuration with three backticks in `primer` does not load] → the error names the field. The known installation has none. The error stops the daemon, as any validation error does.
 - [The encoder writes YAML that it cannot read] → round-trip check with a double-quoted fallback (D3), and a fuzz test.
 - [A message with code blocks shows `'''` in place of the fences] → the agent can still read the code. The Feed shows the stored text, not the prompt.
+- [A YAML line of a message runs as a shell command when the prompt goes into a shell] → D7: the driver types into a new terminal only when the agent runs in it. A reuse session already requires the Claude session before each send.
 - [Rollback to an older binary: `primer_hash = ''` gives "primer changed"] → one new session for each space, one time.
 
 ## Migration Plan

@@ -1,5 +1,28 @@
 ## MODIFIED Requirements
 
+### Requirement: Prompt submission
+The `orca` driver SHALL submit a prompt with `orca terminal send --text <prompt> --enter --wait-submit 30`. Before the first prompt to a new terminal, the driver SHALL check each second, for up to 90 seconds, that the agent runs in the terminal: exactly one interactive Claude process when the `cli` is Claude Code and i2a can read the Claude processes, else Orca reports `agentIdentity`. When no agent runs after 90 seconds, the driver SHALL return the error "no agent started in the terminal <handle> after 1m30s; i2a sent nothing", SHALL NOT type into the terminal, and SHALL NOT store the session. After the agent runs, the driver SHALL wait up to 90 seconds for `tui-idle`. When the send result has `observation: "unsupported"`, no agent runs in the terminal: the driver SHALL return the error "no agent runs in <handle>", SHALL NOT send Enter again, and SHALL delete the stored session of the space. When the send result does not include the stage `turn_started` and the observation is not `unsupported`, the driver SHALL send one bare Enter to the terminal and record the detail "turn not proven, Enter sent again". The driver SHALL NOT send the prompt text again.
+
+#### Scenario: Prompt left in the input box
+- **WHEN** `orca terminal send` returns `accepted: true` and the stages are only `input_accepted`
+- **THEN** the driver sends one `orca terminal send --enter` with no text, and the dispatch status is `sent`
+
+#### Scenario: Long multi-line prompt
+- **WHEN** a new session gets an inline prompt with an instruction of 15 lines with non-ASCII text
+- **THEN** the send result includes `turn_started`, and the input box of the agent is empty
+
+#### Scenario: Send into a shell
+- **WHEN** `orca terminal send` returns `observation: "unsupported"`
+- **THEN** the driver sends no Enter, the dispatch status is `failed` with "no agent runs in", the messages stay `pending`, and the store has no session for the space
+
+#### Scenario: Agent starts after the shell
+- **WHEN** a new terminal shows a shell for 2 seconds before Claude Code starts in it
+- **THEN** the driver sends the prompt only after Claude Code runs, and the dispatch status is `sent`
+
+#### Scenario: Agent does not start
+- **WHEN** no agent starts in a new terminal within 90 seconds
+- **THEN** the driver types nothing into the terminal, the dispatch status is `failed` with "no agent started in the terminal", and the messages stay `pending`
+
 ### Requirement: Orca new-session mode
 In `new` mode, the `orca` driver SHALL run `orca agent launch` with the `cli` of the agent, `--surface terminal` and the workspace selector, and without `--prompt`. Then the driver SHALL wait until the agent TUI is idle and submit the prompt of the batch, as the requirement "Prompt submission" says.
 

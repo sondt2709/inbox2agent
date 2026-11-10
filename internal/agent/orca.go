@@ -268,8 +268,12 @@ func (o *Orca) launchTerminal(ctx context.Context) (string, error) {
 	return lr.Outcome.Handle, nil
 }
 
-// submit waits until a new agent is ready, then sends the prompt with Enter.
+// submit waits until the agent runs in a new terminal and its TUI is idle,
+// then sends the prompt with Enter.
 func (o *Orca) submit(ctx context.Context, handle, prompt string) (string, error) {
+	if err := o.waitAgent(ctx, handle); err != nil {
+		return "", err
+	}
 	err := o.call(ctx, nil, "terminal", "wait", "--terminal", handle, "--for", "tui-idle",
 		"--timeout-ms", fmt.Sprint(o.StartTimeout.Milliseconds()))
 	if isCode(err, "timeout") {
@@ -279,6 +283,35 @@ func (o *Orca) submit(ctx context.Context, handle, prompt string) (string, error
 		return "", err
 	}
 	return o.send(ctx, handle, prompt)
+}
+
+// errNoAgentStarted is the error of a new terminal in which no agent started.
+var errNoAgentStarted = errors.New("no agent started in the terminal")
+
+// waitAgent checks each second, for up to StartTimeout, that the agent runs
+// in a new terminal: exactly one Claude process for claude (else the Orca
+// agentIdentity, also when the Claude sessions cannot be read). A new
+// terminal shows a shell first, and a shell is idle too: a prompt typed into
+// it runs as commands, and the message lines of the content are plain text.
+// So when no agent starts, i2a sends nothing.
+func (o *Orca) waitAgent(ctx context.Context, handle string) error {
+	for waited := time.Duration(0); ; waited += time.Second {
+		if o.Claude != nil {
+			if procs, err := o.Claude.InTerminal(handle); err == nil {
+				if len(procs) == 1 {
+					return nil
+				}
+			} else if ok, err := o.orcaLive(ctx, handle, true); err != nil || ok {
+				return err
+			}
+		} else if ok, err := o.orcaLive(ctx, handle, true); err != nil || ok {
+			return err
+		}
+		if waited >= o.StartTimeout {
+			return fmt.Errorf("%w %s after %s; i2a sent nothing", errNoAgentStarted, handle, o.StartTimeout)
+		}
+		o.Sleep(time.Second)
+	}
 }
 
 // send types the prompt and presses Enter. When Orca cannot prove that the

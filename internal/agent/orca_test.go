@@ -113,7 +113,9 @@ const (
 	worktreeHandle = "term_a064be47-dfe2-4514-bc43-db02bbe10606" // the handle in worktree_create_no_prompt.json
 )
 
-// started are the answers for a new agent: launch, ready, prompt submitted.
+// started are the answers for a new agent: launch, the agent runs (Orca
+// reports agentIdentity), ready, prompt submitted. The "terminal show" answers
+// of extra come first; the show of the new terminal follows them.
 func started(extra map[string][]string) map[string][]string {
 	a := map[string][]string{
 		"agent launch": {"launch_no_prompt.json"}, "terminal rename": {"rename_ok.json"},
@@ -122,6 +124,7 @@ func started(extra map[string][]string) map[string][]string {
 	for k, v := range extra {
 		a[k] = v
 	}
+	a["terminal show"] = append(slices.Clone(extra["terminal show"]), "show_claude_live.json")
 	return a
 }
 
@@ -286,7 +289,8 @@ func TestUnprovenTurnSendsOneBareEnter(t *testing.T) {
 
 func TestWorktreeModeCreatesThenSubmits(t *testing.T) {
 	o, f, _, r := setup(t, config.SessionWorktree, map[string][]string{
-		"worktree create": {"worktree_create_no_prompt.json"}, "terminal rename": {"rename_ok.json"}, "terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
+		"worktree create": {"worktree_create_no_prompt.json"}, "terminal rename": {"rename_ok.json"}, "terminal show": {"show_claude_live.json"},
+		"terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
 	})
 	res, err := o.Deliver(context.Background(), r)
 	if err != nil {
@@ -566,8 +570,13 @@ func TestReuseSessionInTwoTerminalsStartsNewSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "4343.json"), []byte(strings.ReplaceAll(string(b), `"pid":4242`, `"pid":4343`)), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// 4545 is the Claude process of the new terminal, with another session.
+	other := strings.ReplaceAll(strings.ReplaceAll(string(b), `"pid":4242`, `"pid":4545`), sessionA, sessionB)
+	if err := os.WriteFile(filepath.Join(dir, "4545.json"), []byte(other), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	o.Claude = &ClaudeFinder{Dir: dir, Proc: func(pid int) (ProcInfo, error) {
-		return ProcInfo{Start: fixtureStart[4242], Handle: map[int]string{4242: "term_b", 4343: "term_c"}[pid]}, nil
+		return ProcInfo{Start: fixtureStart[4242], Handle: map[int]string{4242: "term_b", 4343: "term_c", 4545: launchedHandle}[pid]}, nil
 	}}
 	sess["triage"], sess["triage#agent"] = "term_old", sessionA
 	if _, err := o.Deliver(context.Background(), r); err != nil {
@@ -682,11 +691,15 @@ func TestAskCardTerminalRunsAnotherSession(t *testing.T) {
 func goneAfterWait(t *testing.T, o *Orca, f *fakeOrca) {
 	t.Helper()
 	gone := false
-	o.Claude = &ClaudeFinder{Dir: copyDir(t, "4242.json"), Proc: func(pid int) (ProcInfo, error) {
-		if gone {
-			return ProcInfo{}, ErrNoProcess
+	// 4242 runs session A in term_a until the wait; then the new terminal runs 4343.
+	o.Claude = &ClaudeFinder{Dir: copyDir(t, "4242.json", "4343.json"), Proc: func(pid int) (ProcInfo, error) {
+		switch {
+		case pid == 4242 && !gone:
+			return ProcInfo{Start: fixtureStart[pid], Handle: "term_a"}, nil
+		case pid == 4343 && gone:
+			return ProcInfo{Start: fixtureStart[pid], Handle: launchedHandle}, nil
 		}
-		return ProcInfo{Start: fixtureStart[pid], Handle: "term_a"}, nil
+		return ProcInfo{}, ErrNoProcess
 	}}
 	run := o.Run
 	o.Run = func(ctx context.Context, bin string, args ...string) ([]byte, error) {
@@ -757,5 +770,49 @@ func TestReuseKeepsSessionWhenInstructionChanges(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(r2.DigestPath); !strings.Contains(string(b), "Một hướng dẫn khác") {
 		t.Errorf("the second batch does not have the new instruction:\n%s", b)
+	}
+}
+
+// A new terminal shows a shell first, and a shell is idle too. The driver
+// sends the prompt only after the agent runs in the terminal.
+func TestNewTerminalWaitsForTheAgent(t *testing.T) {
+	o, f, _, r := setup(t, config.SessionNew, started(map[string][]string{
+		"terminal show": {"show_agent_exited.json", "show_agent_exited.json"},
+	}))
+	res, err := o.Deliver(context.Background(), r)
+	if err != nil || res.Status != StatusSent {
+		t.Fatalf("result = %+v, err = %v", res, err)
+	}
+	if n := len(f.called("terminal show")); n != 3 {
+		t.Errorf("terminal show calls = %d, want 3 (shell, shell, agent)", n)
+	}
+	var order []string
+	for _, c := range f.calls {
+		order = append(order, c[0]+" "+c[1])
+	}
+	if i, j := slices.Index(order, "terminal show"), slices.Index(order, "terminal send"); i < 0 || j < i {
+		t.Errorf("calls = %v; want the agent check before the send", order)
+	}
+}
+
+// No agent starts: the prompt would run as shell commands, so the driver
+// sends nothing and stores no session.
+func TestNoAgentStartedSendsNothing(t *testing.T) {
+	for _, name := range []string{"orca check", "claude check"} {
+		shells := []string{"show_agent_exited.json", "show_agent_exited.json", "show_agent_exited.json", "show_agent_exited.json"}
+		o, f, sess, r := setup(t, config.SessionReuse, map[string][]string{
+			"agent launch": {"launch_no_prompt.json"}, "terminal rename": {"rename_ok.json"}, "terminal show": shells,
+		})
+		o.StartTimeout = 3 * time.Second
+		if name == "claude check" {
+			o.Claude = finder(t, map[int]string{4242: "term_other"}) // no Claude process in the new terminal
+		}
+		_, err := o.Deliver(context.Background(), r)
+		if !errors.Is(err, errNoAgentStarted) || !strings.Contains(err.Error(), "i2a sent nothing") {
+			t.Errorf("%s: err = %v, want errNoAgentStarted", name, err)
+		}
+		if len(f.called("terminal send")) != 0 || len(f.called("terminal wait")) != 0 || sess["triage"] != "" {
+			t.Errorf("%s: calls = %v, session = %v; want no wait, no send and no session", name, f.calls, sess)
+		}
 	}
 }

@@ -40,3 +40,9 @@
 - [x] 7.2 Update the local Orca scenarios S14, S15/S16, S21, S25, S29 for the new prompt; add the check that an instruction edit keeps the terminal in S15
 - [x] 7.3 Update `CLAUDE.md` (render, agent, ask paragraphs) and `README.md` where they name the primer or the JSON lines
 - [x] 7.4 Run `task lint`, `task test`, `task e2e`, `I2A_E2E_ORCA=1 task e2e`, `task leakcheck`
+
+## 8. Agent check of a new terminal (found during apply)
+
+- [x] 8.1 `Orca.submit` waits until the agent runs (Claude process, else `agentIdentity`) before `tui-idle`; no agent after `StartTimeout` gives `errNoAgentStarted` and no send
+- [x] 8.2 Tests: the agent starts after two shell reads; no agent with the Orca check and with the Claude check; break the check one time
+- [x] 8.3 Update the spec requirement "Prompt submission", the design (D7) and `CLAUDE.md`
