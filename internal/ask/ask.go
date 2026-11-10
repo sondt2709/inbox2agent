@@ -40,7 +40,7 @@ type Deps struct {
 	Store       Store
 	Config      *config.Config
 	NewDriver   func(a config.Agent, space config.Space, s agent.Sessions) (agent.Driver, error) // default agent.New
-	CardCommand string                                                                           // the command of the card section; see render.CardCommand
+	CardCommand string                                                                           // the command of the CLI instruction; see render.CardCommand
 	LockDir     string                                                                           // the directory of the space locks
 	Now         func() time.Time
 }

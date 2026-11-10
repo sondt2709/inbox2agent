@@ -74,6 +74,8 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		{[]string{"agents", "items", "payload"}, []string{"", "pointer", "inline"}},
 		{[]string{"schedules", "items", "days", "items"}, Days},
 		{[]string{"notify", "min_urgency"}, []string{"", "high", "normal", "low"}},
+		{[]string{"notify", "via"}, []string{"", "auto", "orca", "terminal-notifier", "osascript"}},
+		{[]string{"notify", "terminal"}, []string{"", "iterm2", "off"}},
 	} {
 		if got := strs(at(t, s, tc.path...)["enum"]); !slices.Equal(got, tc.want) {
 			t.Errorf("%v enum = %v, want %v", tc.path, got, tc.want)

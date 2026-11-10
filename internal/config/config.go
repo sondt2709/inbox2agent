@@ -98,7 +98,15 @@ type Settings struct {
 type Notify struct {
 	Enabled    bool   `toml:"enabled" comment:"Show macOS notifications for new cards and failed dispatches."`
 	MinUrgency string `toml:"min_urgency" comment:"The lowest card urgency that gives a notification: high, normal or low." enum:"high,normal,low" schema:"default"`
+	Via        string `toml:"via" comment:"The notifier when the Feed does not show a note: auto (the Orca plugin, then terminal-notifier, then osascript), orca, terminal-notifier or osascript." enum:"auto,orca,terminal-notifier,osascript" schema:"default"`
+	Terminal   string `toml:"terminal" comment:"iterm2: the Feed shows the card notifications while it is open in iTerm2. off: never." enum:"iterm2,off" schema:"default"`
 }
+
+// Values of [notify] terminal.
+const (
+	TerminalITerm2 = "iterm2"
+	TerminalOff    = "off"
+)
 
 // Account is one login to one platform. It only connects: it names no space,
 // no agent and no conversation.
@@ -197,7 +205,7 @@ func Default() *Config {
 			Lookback:  Duration(24 * time.Hour),
 			Retention: Duration(7 * 24 * time.Hour),
 		},
-		Notify:    Notify{Enabled: true, MinUrgency: "normal"},
+		Notify:    Notify{Enabled: true, MinUrgency: "normal", Via: "auto", Terminal: TerminalITerm2},
 		Agents:    []Agent{NewAgent("triage")},
 		Schedules: []Schedule{NewSchedule("always")},
 		Unsorted:  Unsorted{Agent: "triage", Schedule: "always", Read: ReadMentions},
@@ -360,6 +368,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Notify.MinUrgency == "" {
 		c.Notify.MinUrgency = d.Notify.MinUrgency
+	}
+	if c.Notify.Via == "" {
+		c.Notify.Via = d.Notify.Via
+	}
+	if c.Notify.Terminal == "" {
+		c.Notify.Terminal = d.Notify.Terminal
 	}
 	for i := range c.Accounts {
 		a := &c.Accounts[i]
@@ -909,6 +923,16 @@ func (c *Config) Validate() error {
 	case "high", "normal", "low":
 	default:
 		add("notify.min_urgency: %q is not high, normal or low", c.Notify.MinUrgency)
+	}
+	switch c.Notify.Via {
+	case "", "auto", "orca", "terminal-notifier", "osascript":
+	default:
+		add("notify.via: %q is not auto, orca, terminal-notifier or osascript", c.Notify.Via)
+	}
+	switch c.Notify.Terminal {
+	case "", TerminalITerm2, TerminalOff:
+	default:
+		add("notify.terminal: %q is not iterm2 or off", c.Notify.Terminal)
 	}
 
 	accounts := map[string]bool{}

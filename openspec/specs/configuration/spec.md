@@ -109,11 +109,15 @@ The Schedules tab SHALL list the schedules with their `every` value. The detail 
 - **THEN** the line of today shows no send mark, and the next send time is Friday 00:00
 
 ### Requirement: Settings tab
-The Settings tab SHALL show `lookback`, `retention`, the notifications and the lowest card urgency for a notification, and the background service with the keys `i` (install or restart) and `u` (uninstall).
+The Settings tab SHALL show `lookback`, `retention`, the notifications, the lowest card urgency for a notification, the notifier (`via`), the Feed notifications in iTerm2 (`terminal`), the line of `i2a notify status` for the notifier that i2a uses now with the hint "run i2a notify setup", and the background service with the keys `i` (install or restart) and `u` (uninstall).
 
 #### Scenario: Install the service from Settings
 - **WHEN** the service is not installed and the user presses `i` in the Settings tab
 - **THEN** the LaunchAgent is installed, and the Settings tab shows the service as running
+
+#### Scenario: Notifier line
+- **WHEN** `via = "auto"`, Orca does not run, and terminal-notifier 3.1.0 is installed
+- **THEN** the Settings tab shows that i2a uses terminal-notifier 3.1.0
 
 ### Requirement: Account and conversation commands
 The system SHALL provide `i2a account add mattermost --id <id> --url <url> --token-stdin`, `i2a account add whatsapp --id <id> [--phone <number>]`, `i2a account list`, `i2a account remove <id>` and `i2a conversations [--account <id>] [--unsorted] [--json]`. `account add mattermost` SHALL do the same connection check as the TUI. With `--json`, `i2a conversations` SHALL print one JSON array with one object for each conversation, with the keys `account`, `id`, `kind`, `name`, `label`, `space` and `read`. The system SHALL NOT provide a command that changes one conversation: the user or an agent edits `config.toml`. `i2a conversation` with any arguments SHALL print that the command is removed, name `[[spaces.conversations]]` in `config.toml` and `i2a config --help`, and exit with code 2.
@@ -342,4 +346,15 @@ In the sessions dialog, `l` SHALL open an input for a terminal handle (`term_…
 #### Scenario: Session of another space
 - **WHEN** the user links to Unsorted the Claude session that Triage has
 - **THEN** a confirmation says that the data of the two spaces goes to one session, and the store changes only after `y`
+
+### Requirement: Notifier settings
+`[notify] via` SHALL be `auto`, `orca`, `terminal-notifier` or `osascript`; the default SHALL be `auto`. `[notify] terminal` SHALL be `iterm2` or `off`; the default SHALL be `iterm2`. The configuration validation SHALL reject another value of `via` or `terminal`. The schema of the configuration file SHALL describe both fields.
+
+#### Scenario: Invalid notifier
+- **WHEN** `config.toml` has `[notify] via = "growl"`
+- **THEN** `i2a config check` reports that `notify.via` is not auto, orca, terminal-notifier or osascript
+
+#### Scenario: Old file
+- **WHEN** `config.toml` has a `[notify]` table with only `enabled` and `min_urgency`
+- **THEN** the system loads it with `via = "auto"` and `terminal = "iterm2"`
 

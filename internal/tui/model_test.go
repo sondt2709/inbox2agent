@@ -14,6 +14,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
+	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
@@ -461,5 +462,27 @@ func TestAgentInstructionField(t *testing.T) {
 	send(m, "ctrl+s")
 	if !strings.Contains(fileText(t, m), "primer = 'Tóm tắt bằng tiếng Việt.'") {
 		t.Fatalf("the instruction was not saved:\n%s", fileText(t, m))
+	}
+}
+
+// The Settings tab shows the notifier, the Feed in iTerm2 and the notifiers
+// that i2a tries; a save writes [notify] via and terminal.
+func TestSettingsShowTheNotifier(t *testing.T) {
+	m := newTestModel(t)
+	m.u.d.Notifiers = func() []notify.Found {
+		return []notify.Found{{Name: "orca", Detail: "Orca does not run"},
+			{Name: "terminal-notifier", OK: true, Detail: "terminal-notifier 3.1.0 (/opt/homebrew/bin/terminal-notifier)"},
+			{Name: "osascript", OK: true}}
+	}
+	at(m, tabSettings)
+	s := screen(m)
+	for _, want := range []string{"Notifier", "Feed in iTerm2", "i2a tries terminal-notifier 3.1.0, then osascript."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the Settings tab does not show %q:\n%s", want, s)
+		}
+	}
+	send(m, "enter", "ctrl+u", "2", "d", "ctrl+s")
+	if f := fileText(t, m); !strings.Contains(f, "via = 'auto'") || !strings.Contains(f, "terminal = 'iterm2'") {
+		t.Errorf("the save did not write via and terminal:\n%s", f)
 	}
 }

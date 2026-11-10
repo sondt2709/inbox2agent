@@ -12,7 +12,6 @@ import (
 
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
-	"github.com/sondt2709/inbox2agent/internal/notify"
 	"github.com/sondt2709/inbox2agent/internal/store"
 	"github.com/sondt2709/inbox2agent/internal/tui"
 )
@@ -142,7 +141,7 @@ func runNow(ctx context.Context, e *env, spaces []string) (daemon.RunResult, err
 	}
 	defer st.Close()
 	eng := daemon.New(daemon.Deps{Paths: e.paths, Store: st, Secrets: e.secrets,
-		Log: slog.New(slog.DiscardHandler), Notify: notify.Desktop()}, cfg)
+		Log: slog.New(slog.DiscardHandler), Desktop: true}, cfg)
 	defer eng.Close()
 	return eng.RunNow(ctx, spaces)
 }

@@ -105,11 +105,15 @@ The system SHALL provide `i2a reply --to <message id>` and `i2a reply --card <id
 - **THEN** the command exits with code 1, says that the store has no message 99999, and creates no post
 
 ### Requirement: Reply notification
-On macOS, each successful send with `i2a reply` SHALL show one desktop notification with the title "i2a · the agent sent a reply" and the text `<channel>: <text>`, cut to 200 characters. `[notify] enabled = false` SHALL turn it off. A send from the Feed SHALL NOT show a notification.
+On macOS, each successful send with `i2a reply` SHALL show one desktop notification through the notifier chain (see the capability `desktop-notifications`) with the title "i2a · the agent sent a reply" and the text `<channel>: <text>`, cut to 200 characters. A terminal-notifier notification SHALL open the sent post on a click, with the rule of the requirement "Click target" of the capability `desktop-notifications`. `[notify] enabled = false` SHALL turn it off. A send from the Feed SHALL NOT show a notification.
 
 #### Scenario: Agent send
 - **WHEN** an agent sends "Thanks Minh, noted." with `i2a reply` to a message in `pr-reviews`
-- **THEN** macOS shows "i2a · the agent sent a reply" with "pr-reviews: Thanks Minh, noted."
+- **THEN** a notification shows "i2a · the agent sent a reply" with "pr-reviews: Thanks Minh, noted."
+
+#### Scenario: Click on the reply notification
+- **WHEN** the reply notification shows through terminal-notifier and Mattermost Desktop is installed
+- **THEN** a click opens the sent post in Mattermost Desktop
 
 ### Requirement: Replied line
 The detail panel of a card SHALL show one line for each `sent` reply of the card, with the time, "you" or "the agent", the channel and the place, for example "✓ Replied 14:52 by you → pr-reviews (thread)". The list row of a card with a sent reply SHALL show "✓ replied".
