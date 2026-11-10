@@ -39,4 +39,4 @@
 - [x] 7.1 Update the e2e parser of the digest (`scenarios_test.go`) for the YAML content; update S05, S08, S30, S31, S44 and `SCENARIOS.md`
 - [x] 7.2 Update the local Orca scenarios S14, S15/S16, S21, S25, S29 for the new prompt; add the check that an instruction edit keeps the terminal in S15
 - [x] 7.3 Update `CLAUDE.md` (render, agent, ask paragraphs) and `README.md` where they name the primer or the JSON lines
-- [ ] 7.4 Run `task lint`, `task test`, `task e2e`, `I2A_E2E_ORCA=1 task e2e`, `task leakcheck`
+- [x] 7.4 Run `task lint`, `task test`, `task e2e`, `I2A_E2E_ORCA=1 task e2e`, `task leakcheck`

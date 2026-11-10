@@ -158,3 +158,15 @@ func TestFeedAskDryRun(t *testing.T) {
 		t.Error("the store has an ask")
 	}
 }
+
+// An ask text with three backticks would close the instruction fence of the
+// prompt: the form shows the error and sends nothing.
+func TestFeedAskRefusesThreeBackticks(t *testing.T) {
+	h, a := newAskFeed(t)
+	send(h.m, "t")
+	typeText(h.m, "run this ``` now")
+	send(h.m, "ctrl+s")
+	if s := screen(h.m); !strings.Contains(s, "the text cannot contain three backticks (```)") || len(a.asks) != 0 {
+		t.Fatalf("asks = %d, screen:\n%s", len(a.asks), s)
+	}
+}

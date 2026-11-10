@@ -120,7 +120,9 @@ Alternative: keep a user template with `{{instruction}}` and `{{content}}`. Reje
 - `url`, `reply_to` and `truncated` are left out when they are empty or false.
 - The fields `n` and `source_id` are removed. The cards still refer to `id`.
 - Ask content: `ask: <id>`, `card: {id, key, category, urgency, group, title, body, reply, refs}`, then `conversations` with the ref messages.
-- After the encode, `render` decodes the YAML into the same structs and compares the result with the input. When they differ, it encodes again with all scalars double-quoted (`yaml.Node` style). This guards against encoder bugs like the `|4-` bug of the spike.
+- After the encode, `render` decodes the YAML into the same structs and compares the result with the input. When they differ, it encodes again with all string scalars double-quoted. This guards against encoder bugs like the `|4-` bug of the spike.
+- Finding during apply: `yaml.Node.Encode` writes YAML and parses it again with the indent of 4, so the `|4-` bug also hits it (the fuzz seed `"\n x"` failed). `render.node` builds the `yaml.Node` tree from the structs with reflection (`yaml` tags, `omitempty`), and the encoder writes that tree at indent 2. The fallback sets `DoubleQuotedStyle` on the string nodes of the same tree.
+- Never trim the YAML: a block scalar at the end of the content can keep its last newline (`|`). The fuzz seed `"日本 語\n"` found this.
 
 Alternatives:
 
