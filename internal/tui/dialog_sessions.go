@@ -15,9 +15,9 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
 
-// sessionsDialog shows the session of each space of an agent: the Orca
-// terminal handle, the Claude session and its state. The user links an
-// existing Claude session to a space, unlinks it, or shows it in Orca.
+// sessionsDialog shows the session of one space: the Orca terminal handle,
+// the Claude session and its state. The user links an existing Claude session
+// to the space, unlinks it, or shows it in Orca. agent.ID is the space ID.
 type sessionsDialog struct {
 	agent  config.Agent
 	spaces []config.Space
@@ -43,10 +43,10 @@ type sessionStatesMsg struct {
 	states map[string]agent.SessionState
 }
 
-func (m *model) openSessions(a config.Agent) tea.Cmd {
-	d := &sessionsDialog{agent: a, spaces: m.u.cfg.SpacesUsing("agent", a.ID)}
+func (m *model) openSessions(sp config.Space) tea.Cmd {
+	d := &sessionsDialog{agent: sp.Agent, spaces: []config.Space{sp}}
 	m.openDialog(d)
-	return m.loadSessions(a)
+	return m.loadSessions(sp.Agent)
 }
 
 // shortID returns the first 8 characters of a Claude session ID.
@@ -73,11 +73,14 @@ func (m *model) storedSessions() map[string]inbox.Session {
 	return out
 }
 
-// loadSessions reads the state of each session of the agent outside the
-// update loop: it runs orca and reads the Claude process files.
+// loadSessions reads the state of the session of the space of the agent
+// outside the update loop: it runs orca and reads the Claude process files.
 func (m *model) loadSessions(a config.Agent) tea.Cmd {
 	stored := m.storedSessions()
-	spaces := m.u.cfg.SpacesUsing("agent", a.ID)
+	var spaces []config.Space
+	if sp, ok := m.u.cfg.Space(a.ID); ok {
+		spaces = append(spaces, *sp)
+	}
 	in := m.u.d.Inspector(a)
 	ctx := m.ctx
 	return func() tea.Msg {
@@ -95,7 +98,12 @@ func (m *model) loadSessions(a config.Agent) tea.Cmd {
 	}
 }
 
-func (d *sessionsDialog) title() string { return "Sessions of " + d.agent.Title() }
+func (d *sessionsDialog) title() string {
+	if len(d.spaces) == 1 {
+		return "Session of " + d.spaces[0].Title()
+	}
+	return "Session"
+}
 
 func (d *sessionsDialog) size(W, H int) (int, int) {
 	return min(W-4, 100), min(H-4, 2*len(d.spaces)+10)
@@ -157,8 +165,8 @@ func (d *sessionsDialog) update(m *model, msg tea.Msg) tea.Cmd {
 }
 
 // linkSession resolves the input and stores the session for the space,
-// after a confirmation when the session is outside the workspace of the
-// agent or another space has it. It returns an error text for the input.
+// after a confirmation when the session is outside the folder of the agent
+// or another space has it. It returns an error text for the input.
 func (m *model) linkSession(d *sessionsDialog, sp config.Space, input string) (string, tea.Cmd) {
 	if m.u.d.Store == nil {
 		return "No store yet: run i2a one time first.", nil
@@ -168,8 +176,8 @@ func (m *model) linkSession(d *sessionsDialog, sp config.Space, input string) (s
 		return err.Error(), nil
 	}
 	var warns []string
-	if ws, err := agent.ExpandWorkspace(d.agent.Workspace); err == nil && !inside(p.Cwd, ws) {
-		warns = append(warns, fmt.Sprintf("The session runs in %s, not in the workspace %s of the agent.", p.Cwd, ws))
+	if ws, err := agent.ExpandWorkspace(d.agent.Folder); err == nil && !inside(p.Cwd, ws) {
+		warns = append(warns, fmt.Sprintf("The session runs in %s, not in the folder %s of the agent.", p.Cwd, ws))
 	}
 	for id, s := range m.storedSessions() {
 		if id != sp.ID && s.AgentSession == p.SessionID {
@@ -211,7 +219,7 @@ func inside(dir, ws string) bool {
 
 func (d *sessionsDialog) view(w, _ int) string {
 	if len(d.spaces) == 0 {
-		return "\n" + textStyle.Width(w).Render("No space uses this agent.")
+		return "\n" + textStyle.Width(w).Render("The space does not exist any more.")
 	}
 	var rows []string
 	for i, sp := range d.spaces {

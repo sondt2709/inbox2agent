@@ -31,7 +31,7 @@ func AskID(now time.Time, space string, askID int64) string {
 // Ask renders the prompt of an ask with the template of a batch. The question
 // of the user follows the instruction of the agent; the card and its messages
 // are in the content.
-func Ask(p config.Agent, space, id string, in AskInput, cardCommand string) (*Rendered, error) {
+func Ask(p config.Agent, instruction, space, id string, in AskInput, cardCommand string) (*Rendered, error) {
 	cmd := cardCommand
 	if cmd == "" {
 		cmd = "i2a"
@@ -50,7 +50,7 @@ func Ask(p config.Agent, space, id string, in AskInput, cardCommand string) (*Re
 	if card.Key != "" {
 		about += " (key " + jsonString(card.Key) + ")"
 	}
-	instruction := strings.TrimSpace(Instruction(p)) + "\n\n" + about + ":\n" + text
+	instruction = strings.TrimSpace(Instruction(instruction)) + "\n\n" + about + ":\n" + text
 	cli := CLIInstruction(cmd) + "\n\n" + askLines(in.Card.ID, card.Key, cmd)
 
 	items := Items(in.Messages, p.MessageMaxChars)

@@ -20,7 +20,7 @@ func appendSpace(t *testing.T, m *model, id, name string) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if _, err := f.WriteString("\n[[spaces]]\nid = '" + id + "'\nname = '" + name + "'\nagent = 'claude-work'\nschedule = 'always'\n"); err != nil {
+	if _, err := f.WriteString("\n[[spaces]]\nid = '" + id + "'\nname = '" + name + "'\nschedule = 'always'\n"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -71,12 +71,15 @@ func TestEachTabSaveKeepsTheChangeOfAnotherProcess(t *testing.T) {
 			m.form.field("name").input.SetValue("Company A")
 			send(m, "ctrl+s")
 		}, func(c *config.Config) bool { a, _ := c.Account("work"); return a.Name == "Company A" }},
-		{"agents", func(m *model) {
-			at(m, tabAgents)
-			send(m, "enter")
-			m.form.field("name").input.SetValue("Triage bot")
+		{"agent of a space", func(m *model) {
+			at(m, tabSpaces)
+			send(m, "enter", "up", "up", "up", "enter") // the row Agent of Acme opens its form
+			m.form.field("instruction").area.SetValue("Review the pull requests")
 			send(m, "ctrl+s")
-		}, func(c *config.Config) bool { a, _ := c.Agent("triage"); return a.Name == "Triage bot" }},
+		}, func(c *config.Config) bool {
+			s, _ := c.Space("acme")
+			return s.Instruction == "Review the pull requests"
+		}},
 		{"schedules", func(m *model) {
 			at(m, tabSchedules)
 			send(m, "enter")
@@ -85,7 +88,7 @@ func TestEachTabSaveKeepsTheChangeOfAnotherProcess(t *testing.T) {
 		}, func(c *config.Config) bool { s, _ := c.Schedule("always"); return s.Every.String() == "30m" }},
 		{"spaces", func(m *model) {
 			at(m, tabSpaces)
-			send(m, "enter", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
+			send(m, "enter", "up", "up", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
 			typeText(m, "Acme Corp")
 			send(m, "enter")
 		}, func(c *config.Config) bool { s, _ := c.Space("acme"); return s.Name == "Acme Corp" }},
@@ -111,7 +114,7 @@ func TestEachTabSaveKeepsTheChangeOfAnotherProcess(t *testing.T) {
 
 func TestSaveOfARemovedItemFails(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "enter", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
+	send(m, "enter", "up", "up", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
 	typeText(m, "Acme Corp")
 	changeFile(t, m, func(c *config.Config) error {
 		c.Unsorted.Conversations = append(c.Unsorted.Conversations, c.Spaces[0].Conversations...)
@@ -196,7 +199,7 @@ func TestRefreshKeepsTheConfigurationOfAnInvalidFile(t *testing.T) {
 
 func TestRefreshKeepsADirtyForm(t *testing.T) {
 	m := newTestModel(t)
-	at(m, tabAgents)
+	at(m, tabSchedules)
 	send(m, "enter")
 	m.form.field("name").input.SetValue("Acme Corp")
 	if !m.form.dirty() {

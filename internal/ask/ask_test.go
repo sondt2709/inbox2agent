@@ -71,19 +71,20 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	cfg.Agents = []config.Agent{config.NewAgent("first"), config.NewAgent("claude-work")}
-	for i := range cfg.Agents {
-		cfg.Agents[i].Driver = config.DriverOrca
+	orca := func(id string) config.Agent {
+		a := config.NewAgent(id)
+		a.Driver, a.Folder = config.DriverOrca, "/w"
+		return a
 	}
-	cfg.Unsorted.Agent = "first"
-	cfg.Spaces = []config.Space{{ID: "triage", Name: "Triage", Agent: "claude-work", Schedule: "always"}}
+	cfg.Unsorted.Agent = orca(config.UnsortedID)
+	cfg.Spaces = []config.Space{{ID: "triage", Name: "Triage", Agent: orca("triage"), Schedule: "always"}}
 	drv := &fakeDriver{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_card, turn started", Handle: "term_card"}}
 	e := &env{st: st, drv: drv, card: saved[0].Card, msgID: pending[0].ID, now: now}
 	e.d = Deps{Store: st, Config: cfg, CardCommand: "/usr/local/bin/i2a", LockDir: dir, Now: func() time.Time { return e.now },
 		NewDriver: func(a config.Agent, sp config.Space, _ agent.Sessions) (agent.Driver, error) {
 			space := sp.ID
-			if a.ID != "claude-work" || space != "triage" {
-				t.Errorf("driver of agent %q for space %q, want claude-work for triage", a.ID, space)
+			if a.ID != "triage" || space != "triage" {
+				t.Errorf("driver of the agent of %q for space %q, want the agent of triage", a.ID, space)
 			}
 			return drv, nil
 		}}
@@ -158,7 +159,7 @@ func TestSendRefusesBadTextAndDryRun(t *testing.T) {
 		err.Error() != "the text cannot contain three backticks (```)" {
 		t.Errorf("fence: %v", err)
 	}
-	e.d.Config.Agents[1].Driver = config.DriverDryRun
+	e.d.Config.Spaces[0].Agent.Driver = config.DriverDryRun
 	_, err := Send(context.Background(), e.d, e.card, "more", Wait)
 	var dr *NoAgentError
 	if !errors.As(err, &dr) || err.Error() != "The space Triage has no agent that reads asks." {
@@ -173,10 +174,10 @@ func TestResolveSpace(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	tg, err := Resolve(ctx, e.d, e.card)
-	if err != nil || tg.Space.ID != "triage" || tg.Agent.ID != "claude-work" || len(tg.Messages) != 1 {
+	if err != nil || tg.Space.ID != "triage" || tg.Agent.ID != "triage" || len(tg.Messages) != 1 {
 		t.Fatalf("target = %+v, %v; want the space of the message", tg, err)
 	}
-	if a, s := tg.AgentText(), tg.Session(); a != "claude-work · orca · space Triage" || s != "terminal term_card (wrote the card)" {
+	if a, s := tg.AgentText(), tg.Session(); a != "orca · claude · space Triage" || s != "terminal term_card (wrote the card)" {
 		t.Errorf("agent = %q, session = %q", a, s)
 	}
 	long := tg
@@ -187,7 +188,7 @@ func TestResolveSpace(t *testing.T) {
 
 	noRefs := e.card
 	noRefs.Refs, noRefs.Handle = nil, ""
-	if tg, err := Resolve(ctx, e.d, noRefs); err != nil || tg.Space.ID != config.UnsortedID || tg.Agent.ID != "first" || tg.Session() != "the session of the space" {
+	if tg, err := Resolve(ctx, e.d, noRefs); err != nil || tg.Space.ID != config.UnsortedID || tg.Agent.ID != config.UnsortedID || tg.Session() != "the session of the space" {
 		t.Errorf("card without refs: %+v, %v; want Unsorted and its agent", tg.Space.ID, err)
 	}
 
@@ -214,7 +215,7 @@ func TestResolveSpace(t *testing.T) {
 		t.Errorf("removed space: %v", err)
 	}
 
-	e.d.Config.Unsorted.Agent = ""
+	e.d.Config.Unsorted.Paused = true
 	if _, err := Resolve(ctx, e.d, noRefs); err == nil || err.Error() != "The space Unsorted has no agent that reads asks." {
 		t.Errorf("Unsorted on hold: %v", err)
 	}

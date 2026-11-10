@@ -13,8 +13,8 @@ func TestPromptTemplate(t *testing.T) {
 	p := config.NewAgent("triage")
 	p.Payload = config.PayloadInline
 	p.InlineMaxBytes = config.MaxInlineBytes
-	p.Primer = "Summarise in Vietnamese"
-	r, err := Render(p, "Triage", "b1", []inbox.Message{m("hello"), m("line one\nline two")}, t.TempDir(), "/usr/local/bin/i2a")
+	instr := "Summarise in Vietnamese"
+	r, err := Render(p, instr, "Triage", "b1", []inbox.Message{m("hello"), m("line one\nline two")}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,8 +36,8 @@ func TestParseAppliesDefaults(t *testing.T) {
 	if c.Version != Version || c.Settings.Lookback.D() != 24*time.Hour || c.Settings.Retention.D() != 7*24*time.Hour {
 		t.Errorf("defaults = %+v", c)
 	}
-	if len(c.Agents) != 1 || c.Agents[0].Driver != DriverDryRun || len(c.Schedules) != 1 || c.Schedules[0].Every.D() != 15*time.Minute {
-		t.Errorf("default agents and schedules = %+v %+v", c.Agents, c.Schedules)
+	if a := c.Unsorted.Agent; a.Driver != DriverDryRun || a.ID != UnsortedID || len(c.Schedules) != 1 || c.Schedules[0].Every.D() != 15*time.Minute {
+		t.Errorf("default agent and schedules = %+v %+v", a, c.Schedules)
 	}
 	if c.Unsorted.Read != ReadMentions || c.Unsorted.Schedule != c.Schedules[0].ID {
 		t.Errorf("default Unsorted = %+v", c.Unsorted)
@@ -49,7 +49,7 @@ func TestParseAppliesDefaults(t *testing.T) {
 
 // A [notify] table of an older i2a has no via and no terminal.
 func TestParseOldNotifyTable(t *testing.T) {
-	c, err := Parse([]byte(v2Base + "[notify]\nenabled = true\nmin_urgency = \"high\"\n"))
+	c, err := Parse([]byte(v3Base + "[notify]\nenabled = true\nmin_urgency = \"high\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestParseOldNotifyTable(t *testing.T) {
 	}
 }
 
-const v2Base = `version = 2
+const v3Base = `version = 3
 [[accounts]]
 id = "work"
 platform = "mattermost"
@@ -66,49 +66,48 @@ url = "https://chat.example.com"
 [[accounts]]
 id = "phone"
 platform = "whatsapp"
-[[agents]]
-id = "claude-work"
 [[schedules]]
 id = "work-hours"
 every = "15m"
 days = ["mon", "tue", "wed", "thu", "fri"]
 hours = "08:00-18:00"
 [unsorted]
-agent = ""
+paused = true
 read = "mentions"
 `
 
 func TestValidationErrors(t *testing.T) {
 	space := func(extra string) string {
-		return v2Base + "[[spaces]]\nid = \"acme\"\nname = \"Acme\"\nagent = \"claude-work\"\nschedule = \"work-hours\"\n" + extra
+		return v3Base + "[[spaces]]\nid = \"acme\"\nname = \"Acme\"\nschedule = \"work-hours\"\n" + extra
 	}
 	cases := []struct {
 		name, toml, want string
 	}{
-		{"bad duration", v2Base + "[[schedules]]\nid = \"x\"\nevery = \"ten minutes\"\n", "is not a duration"},
-		{"short every", v2Base + "[[schedules]]\nid = \"x\"\nevery = \"30s\"\n", `schedule "x".every: "30s" is shorter than 1m`},
-		{"bad day", v2Base + "[[schedules]]\nid = \"x\"\nevery = \"1h\"\ndays = [\"monday\"]\n", `"monday" is not one of mon`},
-		{"bad hours", v2Base + "[[schedules]]\nid = \"x\"\nevery = \"1h\"\nhours = \"9-17\"\n", "is not HH:MM-HH:MM"},
-		{"unknown agent", v2Base + "[[spaces]]\nid = \"acme\"\nagent = \"missing\"\nschedule = \"work-hours\"\n", `the agent "missing" does not exist`},
-		{"unknown schedule", v2Base + "[[spaces]]\nid = \"acme\"\nagent = \"claude-work\"\nschedule = \"nope\"\n", `the schedule "nope" does not exist`},
-		{"unknown unsorted agent", strings.Replace(v2Base, "agent = \"\"", "agent = \"gone\"", 1), `unsorted.agent: the agent "gone" does not exist`},
+		{"bad duration", v3Base + "[[schedules]]\nid = \"x\"\nevery = \"ten minutes\"\n", "is not a duration"},
+		{"short every", v3Base + "[[schedules]]\nid = \"x\"\nevery = \"30s\"\n", `schedule "x".every: "30s" is shorter than 1m`},
+		{"bad day", v3Base + "[[schedules]]\nid = \"x\"\nevery = \"1h\"\ndays = [\"monday\"]\n", `"monday" is not one of mon`},
+		{"bad hours", v3Base + "[[schedules]]\nid = \"x\"\nevery = \"1h\"\nhours = \"9-17\"\n", "is not HH:MM-HH:MM"},
+		{"unknown schedule", v3Base + "[[spaces]]\nid = \"acme\"\nschedule = \"nope\"\n", `the schedule "nope" does not exist`},
+		{"agents table in version 3", v3Base + "[[agents]]\nid = \"claude-work\"\n", "unknown field"},
+		{"agent key in version 3", v3Base + "[[spaces]]\nid = \"acme\"\nagent = \"claude-work\"\nschedule = \"work-hours\"\n", "cannot"},
 		{"two spaces", space("[[spaces.conversations]]\naccount = \"work\"\nid = \"C1\"\n[[unsorted.conversations]]\naccount = \"work\"\nid = \"C1\"\nread = \"off\"\n"), `conversation work/C1 is in Unsorted and in space "acme"`},
 		{"two times in one space", space("[[spaces.conversations]]\naccount = \"work\"\nid = \"C1\"\n[[spaces.conversations]]\naccount = \"work\"\nid = \"C1\"\n"), `conversation work/C1 is two times in space "acme"`},
 		{"unknown account", space("[[spaces.conversations]]\naccount = \"slack\"\nid = \"C1\"\n"), `the account "slack" does not exist`},
 		{"bad read", space("[[spaces.conversations]]\naccount = \"work\"\nid = \"C1\"\nread = \"some\"\n"), `"some" is not all, mentions or off`},
-		{"reserved id", v2Base + "[[spaces]]\nid = \"unsorted\"\nagent = \"claude-work\"\nschedule = \"work-hours\"\n", "is for the built-in space"},
-		{"same space name", space("[[spaces]]\nid = \"acme2\"\nname = \"acme\"\nagent = \"claude-work\"\nschedule = \"work-hours\"\n"), `the name "acme" is used two times`},
-		{"route key in an account", strings.Replace(v2Base, "platform = \"whatsapp\"", "platform = \"whatsapp\"\nprofile = \"triage\"", 1), "unknown field"},
-		{"fence in the instruction", v2Base + "[[agents]]\nid = \"a\"\nprimer = \"run:\\n```\\nrm\\n```\"\n", "agent \"a\".primer: the instruction cannot contain three backticks (```)"},
-		{"inline too big", v2Base + "[[agents]]\nid = \"a\"\ninline_max_bytes = 70000\n", "is not between 1024 and 65536"},
-		{"orca needs workspace", v2Base + "[[agents]]\nid = \"a\"\ndriver = \"orca\"\n", "needs a workspace"},
-		{"duplicate agent", v2Base + "[[agents]]\nid = \"claude-work\"\n", "the ID is used two times"},
-		{"unknown platform", v2Base + "[[accounts]]\nid = \"chat\"\nplatform = \"slack\"\n", `account "chat".platform: "slack" is not supported`},
-		{"mattermost needs url", v2Base + "[[accounts]]\nid = \"w2\"\nplatform = \"mattermost\"\n", `account "w2".url: "" must start with https://`},
-		{"bad min urgency", v2Base + "[notify]\nmin_urgency = \"urgent\"\n", `notify.min_urgency: "urgent" is not high, normal or low`},
-		{"bad notifier", v2Base + "[notify]\nvia = \"growl\"\n", `notify.via: "growl" is not auto, orca, terminal-notifier or osascript`},
-		{"bad terminal", v2Base + "[notify]\nterminal = \"kitty\"\n", `notify.terminal: "kitty" is not iterm2 or off`},
-		{"newer version", "version = 3\n", "this i2a supports 2"},
+		{"reserved id", v3Base + "[[spaces]]\nid = \"unsorted\"\nschedule = \"work-hours\"\n", "is for the built-in space"},
+		{"same space name", space("[[spaces]]\nid = \"acme2\"\nname = \"acme\"\nschedule = \"work-hours\"\n"), `the name "acme" is used two times`},
+		{"route key in an account", strings.Replace(v3Base, "platform = \"whatsapp\"", "platform = \"whatsapp\"\nprofile = \"triage\"", 1), "unknown field"},
+		{"fence in the instruction", space("instruction = \"run:\\n```\\nrm\\n```\"\n"), "space \"acme\".instruction: the instruction cannot contain three backticks (```)"},
+		{"fence in the unsorted instruction", strings.Replace(v3Base, "paused = true", "instruction = \"```\"", 1), "unsorted.instruction: the instruction cannot contain three backticks"},
+		{"inline too big", space("[spaces.agent]\ninline_max_bytes = 70000\n"), `space "acme".agent.inline_max_bytes: 70000 is not between 1024 and 65536`},
+		{"orca needs folder", space("[spaces.agent]\ndriver = \"orca\"\n"), `space "acme".agent.folder: the orca driver needs a folder`},
+		{"bad unsorted driver", v3Base + "[unsorted.agent]\ndriver = \"shell\"\n", `unsorted.agent.driver: "shell" is not dry-run or orca`},
+		{"unknown platform", v3Base + "[[accounts]]\nid = \"chat\"\nplatform = \"slack\"\n", `account "chat".platform: "slack" is not supported`},
+		{"mattermost needs url", v3Base + "[[accounts]]\nid = \"w2\"\nplatform = \"mattermost\"\n", `account "w2".url: "" must start with https://`},
+		{"bad min urgency", v3Base + "[notify]\nmin_urgency = \"urgent\"\n", `notify.min_urgency: "urgent" is not high, normal or low`},
+		{"bad notifier", v3Base + "[notify]\nvia = \"growl\"\n", `notify.via: "growl" is not auto, orca, terminal-notifier or osascript`},
+		{"bad terminal", v3Base + "[notify]\nterminal = \"kitty\"\n", `notify.terminal: "kitty" is not iterm2 or off`},
+		{"newer version", "version = 4\n", "this i2a supports 3"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -121,7 +120,7 @@ func TestValidationErrors(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Parse([]byte(v2Base)); err != nil {
+	if _, err := Parse([]byte(v3Base)); err != nil {
 		t.Errorf("the base file is not valid: %v", err)
 	}
 }
@@ -131,8 +130,7 @@ func TestSaveLoadRoundTripHasNoSecrets(t *testing.T) {
 	c := Default()
 	c.Accounts = append(c.Accounts, NewMattermostAccount("work", "https://chat.example.com/"), NewWhatsAppAccount("phone"))
 	c.Accounts[1].Name = "Personal phone"
-	c.Agents[0].Primer = "line one\nline two"
-	c.Spaces = []Space{{ID: "acme", Name: "Acme", Agent: "triage", Schedule: "always", Conversations: []Conversation{
+	c.Spaces = []Space{{ID: "acme", Name: "Acme", Agent: NewAgent("acme"), Instruction: "line one\nline two", Schedule: "always", Conversations: []Conversation{
 		{Account: "work", ID: "c1", Name: "release", Label: "Release channel", Read: ReadAll},
 		{Account: "phone", ID: "g1@g.us", Read: ReadMentions},
 	}}}
@@ -156,11 +154,11 @@ func TestSaveLoadRoundTripHasNoSecrets(t *testing.T) {
 	if s, ok := got.Space("acme"); !ok || len(s.Conversations) != 2 || s.Conversations[0].Title() != "Release channel" {
 		t.Errorf("space = %+v", s)
 	}
-	if got.Agents[0].Primer != "line one\nline two" {
-		t.Errorf("primer = %q", got.Agents[0].Primer)
+	if s, _ := got.Space("acme"); s.Instruction != "line one\nline two" || s.Agent.ID != "acme" || s.Agent.Name != "Acme" {
+		t.Errorf("space = %+v", s)
 	}
 	b, _ := os.ReadFile(path)
-	if !strings.Contains(string(b), "version = 2") || strings.Contains(strings.ToLower(string(b)), "token =") {
+	if !strings.Contains(string(b), "version = 3") || !strings.Contains(string(b), "[spaces.agent]") || strings.Contains(strings.ToLower(string(b)), "token =") {
 		t.Errorf("config file:\n%s", b)
 	}
 }
@@ -232,10 +230,9 @@ func TestScheduleNext(t *testing.T) {
 }
 
 func TestRouteLevelAndMove(t *testing.T) {
-	c, err := Parse([]byte(v2Base + `[[spaces]]
+	c, err := Parse([]byte(v3Base + `[[spaces]]
 id = "acme"
 name = "Acme"
-agent = "claude-work"
 schedule = "work-hours"
 [[spaces.conversations]]
 account = "work"
@@ -285,24 +282,24 @@ read = "off"
 	}
 }
 
-func TestReplaceAgentAndSchedule(t *testing.T) {
+func TestReplaceSchedule(t *testing.T) {
 	c := Default()
-	c.Agents = append(c.Agents, NewAgent("claude-atlas"))
+	c.Schedules = append(c.Schedules, NewSchedule("work"))
 	c.Spaces = []Space{
-		{ID: "acme", Agent: "triage", Schedule: "always"},
-		{ID: "borealis", Agent: "triage", Schedule: "always"},
-		{ID: "atlas", Agent: "claude-atlas", Schedule: "always"},
+		{ID: "acme", Agent: NewAgent("acme"), Schedule: "always"},
+		{ID: "borealis", Agent: NewAgent("borealis"), Schedule: "always"},
+		{ID: "atlas", Agent: NewAgent("atlas"), Schedule: "work"},
 	}
-	if got := c.SpacesUsing("agent", "triage"); len(got) != 3 || got[0].ID != UnsortedID {
-		t.Errorf("users of triage = %+v", got)
+	if got := c.SpacesUsing("schedule", "always"); len(got) != 3 || got[0].ID != UnsortedID {
+		t.Errorf("users of always = %+v", got)
 	}
-	c.Replace("agent", "triage", "claude-atlas")
-	if c.Unsorted.Agent != "claude-atlas" || c.Spaces[0].Agent != "claude-atlas" || c.Spaces[1].Agent != "claude-atlas" {
+	c.Replace("schedule", "always", "work")
+	if c.Unsorted.Schedule != "work" || c.Spaces[0].Schedule != "work" || c.Spaces[1].Schedule != "work" {
 		t.Errorf("after the replace: %+v %+v", c.Unsorted, c.Spaces)
 	}
-	c.Unsorted.Agent = ""
-	if got := c.SpacesUsing("schedule", "always"); len(got) != 3 {
-		t.Errorf("users of always = %d, want 3 (Unsorted on hold does not use it)", len(got))
+	c.Unsorted.Paused = true
+	if got := c.SpacesUsing("schedule", "work"); len(got) != 3 {
+		t.Errorf("users of work = %d, want 3 (a paused Unsorted does not use it)", len(got))
 	}
 }
 

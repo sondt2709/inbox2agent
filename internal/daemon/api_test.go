@@ -82,7 +82,7 @@ func TestAPIStatusRunAndEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(res.Batches) != 1 || res.Batches[0].Space != "review" || res.Batches[0].Count != 1 || res.Failed ||
-		!strings.Contains(res.Summary, "batch of Review to reviewer") {
+		!strings.Contains(res.Summary, "batch of Review (dry-run, 1 messages)") {
 		t.Fatalf("run = %+v", res)
 	}
 	// The agent reviewer is a dry run: its message is previewed. The message of Unsorted waits.
@@ -228,7 +228,7 @@ func TestAPIRunReloadsAChangedFile(t *testing.T) {
 	waitFor(t, func() bool { return strings.Contains(h.logText(), "poll") })
 
 	fc := fileCopy(h.e.Config())
-	fc.Spaces = append(fc.Spaces, config.Space{ID: "fresh", Name: "Fresh", Agent: fc.Agents[0].ID, Schedule: fc.Schedules[0].ID})
+	fc.Spaces = append(fc.Spaces, config.Space{ID: "fresh", Name: "Fresh", Agent: config.NewAgent("fresh"), Schedule: fc.Schedules[0].ID})
 	time.Sleep(20 * time.Millisecond) // a new modification time
 	if err := config.Save(cfgFile, fc); err != nil {
 		t.Fatal(err)

@@ -24,8 +24,9 @@ func spacesEnv(t *testing.T) string {
 	}
 	c := config.Default()
 	c.Accounts = []config.Account{config.NewWhatsAppAccount("phone")}
-	c.Agents = append(c.Agents, config.NewAgent("claude-work"))
-	c.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: "claude-work", Schedule: "always"}}
+	acme := config.NewAgent("acme")
+	acme.Driver, acme.CLI, acme.Folder = config.DriverOrca, "claude", "/w"
+	c.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: acme, Schedule: "always"}}
 	if err := config.Save(paths.ConfigFile, c); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestStatusShowsSpaces(t *testing.T) {
 		t.Fatal(r.err)
 	}
 	for _, want := range []string{"Accounts:", "phone", "not paired", "Spaces:", "unsorted  Unsorted", "acme      Acme",
-		"claude-work", "0 waiting", "new conversations: read mentions", "Agents:", "Schedules:", "every 15m · every day · all day"} {
+		"orca · claude", "0 waiting", "new conversations: read mentions", "Schedules:", "every 15m · every day · all day"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("status has no %q:\n%s", want, r.out)
 		}
@@ -81,7 +82,7 @@ func TestLoadPrintsTheMigrationReport(t *testing.T) {
 	os.Stderr = stderr
 	b := make([]byte, 4096)
 	n, _ := rd.Read(b)
-	if r.err != nil || !strings.Contains(string(b[:n]), "i2a converted the configuration to version 2") ||
+	if r.err != nil || !strings.Contains(string(b[:n]), "i2a converted the configuration from version 1 to version 3") ||
 		!strings.Contains(string(b[:n]), paths.ConfigFile+".v1.bak") {
 		t.Errorf("stderr = %q, err = %v", b[:n], r.err)
 	}
@@ -94,7 +95,7 @@ func TestAccountRemoveWaitsForTheLockOfAnotherWriter(t *testing.T) {
 		_, _, err := config.Update(file, func(c *config.Config) error {
 			close(locked)
 			time.Sleep(300 * time.Millisecond) // another writer holds the lock
-			c.Spaces = append(c.Spaces, config.Space{ID: "side-project", Name: "Side project", Agent: "claude-work", Schedule: "always"})
+			c.Spaces = append(c.Spaces, config.Space{ID: "side-project", Name: "Side project", Agent: config.NewAgent("side-project"), Schedule: "always"})
 			return nil
 		})
 		done <- err
@@ -115,5 +116,28 @@ func TestAccountRemoveWaitsForTheLockOfAnotherWriter(t *testing.T) {
 	}
 	if _, ok := c.Account("phone"); ok {
 		t.Errorf("the command did not remove the account")
+	}
+}
+
+func TestStatusShowsAPausedSpace(t *testing.T) {
+	file := spacesEnv(t)
+	if _, _, err := config.Update(file, func(c *config.Config) error { c.Spaces[0].Paused = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	r := i2a(t, "", "status")
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	line := ""
+	for l := range strings.SplitSeq(r.out, "\n") {
+		if strings.Contains(l, "acme") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "orca · claude") || !strings.Contains(line, "paused: does not send") || !strings.Contains(line, "0 waiting") {
+		t.Errorf("status line of acme = %q", line)
+	}
+	if strings.Contains(r.out, "Agents:") {
+		t.Errorf("status has an Agents part:\n%s", r.out)
 	}
 }

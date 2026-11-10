@@ -13,7 +13,7 @@ import (
 func TestOneConversationInTwoSpaces(t *testing.T) {
 	m := newTestModel(t)
 	changeFile(t, m, func(c *config.Config) error {
-		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: "claude-work", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: config.NewAgent("beta"), Schedule: "always"})
 		return nil
 	})
 	refresh(m)
@@ -62,7 +62,7 @@ func TestFeedShowsTheSpaceOfTheTerminalOfACard(t *testing.T) {
 func TestDeleteASpaceThatSharesAConversation(t *testing.T) {
 	m := newTestModel(t)
 	changeFile(t, m, func(c *config.Config) error {
-		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: "claude-work", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: config.NewAgent("beta"), Schedule: "always"})
 		return c.AddLink("work", "C1", "beta", config.ReadAll)
 	})
 	refresh(m)

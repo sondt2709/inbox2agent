@@ -13,7 +13,7 @@ import (
 
 func addSpace(id string) func(*Config) error {
 	return func(c *Config) error {
-		c.Spaces = append(c.Spaces, Space{ID: id, Name: id, Agent: "triage", Schedule: "always"})
+		c.Spaces = append(c.Spaces, Space{ID: id, Name: id, Agent: NewAgent("x"), Schedule: "always"})
 		return nil
 	}
 }
@@ -72,7 +72,7 @@ func TestUpdateWritesNothingWhenTheChangeFails(t *testing.T) {
 	before, _ := os.ReadFile(path)
 	_, _, err := Update(path, func(c *Config) error {
 		c.Spaces = append(c.Spaces, Space{ID: "x", Name: "x"})
-		return MissingError{Kind: KindAgent, ID: "gone"}
+		return MissingError{Kind: KindSchedule, ID: "gone"}
 	})
 	var me MissingError
 	if !errors.As(err, &me) || me.ID != "gone" {
@@ -118,8 +118,8 @@ func TestUpdateWithoutFileUsesTheDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Agents) != 1 || c.Agents[0].ID != "triage" {
-		t.Errorf("agents %v, want the default triage", c.Agents)
+	if c.Unsorted.Agent.Driver != DriverDryRun || c.Spaces[0].Agent.Driver != DriverDryRun {
+		t.Errorf("agents %+v %+v, want the default dry-run agents", c.Unsorted.Agent, c.Spaces[0].Agent)
 	}
 }
 
@@ -137,10 +137,10 @@ func TestSaveWritesTheHeader(t *testing.T) {
 func TestItem(t *testing.T) {
 	c := Default()
 	c.Accounts = []Account{NewMattermostAccount("work", "https://chat.example.com")}
-	c.Spaces = []Space{{ID: "acme", Name: "Acme", Agent: "triage", Schedule: "always",
+	c.Spaces = []Space{{ID: "acme", Name: "Acme", Agent: NewAgent("x"), Schedule: "always",
 		Conversations: []Conversation{{Account: "work", ID: "C1", Read: ReadAll}}}}
 	for _, tc := range []struct{ kind, id string }{
-		{KindSettings, ""}, {KindUnsorted, ""}, {KindAccount, "work"}, {KindAgent, "triage"},
+		{KindSettings, ""}, {KindUnsorted, ""}, {KindAccount, "work"},
 		{KindSchedule, "always"}, {KindSpace, "acme"}, {KindConversation, "work/C1"},
 	} {
 		if _, ok := Item(c, tc.kind, tc.id); !ok {
@@ -148,7 +148,7 @@ func TestItem(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct{ kind, id string }{
-		{KindAccount, "x"}, {KindAgent, "x"}, {KindSchedule, "x"}, {KindSpace, "x"}, {KindConversation, "work/x"}, {"other", ""},
+		{KindAccount, "x"}, {KindSchedule, "x"}, {KindSpace, "x"}, {KindConversation, "work/x"}, {"other", ""},
 	} {
 		if _, ok := Item(c, tc.kind, tc.id); ok {
 			t.Errorf("Item(%s, %q) found an item that does not exist", tc.kind, tc.id)
@@ -160,31 +160,34 @@ func TestItem(t *testing.T) {
 	if after, _ := Item(c, KindSpace, "acme"); fmt.Sprint(after) != fmt.Sprint(before) {
 		t.Error("a change of the conversations changed the space item")
 	}
-	c.Spaces[0].Agent = "other"
+	c.Spaces[0].Agent.Folder = "/other"
 	if after, _ := Item(c, KindSpace, "acme"); fmt.Sprint(after) == fmt.Sprint(before) {
 		t.Error("a change of the agent did not change the space item")
 	}
 }
 
-// The batch template is not used: the file loads, and the next save drops it.
-func TestSaveDropsTheBatchTemplate(t *testing.T) {
+// An update of a version 2 file converts it: the saved file is version 3,
+// has no [[agents]] and no batch template, and the old text is in the backup.
+func TestUpdateConvertsAVersion2File(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := Save(path, Default()); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(path)
-	text := strings.Replace(string(b), "id = 'triage'\n", "id = 'triage'\nbatch = '{{.Count}} new messages'\n", 1)
-	if !strings.Contains(text, "batch = ") {
-		t.Fatal("the test did not add the batch field")
-	}
-	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+	v2 := "version = 2\n[[agents]]\nid = 'triage'\nbatch = '{{.Count}} new messages'\n[[schedules]]\nid = 'always'\nevery = '15m'\n" +
+		"[unsorted]\nagent = 'triage'\nschedule = 'always'\n"
+	if err := os.WriteFile(path, []byte(v2), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := Update(path, addSpace("s1")); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = os.ReadFile(path)
-	if strings.Contains(string(b), "batch = ") || !strings.Contains(string(b), "id = 's1'") {
+	b, _ := os.ReadFile(path)
+	for _, gone := range []string{"batch = ", "[[agents]]", "version = 2"} {
+		if strings.Contains(string(b), gone) {
+			t.Errorf("saved file has %q:\n%s", gone, b)
+		}
+	}
+	if !strings.Contains(string(b), "id = 's1'") || !strings.Contains(string(b), "version = 3") {
 		t.Errorf("saved file:\n%s", b)
+	}
+	if bak, err := os.ReadFile(path + ".v2.bak"); err != nil || string(bak) != v2 {
+		t.Errorf("backup = %q, %v", bak, err)
 	}
 }

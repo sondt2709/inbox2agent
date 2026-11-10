@@ -68,16 +68,13 @@ func (m *model) panelRows(w int) []pRow {
 	var out []pRow
 	switch it.kind {
 	case "space", railElse:
-		s, _ := m.u.cfg.Space(it.space)
 		if it.kind == "space" {
 			out = append(out, pRow{kind: "set", key: "name"})
 		} else {
 			out = append(out, pRow{kind: "set", key: "read"})
 		}
-		out = append(out, pRow{kind: "set", key: "agent"})
-		if s.Agent != "" {
-			out = append(out, pRow{kind: "set", key: "schedule"})
-		}
+		out = append(out, pRow{kind: "set", key: "status"}, pRow{kind: "set", key: "agent"}, pRow{kind: "set", key: "session"},
+			pRow{kind: "set", key: "schedule"})
 		out = append(out, text(m.settingLine("Last send", m.lastSendText(it.space), w)), text(""))
 		rows := m.rowsOfSpace(it.space)
 		head := fmt.Sprintf("Conversations · %d", len(rows))
@@ -141,18 +138,22 @@ func (m *model) settingText(key string, w int) string {
 		return m.settingLine("Name", s.Title(), w)
 	case "read":
 		return m.settingLine("New and other conversations read", "", 0) + " " + textStyle.Render(levelText(m.u.cfg.Unsorted.Read))
+	case "status":
+		switch {
+		case !s.Paused:
+			return m.settingLine("Status", okStyle.Render("● Sending"), w)
+		case s.ID == config.UnsortedID:
+			return m.settingLine("Status", "○ Hold: does not send · messages wait until they expire after "+m.u.cfg.Settings.Lookback.String(), w)
+		}
+		return m.settingLine("Status", "○ Paused: does not send · messages wait until they expire after "+m.u.cfg.Settings.Lookback.String(), w)
 	case "agent":
-		if s.Agent == "" {
-			return m.settingLine("Sends to", "hold: does not send", w)
+		v := agentText(s.Agent)
+		if s.Instruction != "" {
+			v += faint.Render(" · instruction: " + strings.Join(strings.Fields(s.Instruction), " "))
 		}
-		v := s.Agent
-		if a, ok := m.u.cfg.Agent(s.Agent); ok {
-			v = a.Title() + faint.Render(" · "+a.Driver)
-			if a.Driver == config.DriverOrca && a.CLI != "" {
-				v += faint.Render(" · " + a.CLI)
-			}
-		}
-		return m.settingLine("Sends to", v, w)
+		return m.settingLine("Agent", v, w)
+	case "session":
+		return m.settingLine("Session", m.sessionLine(s.ID), w)
 	case "schedule":
 		v := s.Schedule
 		if sc, ok := m.u.cfg.Schedule(s.Schedule); ok {
@@ -409,7 +410,11 @@ func (m *model) keyPanel(k string, it railItem) tea.Cmd {
 				return m.setElseRead(1)
 			}
 		case "enter":
-			m.settingDialog(it, r.key)
+			return m.settingDialog(it, r.key)
+		case "s":
+			if r.key == "session" {
+				return m.settingDialog(it, r.key)
+			}
 		}
 		return nil
 	}
@@ -521,8 +526,9 @@ func (m *model) commitSpaces(change func(c *config.Config) error, done string) b
 	return true
 }
 
-// settingDialog opens the dialog of a setting row.
-func (m *model) settingDialog(it railItem, key string) {
+// settingDialog acts on a setting row: a dialog, the agent form, or the
+// pause of the space.
+func (m *model) settingDialog(it railItem, key string) tea.Cmd {
 	s, _ := m.u.cfg.Space(it.space)
 	id := it.space
 	switch key {
@@ -559,40 +565,28 @@ func (m *model) settingDialog(it railItem, key string) {
 		m.openDialog(&pickDialog{name: "New and other conversations read",
 			text: "The read level of each conversation that no space lists and that you did not set.", options: opts,
 			cursor: slices.Index(config.ReadLevels, m.u.cfg.Unsorted.Read)})
-	case "agent":
-		var opts []pickOption
-		cursor := 0
-		if id == config.UnsortedID {
-			opts = append(opts, pickOption{label: "hold", note: "do not send; the messages wait until they expire", run: func() tea.Cmd {
-				m.commitSpaces(func(c *config.Config) error { c.Unsorted.Agent = ""; return nil }, "Everything else holds its messages.")
-				return nil
-			}})
+	case "status":
+		paused := !s.Paused
+		text := s.Title() + " sends again."
+		if paused {
+			text = s.Title() + " is paused: its messages wait."
 		}
-		for _, a := range m.u.cfg.Agents {
-			if a.ID == s.Agent {
-				cursor = len(opts)
+		m.commitSpaces(func(c *config.Config) error {
+			if id == config.UnsortedID {
+				c.Unsorted.Paused = paused
+				return nil
 			}
-			opts = append(opts, pickOption{label: a.Title(), note: a.Driver, run: func() tea.Cmd {
-				m.commitSpaces(func(c *config.Config) error {
-					if id == config.UnsortedID {
-						c.Unsorted.Agent = a.ID
-						if c.Unsorted.Schedule == "" {
-							c.Unsorted.Schedule = c.Schedules[0].ID
-						}
-						return nil
-					}
-					cur, ok := c.Space(id)
-					if !ok {
-						return config.MissingError{Kind: config.KindSpace, ID: id}
-					}
-					cur.Agent = a.ID
-					return nil
-				}, s.Title()+" sends to "+a.Title()+".")
-				return nil
-			}})
-		}
-		m.openDialog(&pickDialog{name: "Agent of " + s.Title(), text: "Each space has its own session of the agent. Add or change agents in Setup.",
-			options: opts, cursor: cursor})
+			cur, ok := c.Space(id)
+			if !ok {
+				return config.MissingError{Kind: config.KindSpace, ID: id}
+			}
+			cur.Paused = paused
+			return nil
+		}, text)
+	case "agent":
+		return m.openSpaceForm(id)
+	case "session":
+		return m.openSessions(*s)
 	case "schedule":
 		var opts []pickOption
 		cursor := 0
@@ -600,7 +594,7 @@ func (m *model) settingDialog(it railItem, key string) {
 			if sc.ID == s.Schedule {
 				cursor = i
 			}
-			opts = append(opts, pickOption{label: sc.Title(), note: sc.Text(), run: func() tea.Cmd {
+			opts = append(opts, pickOption{label: "Use " + sc.Title(), note: sc.Text(), run: func() tea.Cmd {
 				m.commitSpaces(func(c *config.Config) error {
 					if id == config.UnsortedID {
 						c.Unsorted.Schedule = sc.ID
@@ -616,15 +610,59 @@ func (m *model) settingDialog(it railItem, key string) {
 				return nil
 			}})
 		}
-		m.openDialog(&pickDialog{name: "Schedule of " + s.Title(), text: "When this space sends. Change the times in Setup.",
+		cur, ok := m.u.cfg.Schedule(s.Schedule)
+		if ok {
+			sc := *cur
+			opts = append(opts,
+				pickOption{label: "Rename " + sc.Title() + "…", note: "the ID " + sc.ID + " stays", run: func() tea.Cmd {
+					m.renameScheduleDialog(sc)
+					return nil
+				}},
+				pickOption{label: "Edit the times of " + sc.Title() + " in Setup", note: "every, days, hours", run: func() tea.Cmd {
+					return m.editSchedule(sc.ID)
+				}})
+		}
+		m.openDialog(&pickDialog{name: "Schedule of " + s.Title(), text: "When this space sends. " + m.usedBy("schedule", s.Schedule),
 			options: opts, cursor: cursor})
 	}
+	return nil
+}
+
+// renameScheduleDialog changes the name of a schedule; its ID stays.
+func (m *model) renameScheduleDialog(sc config.Schedule) {
+	id := sc.ID
+	m.openDialog(newInputDialog("Rename "+sc.Title(), "The name that i2a shows. The ID "+id+" stays. "+m.usedBy("schedule", id), sc.Name, "Work hours",
+		func(name string) (string, tea.Cmd) {
+			if name == "" {
+				return "Type a name.", nil
+			}
+			m.commitSpaces(func(c *config.Config) error {
+				cur, ok := c.Schedule(id)
+				if !ok {
+					return config.MissingError{Kind: config.KindSchedule, ID: id}
+				}
+				cur.Name = name
+				return nil
+			}, "Renamed the schedule "+id+" to "+name+".")
+			return "", nil
+		}))
+}
+
+// editSchedule opens Setup › Schedules with the schedule and gives its form the keyboard.
+func (m *model) editSchedule(id string) tea.Cmd {
+	for i, sc := range m.u.cfg.Schedules {
+		if sc.ID == id {
+			m.sch = i
+		}
+	}
+	cmd := m.setTab(tabSchedules)
+	return tea.Batch(cmd, m.focusForm())
 }
 
 // addSpaceDialog asks for the name of a new space. then gets its ID.
 func (m *model) addSpaceDialog(then func(id string)) {
-	m.openDialog(newInputDialog("New space", "The name of the new space, for example Company B. It sends to the agent "+
-		m.u.cfg.Agents[0].Title()+" on the schedule "+m.u.cfg.Schedules[0].Title()+"; change them in its panel.",
+	m.openDialog(newInputDialog("New space", "The name of the new space, for example Company B. It gets a copy of the agent of "+
+		m.spaceTitle(m.agentSource())+" and the schedule "+m.u.cfg.Schedules[0].Title()+"; change them in its panel.",
 		"", "Company B", func(name string) (string, tea.Cmd) {
 			id, errText := m.newSpace(name)
 			if errText != "" {
@@ -701,13 +739,13 @@ func (m *model) viewSpaces(w, h int) string {
 		case "space":
 			s, _ := cfg.Space(it.space)
 			dot := okStyle.Render("●")
-			if s.Agent == "" {
+			if s.Paused {
 				dot = faint.Render("○")
 			}
 			items = append(items, dot+" "+listLabel(s.Title(), countText(len(m.rowsOfSpace(s.ID)), m.spaceWaiting(s.ID)), inner))
 		case railElse:
 			dot := okStyle.Render("●")
-			if cfg.Unsorted.Agent == "" {
+			if cfg.Unsorted.Paused {
 				dot = faint.Render("○")
 			}
 			items = append(items, dot+" "+listLabel("Everything else", countText(len(m.elseRows()), m.spaceWaiting(config.UnsortedID)), inner))
@@ -729,6 +767,10 @@ func (m *model) viewSpaces(w, h int) string {
 	left := panel("Spaces", list, lw, h)
 
 	pw := w - lw
+	if m.spaceForm != "" && m.form != nil {
+		body := m.form.render(pw-4, h-4)
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, detailPanel("Agent of "+m.spaceTitle(m.spaceForm), body, pw, h, m.form.active))
+	}
 	body, title := m.renderPanel(pw-4, h-3)
 	var right string
 	if m.spcFocus {
@@ -830,11 +872,11 @@ func (m *model) whenText(t time.Time) string {
 	return t.Format("Mon 15:04")
 }
 
-// nextSend returns the next send time of all spaces that have an agent.
+// nextSend returns the next send time of all spaces that are not paused.
 func (m *model) nextSend() time.Time {
 	var next time.Time
 	for _, s := range m.u.cfg.AllSpaces() {
-		if s.Agent == "" {
+		if s.Paused {
 			continue
 		}
 		if sc, ok := m.u.cfg.Schedule(s.Schedule); ok {

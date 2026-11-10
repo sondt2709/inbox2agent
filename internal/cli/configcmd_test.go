@@ -14,11 +14,11 @@ import (
 func TestConfigCheck(t *testing.T) {
 	file := spacesEnv(t)
 	r := i2a(t, "", "config", "check")
-	if r.err != nil || !strings.Contains(r.out, "is valid: 1 account, 2 agents, 1 schedule, 1 space and Unsorted, 0 conversations") {
+	if r.err != nil || !strings.Contains(r.out, "is valid: 1 account, 1 schedule, 1 space and Unsorted, 0 conversations") {
 		t.Fatalf("check of a valid file: %q, %v", r.out, r.err)
 	}
 	b, _ := os.ReadFile(file)
-	bad := strings.Replace(string(b), "agent = 'claude-work'", "agent = 'nope'", 1) +
+	bad := strings.Replace(string(b), "schedule = 'always'\n\n[spaces.agent]", "schedule = 'nope'\n\n[spaces.agent]", 1) +
 		"\n[[spaces.conversations]]\naccount = 'phone'\nid = 'g1@g.us'\nread = 'some'\n"
 	other := filepath.Join(t.TempDir(), "next.toml")
 	if err := os.WriteFile(other, []byte(bad), 0o600); err != nil {
@@ -29,7 +29,7 @@ func TestConfigCheck(t *testing.T) {
 	if !errors.As(r.err, &ee) || ee.code != 1 {
 		t.Fatalf("check of a bad file: %v", r.err)
 	}
-	for _, want := range []string{`the agent "nope" does not exist`, `.read: "some" is not all, mentions or off`} {
+	for _, want := range []string{`the schedule "nope" does not exist`, `.read: "some" is not all, mentions or off`} {
 		if !strings.Contains(r.err.Error(), want) {
 			t.Errorf("the check does not say %q:\n%v", want, r.err)
 		}
@@ -65,7 +65,7 @@ func TestConversationsJSON(t *testing.T) {
 		if err := c.SetLabel("phone", "g1@g.us", "Acme team"); err != nil {
 			return err
 		}
-		c.Spaces = append(c.Spaces, config.Space{ID: "atlas", Name: "Atlas", Agent: "claude-work", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "atlas", Name: "Atlas", Agent: config.NewAgent("atlas"), Schedule: "always"})
 		return c.AddLink("phone", "g1@g.us", "atlas", config.ReadAll)
 	}); err != nil {
 		t.Fatal(err)

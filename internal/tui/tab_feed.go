@@ -885,7 +885,7 @@ func (m *model) openAsk(c inbox.Card) tea.Cmd {
 
 func (m *model) askForm(c inbox.Card) *form {
 	t, err := ask.TargetOf(m.u.cfg, c, m.refMessages(c))
-	agentLine, sessionLine := "Agent      "+t.Agent.Title()+" · "+t.Agent.Driver+" · space "+orStr(m.spaceNames()[t.Space.ID], t.Space.Title()), "Session    "+t.Session()
+	agentLine, sessionLine := "Agent      "+t.Agent.Title()+" · space "+orStr(m.spaceNames()[t.Space.ID], t.Space.Title()), "Session    "+t.Session()
 	if err != nil {
 		agentLine, sessionLine = "Agent      "+err.Error(), ""
 	}

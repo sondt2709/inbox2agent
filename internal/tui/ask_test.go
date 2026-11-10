@@ -33,11 +33,11 @@ func (a *tuiAgent) Ask(_ context.Context, _ agent.Terminal, wait time.Duration, 
 func newAskFeed(t *testing.T) (*feedHarness, *tuiAgent) {
 	t.Helper()
 	h := newFeedModel(t)
-	h.m.u.cfg.Agents[0].Driver, h.m.u.cfg.Agents[0].Workspace = config.DriverOrca, t.TempDir()
+	h.m.u.cfg.Unsorted.Agent.Driver, h.m.u.cfg.Unsorted.Agent.Folder = config.DriverOrca, t.TempDir()
 	a := &tuiAgent{result: agent.Result{Status: agent.StatusSent, Detail: "sent to term_s, turn started", Handle: "term_s"}}
 	h.m.u.d.AskDriver = func(p config.Agent, sp config.Space, _ agent.Sessions) (agent.Driver, error) {
 		space := sp.ID
-		if p.ID != "triage" || space != config.UnsortedID {
+		if p.ID != config.UnsortedID || space != config.UnsortedID {
 			t.Errorf("driver of agent %q for space %q", p.ID, space)
 		}
 		return a, nil
@@ -65,7 +65,7 @@ func TestFeedAskTheAgent(t *testing.T) {
 	h, a := newAskFeed(t)
 	send(h.m, "t")
 	s := screen(h.m)
-	for _, want := range []string{"Ask the agent · card", "Agent      triage · orca · space Everything else", "Session    the session of the space",
+	for _, want := range []string{"Ask the agent · card", "Agent      orca · claude · space Everything else", "Session    the session of the space",
 		"The agent answers in this card.", "ctrl+s send", "esc cancel"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the ask form does not show %q:\n%s", want, s)

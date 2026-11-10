@@ -11,8 +11,8 @@ import (
 func TestCustomInstructionKeepsCLIInstruction(t *testing.T) {
 	p := config.NewAgent("triage")
 	p.Payload, p.InlineMaxBytes = config.PayloadInline, config.MaxInlineBytes
-	p.Primer = "Tóm tắt tin nhắn bằng tiếng Việt."
-	r, err := Render(p, "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "/usr/local/bin/i2a")
+	instr := "Tóm tắt tin nhắn bằng tiếng Việt."
+	r, err := Render(p, instr, "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}

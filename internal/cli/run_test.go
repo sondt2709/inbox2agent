@@ -50,9 +50,9 @@ func TestStatusCountsTheWaitingMessagesOfEachLink(t *testing.T) {
 	c := config.Default()
 	c.Accounts = []config.Account{config.NewMattermostAccount("work", "https://chat.example.com")}
 	c.Spaces = []config.Space{
-		{ID: "review", Name: "Review", Agent: "triage", Schedule: "always",
+		{ID: "review", Name: "Review", Agent: config.NewAgent("review"), Schedule: "always",
 			Conversations: []config.Conversation{{Account: "work", ID: "C1", Read: config.ReadAll}}},
-		{ID: "team", Name: "Team", Agent: "triage", Schedule: "always",
+		{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always",
 			Conversations: []config.Conversation{{Account: "work", ID: "C1", Read: config.ReadMentions}}},
 	}
 	pending := []inbox.Message{

@@ -28,8 +28,6 @@ func formItem(key string) (kind, id string) {
 	switch pre {
 	case "acc":
 		return config.KindAccount, id
-	case "agt":
-		return config.KindAgent, id
 	case "sch":
 		return config.KindSchedule, id
 	case "spc":
@@ -165,7 +163,12 @@ func (m *model) applyFile(st fileState) tea.Cmd {
 	if m.activeSpace() == "" {
 		m.spaceFilter = "" // the space of the filter is gone: all spaces, also when a new space gets its ID
 	}
-	m.acc, m.agt, m.sch, m.spc = min(m.acc, len(c.Accounts)), min(m.agt, len(c.Agents)), min(m.sch, len(c.Schedules)), min(m.spc, len(c.Spaces))
+	m.acc, m.sch, m.spc = min(m.acc, len(c.Accounts)), min(m.sch, len(c.Schedules)), min(m.spc, len(c.Spaces))
+	if m.spaceForm != "" {
+		if _, ok := c.Space(m.spaceForm); !ok {
+			m.closeSpaceForm() // another process removed the space
+		}
+	}
 	var cmd tea.Cmd
 	if m.tab == tabFeed {
 		// The forms of the Feed (reply, ask) do not show the configuration.
