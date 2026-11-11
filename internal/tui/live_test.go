@@ -73,7 +73,7 @@ func TestEachTabSaveKeepsTheChangeOfAnotherProcess(t *testing.T) {
 		}, func(c *config.Config) bool { a, _ := c.Account("work"); return a.Name == "Company A" }},
 		{"agent of a space", func(m *model) {
 			at(m, tabSpaces)
-			send(m, "enter", "up", "up", "up", "enter") // the row Agent of Acme opens its form
+			send(m, "enter", "up", "up", "up", "up", "enter") // the row Agent of Acme opens its form
 			m.form.field("instruction").area.SetValue("Review the pull requests")
 			send(m, "ctrl+s")
 		}, func(c *config.Config) bool {
@@ -88,7 +88,7 @@ func TestEachTabSaveKeepsTheChangeOfAnotherProcess(t *testing.T) {
 		}, func(c *config.Config) bool { s, _ := c.Schedule("always"); return s.Every.String() == "30m" }},
 		{"spaces", func(m *model) {
 			at(m, tabSpaces)
-			send(m, "enter", "up", "up", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
+			send(m, "enter", "up", "up", "up", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
 			typeText(m, "Acme Corp")
 			send(m, "enter")
 		}, func(c *config.Config) bool { s, _ := c.Space("acme"); return s.Name == "Acme Corp" }},
@@ -114,7 +114,7 @@ func TestEachTabSaveKeepsTheChangeOfAnotherProcess(t *testing.T) {
 
 func TestSaveOfARemovedItemFails(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "enter", "up", "up", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
+	send(m, "enter", "up", "up", "up", "up", "up", "up", "enter", "ctrl+u") // the row Name of Acme
 	typeText(m, "Acme Corp")
 	changeFile(t, m, func(c *config.Config) error {
 		c.Unsorted.Conversations = append(c.Unsorted.Conversations, c.Spaces[0].Conversations...)

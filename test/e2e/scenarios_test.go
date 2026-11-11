@@ -607,7 +607,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 		t.Fatalf("discard kept the change of the lookback:\n%s", s)
 	}
 	s = tm.Press("q", `did not change`, 5*time.Second)
-	if strings.Contains(s, "ctrl+r run now") {
+	if strings.Contains(s, "Run now ctrl+r") {
 		t.Fatalf("the TUI is still on the screen after exit:\n%s", s)
 	}
 	after, _ := os.ReadFile(p.configFile())

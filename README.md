@@ -117,7 +117,7 @@ Each change that is merged into `main` makes a new release. The PR title gives t
 
 1. Create a personal access token in Mattermost: **Profile > Security > Personal Access Tokens**. If you do not see this section, ask your administrator to turn on personal access tokens.
 2. Run `i2a config`. Click **Setup** (or press `tab`) to open Accounts, then press `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Everything else.
-3. Click **Spaces**, select "+ New space" and press `enter` to make a space, for example "Company A". Press `a` in the space: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` to add or remove a conversation. Then select **OK** (`enter`, `ctrl+s`, or `tab` and a click) to save, or **Cancel** (`esc`) to close with no change.
+3. Click **Spaces**, select "+ New space" and press `enter` to make a space, for example "Company A". Click "+ Add conversations" in the space, or press `a`: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` (or a click on the row) to add or remove a conversation. Then select **OK** (`enter`, `ctrl+s`, or `tab` and a click) to save, or **Cancel** (`esc`) to close with no change.
 4. Select Everything else. It reads each conversation that no space has, at the level "New and other conversations read" (default: only the messages for you), and sends them to its agent, or holds them.
 5. Run `i2a run --once`. The default agent uses the `dry-run` driver, so `i2a` writes a digest file and starts no agent. Read the digest to see what an agent would get.
 6. Run `i2a config` again. Select the space, press `enter`, go to the row **Agent** and press `enter`. Set the driver to `orca` (`→`), the CLI (for example `claude`), the folder and the instruction, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. The row **When** picks, renames or edits the schedule; the row **Status** pauses the space.
@@ -134,10 +134,10 @@ Run `i2a status` to see the accounts, the spaces with their agent and next send,
 
 ### The dashboard
 
-`i2a` opens the dashboard on the Feed. `i2a config` opens it on Spaces. The header has three areas, and at the right the service, the next send and `ctrl+r run now`. Click an area or a section to open it:
+`i2a` opens the dashboard on the Feed. `i2a config` opens it on Spaces. The header has three areas, and at the right the service, the next send and the button `Run now ctrl+r`. Click an area or a section to open it:
 
 ```
-◆ i2a   Feed 3   Spaces 2 new   Setup                    ● running · next send today 11:45 · ctrl+r run now
+◆ i2a   Feed 3   Spaces 2 new   Setup                    ● running · next send today 11:45 ·  Run now ctrl+r
  Last run 11:40:12 · Read 1 new messages · Review: sent (1).
 ```
 
@@ -151,7 +151,7 @@ The line under the header shows the sections of Setup, or the result of the last
 
 | Key | Action |
 |---|---|
-| click | Open an area or a section. `tab` / `shift+tab` also go through all sections. |
+| click | Open an area or a section. `tab` / `shift+tab` also go through all sections. Each action in the footer with one key is a button: a click does the same as the key. `More…` lists the actions that do not fit. |
 | `ctrl+r` | Read all accounts and send the waiting messages now, without waiting for the schedule. In Spaces: send the selected space. |
 | `/` | Find a conversation of any account, and set its spaces |
 | `?` / `q` | All keys / quit |

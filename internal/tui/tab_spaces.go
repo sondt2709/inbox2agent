@@ -53,7 +53,7 @@ func (m *model) selectSpace(id string) {
 
 // pRow is one row of the panel at the right. A row with an empty kind is text.
 type pRow struct {
-	kind string // "set" (a setting), "conv", or "" (text)
+	kind string // "set" (a setting), "conv", "add" (the button + Add conversations), or "" (text)
 	key  string // the setting: "name", "agent", "schedule", "read"
 	conv convRow
 	text string // the rendered text of a text row
@@ -78,13 +78,16 @@ func (m *model) panelRows(w int) []pRow {
 		out = append(out, text(m.settingLine("Last send", m.lastSendText(it.space), w)), text(""))
 		rows := m.rowsOfSpace(it.space)
 		head := fmt.Sprintf("Conversations · %d", len(rows))
-		empty := "No conversation yet. Press a to add conversations from any account."
+		empty := "No conversation yet. Add conversations from any account."
 		if it.kind == railElse {
 			rows = m.elseRows()
 			head = fmt.Sprintf("Conversations in no space · %d · newest first", len(rows))
 			empty = "Each conversation is in a space or ignored."
 		}
 		out = append(out, text(boldStyle.Render(head)))
+		if it.kind == "space" {
+			out = append(out, pRow{kind: "add"})
+		}
 		if len(rows) == 0 {
 			out = append(out, text(faint.Render(empty)))
 		}
@@ -253,11 +256,17 @@ func (m *model) hintsSpaces() []hint {
 		}
 		return []hint{{"enter", "open"}, {"ctrl+r", "run now"}, {"a", "add conversations"}, {"x", "delete"}, {"↑↓", "move"}, {"u", "undo"}}
 	}
+	if r, ok := m.panelSelected(); ok && r.kind == "add" {
+		return []hint{{"enter", "add conversations"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
+	}
 	if r, ok := m.panelSelected(); ok && r.kind == "set" {
 		if r.key == "read" {
-			return []hint{{"←→", "change"}, {"enter", "choose"}, {"esc", "back"}, {"ctrl+r", "run now"}}
+			return []hint{{"←→", "change"}, {"enter", "choose"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
 		}
-		return []hint{{"enter", "change"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"a", "add conversations"}}
+		if it.kind != "space" {
+			return []hint{{"enter", "change"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
+		}
+		return []hint{{"enter", "change"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"a", "add conversations"}, {"u", "undo"}}
 	}
 	sel := ""
 	if n := len(m.convSel); n > 0 {
@@ -265,13 +274,13 @@ func (m *model) hintsSpaces() []hint {
 	}
 	switch it.kind {
 	case railNew:
-		return []hint{{"enter", "spaces" + sel}, {"k", "keep"}, {"i", "ignore"}, {"K", "keep all"}, {"space", "select"}, {"esc", "back"}}
+		return []hint{{"enter", "spaces" + sel}, {"k", "keep"}, {"i", "ignore"}, {"K", "keep all"}, {"space", "select"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
 	case railIgnored:
-		return []hint{{"enter", "spaces" + sel}, {"x", "read again"}, {"space", "select"}, {"esc", "back"}}
+		return []hint{{"enter", "spaces" + sel}, {"x", "read again"}, {"space", "select"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
 	case railElse:
-		return []hint{{"enter", "spaces" + sel}, {"←→", "level"}, {"i", "ignore"}, {"space", "select"}, {"n", "rename"}, {"esc", "back"}}
+		return []hint{{"enter", "spaces" + sel}, {"←→", "level"}, {"i", "ignore"}, {"space", "select"}, {"n", "rename"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
 	}
-	return []hint{{"enter", "spaces" + sel}, {"←→", "level"}, {"x", "remove"}, {"a", "add"}, {"space", "select"}, {"n", "rename"}, {"esc", "back"}}
+	return []hint{{"enter", "spaces" + sel}, {"←→", "level"}, {"x", "remove"}, {"a", "add"}, {"space", "select"}, {"n", "rename"}, {"esc", "back"}, {"ctrl+r", "run now"}, {"u", "undo"}}
 }
 
 // panelSelected returns the row under the cursor of the panel.
@@ -355,11 +364,16 @@ func (m *model) keyRail(k string, it railItem) tea.Cmd {
 		if it.kind != "space" && it.kind != railElse {
 			return nil
 		}
-		// Start on the first conversation when the space has one.
-		for i, idx := range selectableIndexes(m.panelRows(m.panelWidth())) {
-			if m.panelRows(m.panelWidth())[idx].kind == "conv" {
+		// Start on the first conversation when the space has one, else on
+		// the button + Add conversations.
+		rows := m.panelRows(m.panelWidth())
+		for i, idx := range selectableIndexes(rows) {
+			if rows[idx].kind == "conv" {
 				m.row = i
 				break
+			}
+			if rows[idx].kind == "add" {
+				m.row = i
 			}
 		}
 	case "x":
@@ -394,6 +408,15 @@ func (m *model) keyPanel(k string, it railItem) tea.Cmd {
 	}
 	if !ok {
 		if k == "left" || k == "h" {
+			m.spcFocus = false
+		}
+		return nil
+	}
+	if r.kind == "add" {
+		switch k {
+		case "enter", "right", "l":
+			m.openDialog(m.newSearchDialog(it.space))
+		case "left", "h":
 			m.spcFocus = false
 		}
 		return nil
@@ -836,6 +859,8 @@ func (m *model) renderPanel(w, h int) (string, string) {
 		switch r.kind {
 		case "set":
 			s = m.settingText(r.key, w-2)
+		case "add":
+			s = tabKey.Render("+ Add conversations")
 		case "conv":
 			s = m.convLine(r.conv, w-2)
 			if r.conv.Read == config.ReadOff && it.kind != railIgnored {
@@ -943,9 +968,13 @@ func (m *model) clickSpaces(x, y int) tea.Cmd {
 		return nil
 	}
 	idx := line + m.rowOff
-	for i, at := range selectableIndexes(m.panelRows(m.panelWidth())) {
+	rows := m.panelRows(m.panelWidth())
+	for i, at := range selectableIndexes(rows) {
 		if at == idx {
-			if i == m.row && m.spcFocus {
+			// The button + Add conversations opens with one click; another
+			// row opens with a click on the selected row.
+			if (i == m.row && m.spcFocus) || rows[at].kind == "add" {
+				m.row, m.spcFocus = i, true
 				return m.keyPanel("enter", m.selectedRail())
 			}
 			m.row, m.spcFocus = i, true
