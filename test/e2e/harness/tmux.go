@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 var seq atomic.Int64
@@ -102,6 +104,39 @@ func (term *Term) Type(text string) {
 	term.t.Helper()
 	term.tmux("send-keys", "-t", term.session, "-l", text)
 	time.Sleep(80 * time.Millisecond)
+}
+
+// Click clicks the left mouse button at column x and row y of the screen,
+// from 0. It sends the SGR mouse sequences of a press and a release, as a
+// terminal app does in the mouse mode of the dashboard.
+func (term *Term) Click(x, y int) {
+	term.t.Helper()
+	at := fmt.Sprintf("0;%d;%d", x+1, y+1)
+	term.tmux("send-keys", "-t", term.session, "-l", "\x1b[<"+at+"M")
+	term.tmux("send-keys", "-t", term.session, "-l", "\x1b[<"+at+"m")
+	time.Sleep(150 * time.Millisecond)
+}
+
+// ClickText clicks the middle of the first text on the screen and returns the
+// screen before the click. With fromBottom, it looks from the last row, for
+// a footer button. It fails the test when the screen does not show the text.
+func (term *Term) ClickText(text string, fromBottom bool) string {
+	term.t.Helper()
+	s := term.Screen()
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for n := range lines {
+		y := n
+		if fromBottom {
+			y = len(lines) - 1 - n
+		}
+		if i := strings.Index(lines[y], text); i >= 0 {
+			term.Click(ansi.StringWidth(lines[y][:i])+ansi.StringWidth(text)/2, y)
+			return s
+		}
+	}
+	path := term.Shot("NO TEXT " + text)
+	term.t.Fatalf("the screen has no %q to click (%s):\n%s", text, path, s)
+	return s
 }
 
 // Screen returns the visible text of the terminal.

@@ -23,7 +23,7 @@ func TestHeaderShowsTheAreasAndSetupSections(t *testing.T) {
 	m := newTestModel(t)
 	m.seen = seenSet{"work": {"C1"}}
 	head := lines(m)[0]
-	for _, want := range []string{"Feed", "Spaces 2 new", "Setup", "● running", "ctrl+r run now"} {
+	for _, want := range []string{"Feed", "Spaces 2 new", "Setup", "● running", "Run now ctrl+r"} {
 		if !strings.Contains(head, want) {
 			t.Errorf("header %q has no %q", head, want)
 		}
@@ -266,7 +266,7 @@ func TestAddConversationsWithTheSearch(t *testing.T) {
 
 func TestFooterHintIsLabelThenKey(t *testing.T) {
 	s := renderHints([]hint{{"r", "reply"}})
-	if got := ansi.Strip(s); got != "Reply r" {
+	if got := strings.TrimSpace(ansi.Strip(s)); got != "Reply r" {
 		t.Fatalf("hint = %q, want \"Reply r\"", got)
 	}
 	label, key := strings.Index(s, "Reply"), strings.LastIndex(s, "r")
@@ -277,7 +277,7 @@ func TestFooterHintIsLabelThenKey(t *testing.T) {
 
 func TestSettingRowsOfASpaceSaveAtOnce(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "enter", "up", "up", "up", "up") // the panel, then the rows When, Session, Agent, Status
+	send(m, "enter", "up", "up", "up", "up", "up") // the panel, then the rows + Add conversations, When, Session, Agent, Status
 	send(m, "enter")
 	if c := loadFile(t, m); !c.Spaces[0].Paused {
 		t.Fatalf("enter on Status did not pause Acme")
@@ -300,7 +300,7 @@ func TestSettingRowsOfASpaceSaveAtOnce(t *testing.T) {
 // The When dialog renames the schedule of the space; its ID stays.
 func TestWhenDialogRenamesTheSchedule(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "enter", "up", "enter") // the row When
+	send(m, "enter", "up", "up", "enter") // past + Add conversations to the row When
 	pd, ok := m.topDialog().(*pickDialog)
 	if !ok || len(pd.options) != 3 || pd.options[1].label != "Rename always…" || pd.options[2].label != "Edit the times of always in Setup" {
 		t.Fatalf("the When dialog: %+v", m.topDialog())

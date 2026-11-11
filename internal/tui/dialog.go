@@ -200,6 +200,8 @@ type pickDialog struct {
 	name, text string
 	options    []pickOption
 	cursor     int
+	rowY       int // the body line of the first visible row, from the last view
+	off, end   int // the visible rows, from the last view
 }
 
 func (d *pickDialog) title() string { return d.name }
@@ -209,6 +211,16 @@ func (d *pickDialog) size(W, H int) (int, int) {
 }
 
 func (d *pickDialog) update(m *model, msg tea.Msg) tea.Cmd {
+	if c, ok := msg.(tea.MouseClickMsg); ok {
+		// A click on a row chooses it, as enter does.
+		_, y := m.dialogPoint(d, c.Mouse())
+		if i := d.off + y - d.rowY; c.Mouse().Button == tea.MouseLeft && y >= d.rowY && i < d.end {
+			d.cursor = i
+			m.closeDialog()
+			return d.options[i].run()
+		}
+		return nil
+	}
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
@@ -244,7 +256,9 @@ func (d *pickDialog) view(w, h int) string {
 	}
 	off := scrollTo(d.cursor, 0, max(1, h-3))
 	end := min(len(rows), off+max(1, h-3))
-	return textStyle.Width(w).Render(d.text) + "\n\n" + strings.Join(rows[off:end], "\n")
+	text := textStyle.Width(w).Render(d.text)
+	d.rowY, d.off, d.end = lipgloss.Height(text)+1, off, end
+	return text + "\n\n" + strings.Join(rows[off:end], "\n")
 }
 
 func (d *pickDialog) hints() []hint {

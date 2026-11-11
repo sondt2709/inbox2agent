@@ -581,7 +581,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 	s := tm.WaitFor(`# selected`, 30*time.Second) // the listing of the account gives the names
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	head := strings.Join(strings.Fields(lines[0]), " ")
-	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*ctrl\+r run now$`).MatchString(head) {
+	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*Run now ctrl\+r$`).MatchString(head) {
 		t.Errorf("the header = %q", head)
 	}
 	if !strings.Contains(lines[1], "No run yet. ctrl+r reads all accounts") {
@@ -607,7 +607,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 		t.Fatalf("discard kept the change of the lookback:\n%s", s)
 	}
 	s = tm.Press("q", `did not change`, 5*time.Second)
-	if strings.Contains(s, "ctrl+r run now") {
+	if strings.Contains(s, "Run now ctrl+r") {
 		t.Fatalf("the TUI is still on the screen after exit:\n%s", s)
 	}
 	after, _ := os.ReadFile(p.configFile())

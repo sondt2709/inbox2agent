@@ -30,6 +30,7 @@ type spacesDialog struct {
 	requeue bool
 	cursor  int
 	err     string
+	rowAt   map[int]int // the row of each body line, from the last view
 }
 
 func (m *model) newSpacesDialog(rows []convRow) *spacesDialog {
@@ -82,6 +83,16 @@ func (d *spacesDialog) n() int {
 func (d *spacesDialog) size(W, H int) (int, int) { return min(W-4, 76), min(H-4, d.n()+10) }
 
 func (d *spacesDialog) update(m *model, msg tea.Msg) tea.Cmd {
+	if c, ok := msg.(tea.MouseClickMsg); ok {
+		// A click on a row selects it and checks it, as space does.
+		_, y := m.dialogPoint(d, c.Mouse())
+		if i, ok := d.rowAt[y]; ok && c.Mouse().Button == tea.MouseLeft {
+			d.cursor = i
+			k, _ := keyPress("space")
+			return d.update(m, k)
+		}
+		return nil
+	}
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
@@ -222,7 +233,10 @@ func (d *spacesDialog) view(w, h int) string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, boldStyle.Render("Spaces"))
+	d.rowAt = map[int]int{}
+	// row draws row i. Each call is the next line, so it records the line for a click.
 	row := func(i int, s string) string {
+		d.rowAt[len(lines)] = i
 		if i == d.cursor {
 			return selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(s), w))
 		}
@@ -261,7 +275,8 @@ func (d *spacesDialog) view(w, h int) string {
 		if d.requeue {
 			box = okStyle.Render("[x]")
 		}
-		lines = append(lines, "", row(len(d.opts)+2, box+" Also send the messages of the last lookback to the new spaces"))
+		lines = append(lines, "")
+		lines = append(lines, row(len(d.opts)+2, box+" Also send the messages of the last lookback to the new spaces"))
 	}
 	if d.err != "" {
 		lines = append(lines, "", errStyle.Render(d.err))
@@ -333,6 +348,7 @@ type searchDialog struct {
 	typing  bool
 	cursor  int
 	off     int
+	end     int                  // the index after the last visible row, from the last render
 	pending map[string]spacePick // by convKey
 	button  int                  // the button that has the keyboard: btnNone, btnOK or btnCancel
 	btnY    int                  // the body line of the buttons
@@ -528,18 +544,39 @@ func (d *searchDialog) keyButton(m *model, k string) tea.Cmd {
 
 // click runs the button under the mouse.
 func (d *searchDialog) click(m *model, ms tea.Mouse) tea.Cmd {
-	if d.space == "" || ms.Button != tea.MouseLeft {
+	if ms.Button != tea.MouseLeft {
 		return nil
 	}
 	x, y := m.dialogPoint(d, ms)
-	if y != d.btnY {
+	if d.space != "" && y == d.btnY {
+		switch {
+		case x >= d.btnX[0][0] && x < d.btnX[0][1]:
+			return d.save(m)
+		case x >= d.btnX[1][0] && x < d.btnX[1][1]:
+			m.closeDialog()
+		}
 		return nil
 	}
-	switch {
-	case x >= d.btnX[0][0] && x < d.btnX[0][1]:
-		return d.save(m)
-	case x >= d.btnX[1][0] && x < d.btnX[1][1]:
+	// The rows start under the search line and a blank line.
+	rows := d.rows(m)
+	i := d.off + y - 2
+	if y < 2 || i >= d.end || i >= len(rows) {
+		return nil
+	}
+	again := i == d.cursor && !d.typing && d.button == btnNone
+	d.typing, d.button, d.cursor = false, btnNone, i
+	d.input.Blur()
+	if d.space != "" {
+		// A click adds or removes the row, as space does.
+		p := d.pick(rows[i])
+		p.in = !p.in
+		d.set(rows[i], p)
+		return nil
+	}
+	if again {
+		// A click on the selected row opens its spaces, as enter does.
 		m.closeDialog()
+		m.openDialog(m.newSpacesDialog(rows[i : i+1]))
 	}
 	return nil
 }
@@ -616,6 +653,7 @@ func (d *searchDialog) render(m *model, w, h int) string {
 	d.cursor = min(d.cursor, max(0, len(rows)-1))
 	d.off = scrollTo(d.cursor, d.off, listH)
 	end := min(len(rows), d.off+listH)
+	d.end = end
 	nameW := max(14, w/3)
 	for i := d.off; i < end; i++ {
 		r := rows[i]
