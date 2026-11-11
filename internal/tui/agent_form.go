@@ -14,16 +14,24 @@ import (
 )
 
 // sessionLine names the stored session of a space, from the store only: the
-// 2 second refresh runs no orca command.
+// 2 second refresh runs no orca command. It shows the handle, the Claude
+// session, its name and the last send that are known.
 func (m *model) sessionLine(space string) string {
 	ss := m.storedSessions()[space]
-	switch {
-	case ss.Handle == "":
+	if ss.Handle == "" {
 		return "none"
-	case ss.AgentSession == "":
-		return ss.Handle
 	}
-	return ss.Handle + " · Claude " + shortID(ss.AgentSession)
+	parts := []string{ss.Handle}
+	if ss.AgentSession != "" {
+		parts = append(parts, "Claude "+shortID(ss.AgentSession))
+	}
+	if ss.Name != "" {
+		parts = append(parts, strconv.Quote(ss.Name))
+	}
+	if !ss.LastSent.IsZero() {
+		parts = append(parts, "last send "+m.whenText(ss.LastSent.Local()))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // agentText describes the agent of a space on one line: the driver and the

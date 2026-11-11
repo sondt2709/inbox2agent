@@ -127,6 +127,25 @@ func TestSessionRowAndDialog(t *testing.T) {
 	}
 }
 
+func TestSessionRowShowsTheNameAndTheLastSend(t *testing.T) {
+	h := newSessionsModel(t)
+	sent := h.m.now().Add(-time.Minute)
+	ss := inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA, Name: "i2a · Unsorted", CreatedAt: sent, LastSent: sent}
+	if err := h.st.SetSession(context.Background(), ss); err != nil {
+		t.Fatal(err)
+	}
+	h.m.selectSpace(config.UnsortedID)
+	want := `Session    term_a · Claude 04ebe19c · "i2a · Unsorted" · last send today ` + sent.Local().Format("15:04")
+	if s := screen(h.m); !strings.Contains(s, want) {
+		t.Fatalf("the panel has no %q:\n%s", want, s)
+	}
+	// Claude does not run: the dialog shows the stored name and the last send.
+	h.open(config.UnsortedID)
+	if s := screen(h.m); !strings.Contains(s, "term_a  Claude 04ebe19c  i2a · Unsorted  last send today "+sent.Local().Format("15:04")) {
+		t.Errorf("the dialog has no stored name and last send:\n%s", s)
+	}
+}
+
 func TestSessionOfAnotherClaudeSession(t *testing.T) {
 	h := newSessionsModel(t)
 	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionB})

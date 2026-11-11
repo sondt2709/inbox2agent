@@ -15,9 +15,9 @@
 
 ## 3. Screens
 
-- [ ] 3.1 `sessionLine`: handle · Claude <S8> · "<name>" · last send <time>; test
-- [ ] 3.2 Sessions dialog: the stored name and the last send
-- [ ] 3.3 `i2a status`: the `Sessions:` part; test
+- [x] 3.1 `sessionLine`: handle · Claude <S8> · "<name>" · last send <time>; test
+- [x] 3.2 Sessions dialog: the stored name and the last send
+- [x] 3.3 `i2a status`: the `Sessions:` part; test
 
 ## 4. End-to-end and documents
 

@@ -861,11 +861,14 @@ func (m *model) renderPanel(w, h int) (string, string) {
 }
 
 // whenText is "today 14:45" or "Mon 08:00"; "never" for the zero time.
-func (m *model) whenText(t time.Time) string {
+func (m *model) whenText(t time.Time) string { return dayTime(t, m.now()) }
+
+// dayTime is "today 14:45" or "Mon 08:00" in the time zone of t; "never"
+// for the zero time.
+func dayTime(t, now time.Time) string {
 	if t.IsZero() {
 		return "never"
 	}
-	now := m.now()
 	if t.YearDay() == now.YearDay() && t.Year() == now.Year() {
 		return "today " + t.Format("15:04")
 	}

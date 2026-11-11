@@ -19,6 +19,7 @@ import (
 // the Claude session and its state. The user links an existing Claude session
 // to the space, unlinks it, or shows it in Orca. agent.ID is the space ID.
 type sessionsDialog struct {
+	now    func() time.Time
 	agent  config.Agent
 	spaces []config.Space
 	states map[string]agent.SessionState // by space ID; nil while it loads
@@ -44,7 +45,7 @@ type sessionStatesMsg struct {
 }
 
 func (m *model) openSessions(sp config.Space) tea.Cmd {
-	d := &sessionsDialog{agent: sp.Agent, spaces: []config.Space{sp}}
+	d := &sessionsDialog{now: m.now, agent: sp.Agent, spaces: []config.Space{sp}}
 	m.openDialog(d)
 	return m.loadSessions(sp.Agent)
 }
@@ -185,7 +186,7 @@ func (m *model) linkSession(d *sessionsDialog, sp config.Space, input string) (s
 		}
 	}
 	save := func() tea.Cmd {
-		ss := inbox.Session{Space: sp.ID, Handle: p.Handle, AgentSession: p.SessionID, CreatedAt: m.now()}
+		ss := inbox.Session{Space: sp.ID, Handle: p.Handle, AgentSession: p.SessionID, Name: p.Name, CreatedAt: m.now()}
 		if err := m.u.d.Store.SetSession(m.ctx, ss); err != nil {
 			d.msg, d.isErr = "Cannot link: "+err.Error(), true
 			return nil
@@ -233,9 +234,11 @@ func (d *sessionsDialog) view(w, _ int) string {
 			}
 			line1 += "  " + st.State
 			line2 = "  " + st.Handle + "  " + claude
-			if name := orStr(st.Name, st.Title); name != "" {
+			// The live name, else the name that the store kept, else the tab title.
+			if name := orStr(st.Name, orStr(st.Session.Name, st.Title)); name != "" {
 				line2 += "  " + name
 			}
+			line2 += "  last send " + dayTime(st.LastSent.Local(), d.now())
 		}
 		if i == d.cursor {
 			rows = append(rows, selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(line1), w)))
