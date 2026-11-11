@@ -22,6 +22,6 @@
 ## 4. End-to-end and documents
 
 - [ ] 4.1 Local Orca scenario: a batch, `orca terminal close`, a second batch: "resumed Claude session", the new terminal runs the stored session ID, and the session name is "i2a · Unsorted"
-- [ ] 4.2 Update the e2e texts that the name step or the new status part changes
-- [ ] 4.3 `CLAUDE.md`: the facts of `/resume` and `/rename` (Claude Code 2.1.322, Orca 1.4.253), the arguments of `orca agent launch`, schema version 10, the resume rule; `docs/daemon-api.yaml` if a field changes
+- [x] 4.2 Update the e2e texts that the name step or the new status part changes
+- [x] 4.3 `CLAUDE.md`: the facts of `/resume` and `/rename` (Claude Code 2.1.322, Orca 1.4.253), the arguments of `orca agent launch`, schema version 10, the resume rule; `docs/daemon-api.yaml` if a field changes
 - [ ] 4.4 `task lint`, `task test`, `task leakcheck`, the Orca e2e scenarios; evidence in `tmp/evidence/trace-agent-session/`
