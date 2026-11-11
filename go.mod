@@ -2,7 +2,7 @@ module github.com/sondt2709/inbox2agent
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	charm.land/bubbles/v2 v2.0.0
