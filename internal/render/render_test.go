@@ -48,7 +48,7 @@ func inline(t *testing.T, msgs ...inbox.Message) *Rendered {
 	p := config.NewAgent("triage")
 	p.Payload = config.PayloadInline
 	p.InlineMaxBytes = config.MaxInlineBytes
-	r, err := Render(p, "Acme", "b1", msgs, t.TempDir(), "/usr/local/bin/i2a")
+	r, err := Render(p, "", "Acme", "b1", msgs, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestYAMLContent(t *testing.T) {
 func TestRenderPointerWritesDigest(t *testing.T) {
 	dir := t.TempDir()
 	p := config.NewAgent("triage")
-	r, err := Render(p, "Acme", "20260102-030405-triage-1", []inbox.Message{m("one"), m("two"), m("three")}, dir, "/usr/local/bin/i2a")
+	r, err := Render(p, "", "Acme", "20260102-030405-triage-1", []inbox.Message{m("one"), m("two"), m("three")}, dir, "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestRenderPointerWritesDigest(t *testing.T) {
 func TestRenderInlineAndFallback(t *testing.T) {
 	p := config.NewAgent("triage")
 	p.Payload = config.PayloadInline
-	r, err := Render(p, "Acme", "b1", []inbox.Message{m("short message")}, t.TempDir(), "")
+	r, err := Render(p, "", "Acme", "b1", []inbox.Message{m("short message")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestRenderInlineAndFallback(t *testing.T) {
 	big := []inbox.Message{m(strings.Repeat("x", 1900)), m(strings.Repeat("y", 1900)), m(strings.Repeat("z", 1900)),
 		m(strings.Repeat("w", 1900)), m(strings.Repeat("v", 1900))}
 	p.InlineMaxBytes = 8000
-	r, err = Render(p, "Acme", "b2", big, t.TempDir(), "")
+	r, err = Render(p, "", "Acme", "b2", big, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,8 +222,8 @@ func TestRenderInlineAndFallback(t *testing.T) {
 func TestLongInstructionStaysInline(t *testing.T) {
 	p := config.NewAgent("triage")
 	p.Payload, p.InlineMaxBytes = config.PayloadInline, 8000
-	p.Primer = strings.Repeat("Đây là hướng dẫn. ", 200) // about 4,000 bytes
-	r, err := Render(p, "Acme", "b1", []inbox.Message{m(strings.Repeat("x", 1900)), m(strings.Repeat("y", 1900))}, t.TempDir(), "/usr/local/bin/i2a")
+	instr := strings.Repeat("Đây là hướng dẫn. ", 200) // about 4,000 bytes
+	r, err := Render(p, instr, "Acme", "b1", []inbox.Message{m(strings.Repeat("x", 1900)), m(strings.Repeat("y", 1900))}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,8 +231,8 @@ func TestLongInstructionStaysInline(t *testing.T) {
 		t.Errorf("detail = %q, prompt %d bytes; want the inline prompt above 8000 bytes", r.Detail, len(r.Prompt))
 	}
 	// The whole prompt is still limited to the Orca argument limit.
-	p.Primer = strings.Repeat("a", config.MaxInlineBytes)
-	if r, err = Render(p, "Acme", "b2", []inbox.Message{m("x")}, t.TempDir(), "/usr/local/bin/i2a"); err != nil {
+	instr = strings.Repeat("a", config.MaxInlineBytes)
+	if r, err = Render(p, instr, "Acme", "b2", []inbox.Message{m("x")}, t.TempDir(), "/usr/local/bin/i2a"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(r.Detail, "inline too large, sent pointer (prompt ") {
@@ -243,16 +243,16 @@ func TestLongInstructionStaysInline(t *testing.T) {
 func TestInstructionIsPlainText(t *testing.T) {
 	p := config.NewAgent("triage")
 	p.Payload, p.InlineMaxBytes = config.PayloadInline, config.MaxInlineBytes
-	p.Primer = "Answer for {{.Space}}"
-	r, err := Render(p, "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "")
+	instr := "Answer for {{.Space}}"
+	r, err := Render(p, instr, "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(r.Prompt, "```\nAnswer for {{.Space}}\n```") {
 		t.Errorf("prompt:\n%s", r.Prompt)
 	}
-	p.Primer = "  \n"
-	if r, err = Render(p, "Acme", "b2", []inbox.Message{m("x")}, t.TempDir(), ""); err != nil {
+	instr = "  \n"
+	if r, err = Render(p, instr, "Acme", "b2", []inbox.Message{m("x")}, t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(r.Prompt, "```\n"+DefaultInstruction+"\n```") {
@@ -262,15 +262,15 @@ func TestInstructionIsPlainText(t *testing.T) {
 
 func TestInstructionWithFenceIsAnError(t *testing.T) {
 	p := config.NewAgent("triage")
-	p.Primer = "Use this:\n```\nrm\n```"
-	_, err := Render(p, "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "")
+	instr := "Use this:\n```\nrm\n```"
+	_, err := Render(p, instr, "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "")
 	if !errors.Is(err, ErrFenceInInstruction) {
 		t.Errorf("err = %v, want ErrFenceInInstruction", err)
 	}
 }
 
 func TestDryRunHasNoCLIPart(t *testing.T) {
-	r, err := Render(config.NewAgent("triage"), "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "")
+	r, err := Render(config.NewAgent("triage"), "", "Acme", "b1", []inbox.Message{m("x")}, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

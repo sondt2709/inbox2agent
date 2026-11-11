@@ -47,106 +47,6 @@
       },
       "type": "array"
     },
-    "agents": {
-      "description": "How i2a sends a batch to an AI agent. A space names one agent.",
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "batch": {
-            "description": "Not used. i2a removes it at the next save.",
-            "type": "string"
-          },
-          "cli": {
-            "description": "The agent CLI that Orca starts, for example claude.",
-            "type": "string"
-          },
-          "driver": {
-            "description": "orca types the batch into an agent terminal of Orca. dry-run only writes the digest file.",
-            "enum": [
-              "",
-              "orca",
-              "dry-run"
-            ],
-            "type": "string"
-          },
-          "id": {
-            "description": "The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it.",
-            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
-            "type": "string"
-          },
-          "inline_max_bytes": {
-            "anyOf": [
-              {
-                "const": 0
-              },
-              {
-                "maximum": 65536,
-                "minimum": 1024
-              }
-            ],
-            "description": "The largest inline prompt in bytes, from 1024 to 65536.",
-            "type": "integer"
-          },
-          "message_max_chars": {
-            "anyOf": [
-              {
-                "const": 0
-              },
-              {
-                "maximum": 20000,
-                "minimum": 100
-              }
-            ],
-            "description": "The longest message text in a batch, from 100 to 20000 characters.",
-            "type": "integer"
-          },
-          "model": {
-            "description": "The model of the agent CLI. Empty: the default of the CLI.",
-            "type": "string"
-          },
-          "name": {
-            "description": "The name that i2a shows. Empty: the ID.",
-            "type": "string"
-          },
-          "orca_bin": {
-            "description": "The path of the orca command. Empty: orca in PATH.",
-            "type": "string"
-          },
-          "payload": {
-            "description": "pointer: the prompt names the digest file. inline: the prompt contains the messages.",
-            "enum": [
-              "",
-              "pointer",
-              "inline"
-            ],
-            "type": "string"
-          },
-          "primer": {
-            "description": "The instruction to the agent. i2a sends it with each batch and each ask, before the messages. Plain text, not a template. It cannot contain three backticks. Empty: the built-in instruction.",
-            "type": "string"
-          },
-          "session": {
-            "description": "new: a new terminal for each batch. reuse: one terminal for each space while it is live. worktree: a new Git worktree for each batch.",
-            "enum": [
-              "",
-              "new",
-              "reuse",
-              "worktree"
-            ],
-            "type": "string"
-          },
-          "workspace": {
-            "description": "The folder of the agent terminal. The orca driver needs it.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
     "notify": {
       "additionalProperties": false,
       "description": "The desktop notifications.",
@@ -254,13 +154,86 @@
       "type": "object"
     },
     "spaces": {
-      "description": "The groups of conversations that you name. Each space sends its conversations to one agent on one schedule.",
+      "description": "The groups of conversations that you name. Each space sends its conversations to its own agent on one schedule.",
       "items": {
         "additionalProperties": false,
         "properties": {
           "agent": {
-            "description": "The ID of the agent of the space.",
-            "type": "string"
+            "additionalProperties": false,
+            "description": "How i2a sends the batches of the space.",
+            "properties": {
+              "cli": {
+                "description": "The agent CLI that Orca starts, for example claude.",
+                "type": "string"
+              },
+              "driver": {
+                "description": "orca types the batch into an agent terminal of Orca. dry-run only writes the digest file.",
+                "enum": [
+                  "",
+                  "orca",
+                  "dry-run"
+                ],
+                "type": "string"
+              },
+              "folder": {
+                "description": "The folder of the agent terminal. The orca driver needs it.",
+                "type": "string"
+              },
+              "inline_max_bytes": {
+                "anyOf": [
+                  {
+                    "const": 0
+                  },
+                  {
+                    "maximum": 65536,
+                    "minimum": 1024
+                  }
+                ],
+                "description": "The largest YAML content of an inline prompt in bytes, from 1024 to 65536.",
+                "type": "integer"
+              },
+              "message_max_chars": {
+                "anyOf": [
+                  {
+                    "const": 0
+                  },
+                  {
+                    "maximum": 20000,
+                    "minimum": 100
+                  }
+                ],
+                "description": "The longest message text in a batch, from 100 to 20000 characters.",
+                "type": "integer"
+              },
+              "model": {
+                "description": "The model of the agent CLI. Empty: the default of the CLI.",
+                "type": "string"
+              },
+              "orca_bin": {
+                "description": "The path of the orca command. Empty: orca in PATH.",
+                "type": "string"
+              },
+              "payload": {
+                "description": "pointer: the prompt names the digest file. inline: the prompt contains the messages.",
+                "enum": [
+                  "",
+                  "pointer",
+                  "inline"
+                ],
+                "type": "string"
+              },
+              "session": {
+                "description": "new: a new terminal for each batch. reuse: one terminal for the space while it is live. worktree: a new Git worktree for each batch.",
+                "enum": [
+                  "",
+                  "new",
+                  "reuse",
+                  "worktree"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "conversations": {
             "description": "The conversations of the space. A conversation can be in many spaces, each with its own read level; it is not two times in one space.",
@@ -307,9 +280,17 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
             "type": "string"
           },
+          "instruction": {
+            "description": "The instruction to the agent. i2a sends it with each batch and each ask, before the messages. Plain text, not a template. It cannot contain three backticks. Empty: the built-in instruction.",
+            "type": "string"
+          },
           "name": {
             "description": "The name that i2a shows. Empty: the ID. Two spaces cannot have the same name.",
             "type": "string"
+          },
+          "paused": {
+            "description": "true: the space does not send. Its messages wait and expire after lookback.",
+            "type": "boolean"
           },
           "schedule": {
             "description": "The ID of the schedule of the space.",
@@ -318,7 +299,6 @@
         },
         "required": [
           "id",
-          "agent",
           "schedule"
         ],
         "type": "object"
@@ -330,8 +310,81 @@
       "description": "The built-in space of each conversation that no space lists.",
       "properties": {
         "agent": {
-          "description": "Empty: hold the messages until you sort their conversations.",
-          "type": "string"
+          "additionalProperties": false,
+          "description": "How i2a sends the batches of Unsorted.",
+          "properties": {
+            "cli": {
+              "description": "The agent CLI that Orca starts, for example claude.",
+              "type": "string"
+            },
+            "driver": {
+              "description": "orca types the batch into an agent terminal of Orca. dry-run only writes the digest file.",
+              "enum": [
+                "",
+                "orca",
+                "dry-run"
+              ],
+              "type": "string"
+            },
+            "folder": {
+              "description": "The folder of the agent terminal. The orca driver needs it.",
+              "type": "string"
+            },
+            "inline_max_bytes": {
+              "anyOf": [
+                {
+                  "const": 0
+                },
+                {
+                  "maximum": 65536,
+                  "minimum": 1024
+                }
+              ],
+              "description": "The largest YAML content of an inline prompt in bytes, from 1024 to 65536.",
+              "type": "integer"
+            },
+            "message_max_chars": {
+              "anyOf": [
+                {
+                  "const": 0
+                },
+                {
+                  "maximum": 20000,
+                  "minimum": 100
+                }
+              ],
+              "description": "The longest message text in a batch, from 100 to 20000 characters.",
+              "type": "integer"
+            },
+            "model": {
+              "description": "The model of the agent CLI. Empty: the default of the CLI.",
+              "type": "string"
+            },
+            "orca_bin": {
+              "description": "The path of the orca command. Empty: orca in PATH.",
+              "type": "string"
+            },
+            "payload": {
+              "description": "pointer: the prompt names the digest file. inline: the prompt contains the messages.",
+              "enum": [
+                "",
+                "pointer",
+                "inline"
+              ],
+              "type": "string"
+            },
+            "session": {
+              "description": "new: a new terminal for each batch. reuse: one terminal for the space while it is live. worktree: a new Git worktree for each batch.",
+              "enum": [
+                "",
+                "new",
+                "reuse",
+                "worktree"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
         },
         "conversations": {
           "description": "The conversations in Unsorted that have their own read level or label.",
@@ -373,6 +426,14 @@
           },
           "type": "array"
         },
+        "instruction": {
+          "description": "The instruction to the agent of Unsorted. Plain text. It cannot contain three backticks. Empty: the built-in instruction.",
+          "type": "string"
+        },
+        "paused": {
+          "description": "true: hold the messages until you sort their conversations.",
+          "type": "boolean"
+        },
         "read": {
           "description": "The read level of a conversation that no space lists: all, mentions or off.",
           "enum": [
@@ -391,10 +452,11 @@
       "type": "object"
     },
     "version": {
-      "description": "The version of the file format. i2a writes 2.",
+      "description": "The version of the file format. i2a writes 3 and converts 1 and 2.",
       "enum": [
         1,
-        2
+        2,
+        3
       ],
       "type": "integer"
     }

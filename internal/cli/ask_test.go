@@ -36,7 +36,7 @@ func askEnv(t *testing.T, driver string) *cliAgent {
 	cardEnv(t)
 	paths, _ := app.ResolvePaths()
 	cfg := config.Default()
-	cfg.Agents[0].Driver, cfg.Agents[0].Workspace = driver, t.TempDir()
+	cfg.Unsorted.Agent.Driver, cfg.Unsorted.Agent.Folder = driver, t.TempDir()
 	if err := config.Save(paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}

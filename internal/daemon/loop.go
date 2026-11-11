@@ -56,7 +56,7 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 	modTime := fileModTime(configFile)
 	var lastPrune, lastAsk time.Time
 	next := nextSends(e.cfg, e.d.Now())
-	log.Info("daemon started", "accounts", len(e.cfg.Accounts), "spaces", len(e.cfg.Spaces), "agents", len(e.cfg.Agents))
+	log.Info("daemon started", "accounts", len(e.cfg.Accounts), "spaces", len(e.cfg.Spaces))
 	logNext(log, e.cfg, next)
 	var runs chan runRequest // nil without an API: the select never takes it
 	if e.api != nil {
@@ -160,11 +160,11 @@ func Run(ctx context.Context, e *Engine, configFile string, load Loader) error {
 	}
 }
 
-// nextSends returns the next send time of each space that has an agent.
+// nextSends returns the next send time of each space that is not paused.
 func nextSends(cfg *config.Config, now time.Time) map[string]time.Time {
 	out := map[string]time.Time{}
 	for _, s := range cfg.AllSpaces() {
-		if s.Agent == "" {
+		if s.Paused {
 			continue
 		}
 		if sc, ok := cfg.Schedule(s.Schedule); ok {
@@ -180,7 +180,7 @@ func nextSends(cfg *config.Config, now time.Time) map[string]time.Time {
 func spaceNexts(cfg *config.Config, next map[string]time.Time) []SpaceNext {
 	out := []SpaceNext{}
 	for _, s := range cfg.AllSpaces() {
-		n := SpaceNext{Space: s.ID, Name: s.Title(), Agent: s.Agent}
+		n := SpaceNext{Space: s.ID, Name: s.Title(), Agent: agentOf(s)}
 		if at, ok := next[s.ID]; ok {
 			n.At = &at
 		}
@@ -192,11 +192,19 @@ func spaceNexts(cfg *config.Config, next map[string]time.Time) []SpaceNext {
 func logNext(log *slog.Logger, cfg *config.Config, next map[string]time.Time) {
 	for _, s := range cfg.AllSpaces() {
 		if at, ok := next[s.ID]; ok {
-			log.Info("next send", "space", s.ID, "agent", s.Agent, "schedule", s.Schedule, "at", at.Format(time.DateTime))
+			log.Info("next send", "space", s.ID, "agent", agentOf(s), "schedule", s.Schedule, "at", at.Format(time.DateTime))
 		} else {
-			log.Info("space does not send", "space", s.ID, "agent", s.Agent)
+			log.Info("space does not send", "space", s.ID, "paused", s.Paused)
 		}
 	}
+}
+
+// agentOf describes the agent of a space, or "" for a paused space.
+func agentOf(s config.Space) string {
+	if s.Paused {
+		return ""
+	}
+	return s.Agent.Title()
 }
 
 func fileModTime(path string) time.Time {

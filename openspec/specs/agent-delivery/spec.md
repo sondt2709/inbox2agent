@@ -112,7 +112,7 @@ The daemon SHALL send the `queued` asks at least one time each minute, independe
 - **THEN** the daemon sends the ask within 2 minutes, and the ask is `sent`
 
 ### Requirement: Spaces and batches
-The system SHALL send each pending message to each space that has a link to its conversation and whose read level allows the message, or to Unsorted when no space lists the conversation. The routes SHALL be computed when a space sends, so a moved conversation takes its pending messages to its new space. The system SHALL make one batch for each space that has pending messages at its send time, and SHALL send it to the agent of the space. A space SHALL get a message one time: a message that a space has (sent, or previewed by a dry run of that space) SHALL NOT go to that space again, except a previewed message to a real driver. A failed batch of one space SHALL NOT change the messages of another space. The dispatch SHALL record the space and the agent.
+The system SHALL send each pending message to each space that has a link to its conversation and whose read level allows the message, or to Unsorted when no space lists the conversation. The routes SHALL be computed when a space sends, so a moved conversation takes its pending messages to its new space. The system SHALL make one batch for each space that is not paused and has pending messages at its send time, and SHALL send it to the agent of the space with the instruction of the space. A paused space SHALL NOT send. A space SHALL get a message one time: a message that a space has (sent, or previewed by a dry run of that space) SHALL NOT go to that space again, except a previewed message to a real driver. A failed batch of one space SHALL NOT change the messages of another space. The dispatch SHALL record the space and the description of its agent (`dry-run`, or `orca · <cli>`). The run summary SHALL be `batch of <space name> (<agent description>, <n> messages): <status>`.
 
 #### Scenario: Two spaces from one account
 - **WHEN** the account `phone` has a new message in a chat of `acme` and one in a chat of `personal`, and both spaces are due
@@ -125,6 +125,10 @@ The system SHALL send each pending message to each space that has a link to its 
 #### Scenario: One space fails
 - **WHEN** the channel `release` is in Review and in Team, and the batch of Team fails
 - **THEN** the message has a delivery `sent` for Review, the next batch of Team contains it, and the next batch of Review does not
+
+#### Scenario: Run summary
+- **WHEN** Unsorted has a `dry-run` agent and sends 3 messages
+- **THEN** `i2a run --once` prints `batch of Unsorted (dry-run, 3 messages): sent`
 
 ### Requirement: One delivery at a time for each space
 The system SHALL hold an exclusive lock on the file `<data>/space-<id>.lock` while a batch or an ask goes to the agent of the space. A batch SHALL wait up to 3 minutes for the lock; after that, the dispatch status SHALL be `held` and the messages SHALL stay `pending`. An ask SHALL wait up to 3 minutes for the lock; after that, the ask SHALL stay `queued`.
@@ -161,9 +165,9 @@ When the `cli` of the agent is `claude` or starts with `claude`, the driver SHAL
 - **THEN** the driver uses the Orca check with `agentIdentity`, and the batch is not refused for this reason
 
 ### Requirement: Tab name of a new session
-After the driver starts a terminal (new, reuse and worktree modes), it SHALL run `orca terminal rename --terminal <handle> --title "<agent name> · <space name>"`. A failed rename SHALL add a note to the detail of the dispatch and SHALL NOT change its status. The driver SHALL NOT rename a terminal that it did not start.
+After the driver starts a terminal (new, reuse and worktree modes), it SHALL run `orca terminal rename --terminal <handle> --title "i2a · <space name>"`. A failed rename SHALL add a note to the detail of the dispatch and SHALL NOT change its status. The driver SHALL NOT rename a terminal that it did not start.
 
 #### Scenario: New session of the space Unsorted
-- **WHEN** the agent `triage` starts a new session for the space Unsorted
-- **THEN** the Orca tab of the session shows "triage · Unsorted"
+- **WHEN** the agent of Unsorted starts a new session
+- **THEN** the Orca tab of the session shows "i2a · Unsorted"
 

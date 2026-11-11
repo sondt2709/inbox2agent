@@ -58,7 +58,7 @@ func newStatusCmd() *cobra.Command {
 }
 
 // printConfig prints the model: accounts, then each space with its agent,
-// schedule, next send and waiting messages, then agents and schedules.
+// schedule, next send and waiting messages, then the schedules.
 func printConfig(w io.Writer, c *config.Config, dataDir string, pending []inbox.Message, now time.Time) {
 	fmt.Fprintf(w, "\nSettings: lookback %s, retention %s, notifications %s\n", c.Settings.Lookback, c.Settings.Retention, onOff(c.Notify.Enabled))
 	fmt.Fprintln(w, "\nAccounts:")
@@ -86,8 +86,11 @@ func printConfig(w io.Writer, c *config.Config, dataDir string, pending []inbox.
 	fmt.Fprintln(w, "\nSpaces:")
 	tw = tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	for _, s := range c.AllSpaces() {
-		send, agent := "hold: does not send", s.Agent
-		if s.Agent != "" {
+		send, agent := "paused: does not send", s.Agent.Title()
+		if s.ID == config.UnsortedID {
+			send = "hold: does not send"
+		}
+		if !s.Paused {
 			send = "never"
 			if sc, ok := c.Schedule(s.Schedule); ok {
 				if at := sc.Next(now); !at.IsZero() {
@@ -97,8 +100,6 @@ func printConfig(w io.Writer, c *config.Config, dataDir string, pending []inbox.
 					}
 				}
 			}
-		} else {
-			agent = "-"
 		}
 		convs := fmt.Sprintf("%d conversations", len(s.Conversations))
 		if s.ID == config.UnsortedID {
@@ -108,16 +109,6 @@ func printConfig(w io.Writer, c *config.Config, dataDir string, pending []inbox.
 	}
 	tw.Flush()
 
-	fmt.Fprintln(w, "\nAgents:")
-	tw = tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
-	for _, p := range c.Agents {
-		line := fmt.Sprintf("  %s\t%s\tdriver=%s\tpayload=%s", p.ID, p.Title(), p.Driver, p.Payload)
-		if p.Driver == config.DriverOrca {
-			line += fmt.Sprintf("\tcli=%s\tsession=%s\tworkspace=%s", p.CLI, p.Session, p.Workspace)
-		}
-		fmt.Fprintln(tw, line)
-	}
-	tw.Flush()
 	fmt.Fprintln(w, "\nSchedules:")
 	tw = tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	for _, s := range c.Schedules {

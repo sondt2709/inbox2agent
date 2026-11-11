@@ -83,13 +83,14 @@ func unsupported(err error) error {
 // and waits up to 5 seconds until it runs.
 func installService(e *env, cfg *config.Config) (string, error) {
 	var extra []string
-	for _, p := range cfg.Agents {
-		if p.Driver != config.DriverOrca {
+	for _, s := range cfg.AllSpaces() {
+		p := s.Agent
+		if p.Driver != config.DriverOrca || s.Paused {
 			continue
 		}
 		bin, err := agent.ResolveBin(p.OrcaBin)
 		if err != nil {
-			return "", fmt.Errorf("agent %q: %w", p.ID, err)
+			return "", fmt.Errorf("space %q: %w", s.ID, err)
 		}
 		extra = append(extra, filepath.Dir(bin))
 	}

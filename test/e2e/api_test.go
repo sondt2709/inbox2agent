@@ -43,7 +43,7 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 
 	w.Post(t, w.Bob, w.Selected, "S41 first message")
 	s, code := p.run("run --once")
-	if code != 0 || !strings.Contains(s, "the daemon did the run") || !strings.Contains(s, "batch of Unsorted to triage (dry-run, 1 messages)") {
+	if code != 0 || !strings.Contains(s, "the daemon did the run") || !strings.Contains(s, "batch of Unsorted (dry-run, 1 messages)") {
 		t.Fatalf("run --once with the daemon: exit %d:\n%s", code, s)
 	}
 	d.WaitFor(`msg="run from the API"`, 10*time.Second)

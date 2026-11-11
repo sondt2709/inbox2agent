@@ -246,11 +246,10 @@ func TestHeldKeepsMessagesPending(t *testing.T) {
 	}
 }
 
-// spaceCfg adds the agent reviewer and the space Review with the
-// conversation work/Cr to a configuration with the account work.
+// spaceCfg adds the space Review, with its own agent and the conversation
+// work/Cr, to a configuration with the account work.
 func spaceCfg(c *config.Config) *config.Config {
-	c.Agents = append(c.Agents, config.NewAgent("reviewer"))
-	c.Spaces = []config.Space{{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always",
+	c.Spaces = []config.Space{{ID: "review", Name: "Review", Agent: config.NewAgent("review"), Schedule: "always",
 		Conversations: []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}}}
 	return c
 }
@@ -265,7 +264,7 @@ func TestRoutesMakeOneBatchForEachSpace(t *testing.T) {
 	for _, b := range d.Batches {
 		got[b.Space+"/"+b.Agent] = b.Count
 	}
-	if got["unsorted/triage"] != 1 || got["review/reviewer"] != 2 || len(got) != 2 {
+	if got["unsorted/dry-run"] != 1 || got["review/dry-run"] != 2 || len(got) != 2 {
 		t.Errorf("batches = %v", got)
 	}
 	ds, _ := h.st.Dispatches(ctx, 10)
@@ -276,7 +275,7 @@ func TestRoutesMakeOneBatchForEachSpace(t *testing.T) {
 
 func TestDispatchOnlyGivenSpacesAndMovedConversation(t *testing.T) {
 	c := spaceCfg(cfgWith("work"))
-	c.Unsorted.Agent = "" // hold
+	c.Unsorted.Paused = true // hold
 	h := newHarness(t, c)
 	ctx := context.Background()
 	h.sources["work"].add("a1", "a2", "r1")
@@ -291,7 +290,7 @@ func TestDispatchOnlyGivenSpacesAndMovedConversation(t *testing.T) {
 
 	// The user moves the conversation Ca to Review: its waiting messages go there.
 	next := spaceCfg(cfgWith("work"))
-	next.Unsorted.Agent = ""
+	next.Unsorted.Paused = true
 	if err := next.SetConversation("work", "Ca", "review", "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -379,8 +378,8 @@ func TestLoopSendsEachSpaceOnItsSchedule(t *testing.T) {
 	t.Cleanup(func() { tick = old })
 
 	c := spaceCfg(cfgWith("work"))
-	c.Agents[0].Driver, c.Agents[0].Workspace = config.DriverOrca, "/w"
-	c.Agents[1].Driver, c.Agents[1].Workspace = config.DriverOrca, "/w"
+	c.Unsorted.Agent.Driver, c.Unsorted.Agent.Folder = config.DriverOrca, "/w"
+	c.Spaces[0].Agent.Driver, c.Spaces[0].Agent.Folder = config.DriverOrca, "/w"
 	c.Accounts[0].ReadEvery = config.Duration(5 * time.Millisecond)
 	c.Schedules = []config.Schedule{{ID: "fast", Every: config.Duration(40 * time.Millisecond)}, {ID: "slow", Every: config.Duration(160 * time.Millisecond)}}
 	c.Unsorted.Schedule, c.Spaces[0].Schedule = "fast", "slow"
@@ -475,7 +474,7 @@ func TestDryRunPreviewThenRealDriverSendsAll(t *testing.T) {
 
 	// The user changes the agent to orca, and one new message arrives.
 	next := cfgWith("work")
-	next.Agents[0].Driver = config.DriverOrca
+	next.Unsorted.Agent.Driver = config.DriverOrca
 	h.e.SetConfig(next)
 	h.sources["work"].add("a4")
 	h.e.Poll(ctx, true)
@@ -511,7 +510,7 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	}
 
 	next := cfgWith("work")
-	next.Agents[0].Driver = config.DriverOrca
+	next.Unsorted.Agent.Driver = config.DriverOrca
 	h.e.SetConfig(next)
 	h.drv.result = agent.Result{Status: agent.StatusSent, Detail: "new session term_1, turn started"}
 	if _, err := h.e.Dispatch(ctx, nil); err != nil {
@@ -527,7 +526,7 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || !strings.HasPrefix(got[0], "i2a: dispatch failed | Space Unsorted (agent triage), 1 messages stay pending: orca agent launch") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "i2a: dispatch failed | Space Unsorted (agent orca · claude), 1 messages stay pending: orca agent launch") {
 		t.Fatalf("notifications = %q", got)
 	}
 	if strings.Contains(got[0], "text b1") {
@@ -557,7 +556,7 @@ func TestCLIInstructionForRealDriverOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	next := cfgWith("work")
-	next.Agents[0].Driver = config.DriverOrca
+	next.Unsorted.Agent.Driver = config.DriverOrca
 	h.e.SetConfig(next)
 	if _, err := h.e.Dispatch(ctx, nil); err != nil {
 		t.Fatal(err)
@@ -588,7 +587,7 @@ func TestCLIInstructionForRealDriverOnly(t *testing.T) {
 // orcaCfg returns a configuration with one account and one orca agent.
 func orcaCfg() *config.Config {
 	c := cfgWith("work")
-	c.Agents[0].Driver = config.DriverOrca
+	c.Unsorted.Agent.Driver = config.DriverOrca
 	return c
 }
 
@@ -763,5 +762,34 @@ func TestLoopSendsQueuedAsksWithoutADispatch(t *testing.T) {
 	}
 	if h.drv.count() != 0 || len(h.drv.asks) != 1 {
 		t.Errorf("batches %d, asks %d; want only the ask %d", h.drv.count(), len(h.drv.asks), a.ID)
+	}
+}
+
+// A paused space does not send: its messages wait. After the user resumes
+// the space, the next dispatch sends them.
+func TestPausedSpaceDoesNotSend(t *testing.T) {
+	text := "version = 3\n" +
+		"[[accounts]]\nid = 'work'\nplatform = 'mattermost'\nurl = 'https://x'\n" +
+		"[[schedules]]\nid = 'always'\nevery = '15m'\n" +
+		"[unsorted]\npaused = true\nschedule = 'always'\nread = 'all'\n[unsorted.agent]\ndriver = 'dry-run'\n"
+	cfg, err := config.Parse([]byte(text))
+	if err != nil {
+		t.Fatalf("parse a version 3 file with paused = true: %v", err)
+	}
+	h := newHarness(t, cfg)
+	ctx := context.Background()
+	h.sources["work"].add("a1")
+	h.e.Poll(ctx, true)
+	d, err := h.e.Dispatch(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Batches) != 0 || len(h.drv.batches) != 0 {
+		t.Fatalf("a paused space sent: %+v", d.Batches)
+	}
+	resumed, _ := config.Parse([]byte(strings.Replace(text, "paused = true\n", "", 1)))
+	h.e.SetConfig(resumed)
+	if d, err = h.e.Dispatch(ctx, nil); err != nil || len(d.Batches) != 1 || d.Batches[0].Count != 1 {
+		t.Fatalf("after resume: batches = %+v, err = %v", d.Batches, err)
 	}
 }

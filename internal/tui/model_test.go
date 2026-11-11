@@ -91,8 +91,9 @@ func newTestModel(t *testing.T) *model {
 	work := config.NewMattermostAccount("work", "https://chat.example.com")
 	work.User = "alice"
 	cfg.Accounts = append(cfg.Accounts, work)
-	cfg.Agents = append(cfg.Agents, config.NewAgent("claude-work"))
-	cfg.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: "claude-work", Schedule: "always",
+	acme := config.NewAgent("acme")
+	acme.Driver, acme.CLI, acme.Folder, acme.OrcaBin = config.DriverOrca, "claude", "/home/user/notes", "/usr/local/bin/orca"
+	cfg.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: acme, Schedule: "always",
 		Conversations: []config.Conversation{{Account: "work", ID: "C1", Name: "release", Read: config.ReadAll}}}}
 	if err := config.Save(paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
@@ -194,7 +195,7 @@ func TestDashboardShowsTheModel(t *testing.T) {
 	m := newTestModel(t)
 	s := screen(m)
 	for _, want := range []string{"Feed", "Spaces", "Setup", "● running", "ctrl+r run now", "● Acme", "Everything else",
-		"Sends to   claude-work", "Conversations · 1", "# release"} {
+		"Agent      orca · claude · /home/user/notes · reuse", "Status     ● Sending", "Conversations · 1", "# release"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the dashboard does not show %q:\n%s", want, s)
 		}
@@ -247,23 +248,26 @@ func TestMouseClickOnTab(t *testing.T) {
 	if m.tab != tabAccounts {
 		t.Fatalf("click on Setup: tab %d", m.tab)
 	}
-	// Click the section Agents on row 1.
+	// Click the section Schedules on row 1. Setup has no Agents section.
 	sub := strings.Split(screen(m), "\n")[1]
-	x = len([]rune(sub[:strings.Index(sub, "Agents")]))
+	if strings.Contains(sub, "Agents") {
+		t.Errorf("Setup has an Agents section: %q", sub)
+	}
+	x = len([]rune(sub[:strings.Index(sub, "Schedules")]))
 	m.Update(tea.MouseClickMsg{X: x + 1, Y: 1, Button: tea.MouseLeft})
-	if m.tab != tabAgents {
-		t.Fatalf("click on Agents: tab %d", m.tab)
+	if m.tab != tabSchedules {
+		t.Fatalf("click on Schedules: tab %d", m.tab)
 	}
-	// Click the third row of the list ("+ Add agent"), then click it again to edit it.
+	// Click the second row of the list ("+ Add schedule"), then click it again to edit it.
 	m.render()
-	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 4, Button: tea.MouseLeft})
-	if m.agt != 2 || m.form == nil || m.form.active {
-		t.Fatalf("first click: row %d", m.agt)
+	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 3, Button: tea.MouseLeft})
+	if m.sch != 1 || m.form == nil || m.form.active {
+		t.Fatalf("first click: row %d", m.sch)
 	}
-	if !strings.Contains(screen(m), "Create agent") {
-		t.Fatal("the detail panel does not show the new agent form")
+	if !strings.Contains(screen(m), "Create schedule") {
+		t.Fatal("the detail panel does not show the new schedule form")
 	}
-	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 4, Button: tea.MouseLeft})
+	m.Update(tea.MouseClickMsg{X: 4, Y: contentTop + 3, Button: tea.MouseLeft})
 	if !m.form.active {
 		t.Fatal("second click did not give the keyboard to the form")
 	}
@@ -351,21 +355,27 @@ func TestQuitWithUnsavedFormAsks(t *testing.T) {
 	}
 }
 
-func TestDeleteAgentAsksForReplacement(t *testing.T) {
+func TestDeleteScheduleAsksForReplacement(t *testing.T) {
 	m := newTestModel(t)
-	at(m, tabAgents)
+	changeFile(t, m, func(c *config.Config) error {
+		c.Schedules = append(c.Schedules, config.NewSchedule("work"))
+		c.Spaces[0].Schedule = "work"
+		return nil
+	})
+	refresh(m)
+	at(m, tabSchedules)
 	send(m, "down", "x")
 	d, ok := m.topDialog().(*pickDialog)
-	if !ok || !strings.Contains(d.text, "1 space Acme use the agent claude-work") || len(d.options) != 1 {
-		t.Fatalf("x on a used agent: %v", m.topDialog())
+	if !ok || !strings.Contains(d.text, "1 space Acme use the schedule work") || len(d.options) != 1 {
+		t.Fatalf("x on a used schedule: %v", m.topDialog())
 	}
 	send(m, "enter")
 	c, err := config.Load(m.u.d.Paths.ConfigFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.Agent("claude-work"); ok || c.Spaces[0].Agent != "triage" {
-		t.Errorf("after the delete: agents %+v, Acme uses %q", c.Agents, c.Spaces[0].Agent)
+	if _, ok := c.Schedule("work"); ok || c.Spaces[0].Schedule != "always" {
+		t.Errorf("after the delete: schedules %+v, Acme uses %q", c.Schedules, c.Spaces[0].Schedule)
 	}
 }
 
@@ -442,15 +452,19 @@ func TestDigestViewer(t *testing.T) {
 	}
 }
 
-// The Instruction field of an agent: plain text sent with each batch; three
-// backticks are refused and the file does not change.
-func TestAgentInstructionField(t *testing.T) {
+// The row Agent of a space opens the agent form in the panel: the folder and
+// the instruction of this space only; three backticks are refused and the
+// file does not change.
+func TestSpaceAgentForm(t *testing.T) {
 	m := newTestModel(t)
-	at(m, tabAgents)
-	send(m, "enter")
-	f := m.form.field("primer")
-	if f == nil || m.form.field("batch") != nil || !strings.Contains(screen(m), "Instruction") {
-		t.Fatalf("the agent form has no Instruction field, or has a batch field:\n%s", screen(m))
+	at(m, tabSpaces)
+	send(m, "enter", "up", "up", "up", "enter") // the row Agent of Acme
+	if m.spaceForm != "acme" || m.form == nil || !m.form.active {
+		t.Fatalf("enter on the row Agent did not open the agent form: %q", m.spaceForm)
+	}
+	f := m.form.field("instruction")
+	if f == nil || m.form.field("folder") == nil || !strings.Contains(screen(m), "Agent of Acme") {
+		t.Fatalf("the agent form has no Instruction or Folder field:\n%s", screen(m))
 	}
 	before := fileText(t, m)
 	f.area.SetValue("Use this:\n```\nrm\n```")
@@ -459,9 +473,38 @@ func TestAgentInstructionField(t *testing.T) {
 		t.Fatalf("no error under the field, or the file changed:\n%s", s)
 	}
 	f.area.SetValue("Tóm tắt bằng tiếng Việt.")
+	m.form.field("folder").input.SetValue("~/acme")
 	send(m, "ctrl+s")
-	if !strings.Contains(fileText(t, m), "primer = 'Tóm tắt bằng tiếng Việt.'") {
-		t.Fatalf("the instruction was not saved:\n%s", fileText(t, m))
+	c, err := config.Load(m.u.d.Paths.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acme, _ := c.Space("acme")
+	if acme.Instruction != "Tóm tắt bằng tiếng Việt." || acme.Agent.Folder != "~/acme" || c.Unsorted.Agent.Folder != "" || c.Unsorted.Instruction != "" {
+		t.Fatalf("after the save: acme %+v, Unsorted %+v", acme, c.Unsorted)
+	}
+	if m.spaceForm != "" || m.form != nil || !strings.Contains(screen(m), "Saved the agent of Acme: orca · claude · ~/acme · reuse.") {
+		t.Errorf("the form did not close after the save:\n%s", screen(m))
+	}
+}
+
+// esc closes the agent form; with changes it asks first.
+func TestSpaceAgentFormEsc(t *testing.T) {
+	m := newTestModel(t)
+	at(m, tabSpaces)
+	send(m, "enter", "up", "up", "up", "enter", "esc")
+	if m.spaceForm != "" || m.form != nil {
+		t.Fatalf("esc did not close an unchanged form")
+	}
+	send(m, "enter")
+	m.form.field("folder").input.SetValue("~/other")
+	send(m, "esc")
+	if _, ok := m.topDialog().(*confirmDialog); !ok || m.spaceForm != "acme" {
+		t.Fatalf("esc with a change: dialog %v", m.topDialog())
+	}
+	send(m, "d")
+	if m.spaceForm != "" || strings.Contains(fileText(t, m), "~/other") {
+		t.Errorf("discard did not close the form, or the file changed")
 	}
 }
 

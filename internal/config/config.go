@@ -1,12 +1,12 @@
 // Package config defines the i2a configuration file: the schema, the defaults,
 // loading, saving, validation and the migration of version 1 files.
 //
-// The model has five items. An account is one login to a platform. A
+// The model has four items. An account is one login to a platform. A
 // conversation is one direct conversation, group or channel of an account. A
-// space is a group of conversations that the user names; it is the only item
-// that names an agent and a schedule. An agent tells i2a how to send a batch.
-// A schedule tells i2a when a space sends. The built-in space Unsorted holds
-// each conversation that no space lists.
+// space is a group of conversations that the user names, with its own agent
+// (how i2a sends a batch), its instruction, its pause and the schedule that it
+// names. A schedule tells i2a when a space sends. The built-in space Unsorted
+// holds each conversation that no space lists.
 package config
 
 import (
@@ -24,7 +24,7 @@ import (
 )
 
 // Version is the version of the file format that this i2a writes.
-const Version = 2
+const Version = 3
 
 // Driver names.
 const (
@@ -75,14 +75,13 @@ const (
 
 // Config is the whole configuration file.
 type Config struct {
-	Version   int        `toml:"version" doc:"The version of the file format. i2a writes 2." enum:"1,2"`
+	Version   int        `toml:"version" doc:"The version of the file format. i2a writes 3 and converts 1 and 2." enum:"1,2,3"`
 	Settings  Settings   `toml:"settings" doc:"The message limits of the store."`
 	Notify    Notify     `toml:"notify" doc:"The desktop notifications."`
 	Accounts  []Account  `toml:"accounts" doc:"The logins to chat tools. An account only connects. Add one with i2a account add, which keeps the token in the secret store."`
-	Agents    []Agent    `toml:"agents" doc:"How i2a sends a batch to an AI agent. A space names one agent."`
 	Schedules []Schedule `toml:"schedules" doc:"When a space sends. A space names one schedule."`
 	Unsorted  Unsorted   `toml:"unsorted" doc:"The built-in space of each conversation that no space lists."`
-	Spaces    []Space    `toml:"spaces" doc:"The groups of conversations that you name. Each space sends its conversations to one agent on one schedule."`
+	Spaces    []Space    `toml:"spaces" doc:"The groups of conversations that you name. Each space sends its conversations to its own agent on one schedule."`
 
 	// Migration is the report of the conversion from version 1, or nil.
 	Migration *Migration `toml:"-"`
@@ -119,21 +118,21 @@ type Account struct {
 	ReadEvery Duration `toml:"read_every" doc:"The time between two reads of the account. At least 5s. Default: 1m, or 10s for WhatsApp."`
 }
 
-// Agent tells i2a how to send a batch to an AI agent.
+// Agent tells i2a how to send the batches of one space to an AI agent. Each
+// space and Unsorted has its own agent in the file. ID and Name are not in the
+// file: they are the ID and the name of the space, set at load.
 type Agent struct {
-	ID              string `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. Spaces name it." schema:"required,id"`
-	Name            string `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
+	ID              string `toml:"-"`
+	Name            string `toml:"-"`
 	Driver          string `toml:"driver" doc:"orca types the batch into an agent terminal of Orca. dry-run only writes the digest file." enum:"orca,dry-run" schema:"default"`
 	CLI             string `toml:"cli" doc:"The agent CLI that Orca starts, for example claude."`
-	Workspace       string `toml:"workspace" doc:"The folder of the agent terminal. The orca driver needs it."`
-	Session         string `toml:"session" doc:"new: a new terminal for each batch. reuse: one terminal for each space while it is live. worktree: a new Git worktree for each batch." enum:"new,reuse,worktree" schema:"default"`
+	Folder          string `toml:"folder" doc:"The folder of the agent terminal. The orca driver needs it."`
+	Session         string `toml:"session" doc:"new: a new terminal for each batch. reuse: one terminal for the space while it is live. worktree: a new Git worktree for each batch." enum:"new,reuse,worktree" schema:"default"`
 	Payload         string `toml:"payload" doc:"pointer: the prompt names the digest file. inline: the prompt contains the messages." enum:"pointer,inline" schema:"default"`
-	InlineMaxBytes  int    `toml:"inline_max_bytes" doc:"The largest inline prompt in bytes, from 1024 to 65536." min:"1024" max:"65536"`
+	InlineMaxBytes  int    `toml:"inline_max_bytes" doc:"The largest YAML content of an inline prompt in bytes, from 1024 to 65536." min:"1024" max:"65536"`
 	MessageMaxChars int    `toml:"message_max_chars" doc:"The longest message text in a batch, from 100 to 20000 characters." min:"100" max:"20000"`
 	Model           string `toml:"model,omitempty" doc:"The model of the agent CLI. Empty: the default of the CLI."`
 	OrcaBin         string `toml:"orca_bin,omitempty" doc:"The path of the orca command. Empty: orca in PATH."`
-	Primer          string `toml:"primer,multiline,omitempty" doc:"The instruction to the agent. i2a sends it with each batch and each ask, before the messages. Plain text, not a template. It cannot contain three backticks. Empty: the built-in instruction."`
-	Batch           string `toml:"batch,multiline,omitempty" doc:"Not used. i2a removes it at the next save."`
 }
 
 // Schedule tells i2a when a space sends.
@@ -155,30 +154,39 @@ type Conversation struct {
 }
 
 // Space is a group of conversations that the user names. Its conversations go
-// to one agent on one schedule.
+// to its own agent, with its instruction, on one schedule.
 type Space struct {
 	ID            string         `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. It cannot be unsorted." schema:"required,id"`
 	Name          string         `toml:"name" doc:"The name that i2a shows. Empty: the ID. Two spaces cannot have the same name."`
-	Agent         string         `toml:"agent" doc:"The ID of the agent of the space." schema:"required"`
+	Paused        bool           `toml:"paused,omitempty" doc:"true: the space does not send. Its messages wait and expire after lookback."`
 	Schedule      string         `toml:"schedule" doc:"The ID of the schedule of the space." schema:"required"`
+	Instruction   string         `toml:"instruction,multiline,omitempty" doc:"The instruction to the agent. i2a sends it with each batch and each ask, before the messages. Plain text, not a template. It cannot contain three backticks. Empty: the built-in instruction."`
+	Agent         Agent          `toml:"agent" doc:"How i2a sends the batches of the space."`
 	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations of the space. A conversation can be in many spaces, each with its own read level; it is not two times in one space."`
 }
 
 // Unsorted is the built-in space. Read is the level of each conversation that
 // no space lists; Conversations has the unsorted conversations with their own
-// level. An empty Agent holds the messages.
+// level. A paused Unsorted holds the messages.
 type Unsorted struct {
-	Agent         string         `toml:"agent" comment:"Empty: hold the messages until you sort their conversations."`
+	Paused        bool           `toml:"paused,omitempty" comment:"true: hold the messages until you sort their conversations."`
 	Schedule      string         `toml:"schedule" doc:"The ID of the schedule of Unsorted. Default: the first schedule."`
 	Read          string         `toml:"read" comment:"The read level of a conversation that no space lists: all, mentions or off." enum:"all,mentions,off" schema:"default"`
+	Instruction   string         `toml:"instruction,multiline,omitempty" doc:"The instruction to the agent of Unsorted. Plain text. It cannot contain three backticks. Empty: the built-in instruction."`
+	Agent         Agent          `toml:"agent" doc:"How i2a sends the batches of Unsorted."`
 	Conversations []Conversation `toml:"conversations,omitempty" doc:"The conversations in Unsorted that have their own read level or label."`
 }
 
 // Title returns the name of the account, or its ID.
 func (a Account) Title() string { return orID(a.Name, a.ID) }
 
-// Title returns the name of the agent, or its ID.
-func (a Agent) Title() string { return orID(a.Name, a.ID) }
+// Title describes the agent: dry-run, or orca and the CLI.
+func (a Agent) Title() string {
+	if a.Driver == DriverOrca && a.CLI != "" {
+		return a.Driver + " · " + a.CLI
+	}
+	return a.Driver
+}
 
 // Title returns the name of the schedule, or its ID.
 func (s Schedule) Title() string { return orID(s.Name, s.ID) }
@@ -196,8 +204,8 @@ func orID(name, id string) string {
 	return id
 }
 
-// Default returns a configuration with one dry-run agent, one schedule, and
-// an Unsorted space that sends the messages for the user to that agent.
+// Default returns a configuration with one schedule and an Unsorted space that
+// sends the messages for the user to a dry-run agent.
 func Default() *Config {
 	return &Config{
 		Version: Version,
@@ -206,17 +214,15 @@ func Default() *Config {
 			Retention: Duration(7 * 24 * time.Hour),
 		},
 		Notify:    Notify{Enabled: true, MinUrgency: "normal", Via: "auto", Terminal: TerminalITerm2},
-		Agents:    []Agent{NewAgent("triage")},
 		Schedules: []Schedule{NewSchedule("always")},
-		Unsorted:  Unsorted{Agent: "triage", Schedule: "always", Read: ReadMentions},
+		Unsorted:  Unsorted{Agent: NewAgent(UnsortedID), Schedule: "always", Read: ReadMentions},
 	}
 }
 
-// NewAgent returns an agent with the default values.
+// NewAgent returns the agent of the space id with the default values.
 func NewAgent(id string) Agent {
 	return Agent{
 		ID:              id,
-		Name:            id,
 		Driver:          DriverDryRun,
 		CLI:             "claude",
 		Session:         SessionReuse,
@@ -245,9 +251,9 @@ func NewWhatsAppAccount(id string) Account {
 // ErrNotFound is returned by Load when the file does not exist.
 var ErrNotFound = errors.New("configuration file not found")
 
-// Load reads and validates the configuration file. A version 1 file is
-// converted, its old text is kept in <path>.v1.bak (mode 0600), and the new
-// file is saved; Config.Migration has the report.
+// Load reads and validates the configuration file. A version 1 or 2 file is
+// converted, its old text is kept in <path>.v1.bak or <path>.v2.bak (mode
+// 0600), and the new file is saved; Config.Migration has the report.
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -267,7 +273,7 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
-// convert writes a version 1 file as version 2 under the write lock. It reads
+// convert writes an older file as version 3 under the write lock. It reads
 // the file again in the lock, so two processes do not convert at one time.
 func convert(path string) (*Config, error) {
 	unlock, err := lock(path)
@@ -284,22 +290,22 @@ func convert(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if c.Migration != nil {
-		if err := backupV1(path, b, c); err != nil {
+		if err := backup(path, b, c); err != nil {
 			return nil, err
 		}
 		if _, err := save(path, c); err != nil {
-			return nil, fmt.Errorf("save the version 2 file: %w", err)
+			return nil, fmt.Errorf("save the version %d file: %w", Version, err)
 		}
 	}
 	return c, nil
 }
 
-// backupV1 writes the bytes of a version 1 file to config.toml.v1.bak with
-// mode 0600 and records the path in the report.
-func backupV1(path string, b []byte, c *Config) error {
-	bak := path + ".v1.bak"
+// backup writes the bytes of an older file to config.toml.v<n>.bak with mode
+// 0600 and records the path in the report.
+func backup(path string, b []byte, c *Config) error {
+	bak := fmt.Sprintf("%s.v%d.bak", path, c.Migration.From)
 	if err := os.WriteFile(bak, b, 0o600); err != nil {
-		return fmt.Errorf("back up the version 1 file: %w", err)
+		return fmt.Errorf("back up the version %d file: %w", c.Migration.From, err)
 	}
 	if err := os.Chmod(bak, 0o600); err != nil {
 		return err
@@ -309,19 +315,30 @@ func backupV1(path string, b []byte, c *Config) error {
 }
 
 // Parse decodes and validates configuration bytes. It converts a version 1
-// file in memory.
+// or 2 file in memory.
 func Parse(b []byte) (*Config, error) {
 	v1, err := isV1(b)
 	if err != nil {
 		return nil, err
 	}
-	if v1 {
-		c, err := migrateV1(b)
-		if err != nil {
+	ver, err := version(b)
+	if err != nil {
+		return nil, err
+	}
+	if v1 || ver == 1 || ver == 2 {
+		var c *Config
+		from := 2
+		if v1 || ver == 1 {
+			old, m, err := migrateV1(b)
+			if err != nil {
+				return nil, err
+			}
+			c, from = migrateV2(old, m), 1
+		} else if c, err = parseV2(b); err != nil {
 			return nil, err
 		}
 		if err := c.Validate(); err != nil {
-			return nil, fmt.Errorf("after the conversion from version 1: %w", err)
+			return nil, fmt.Errorf("after the conversion from version %d: %w", from, err)
 		}
 		return c, nil
 	}
@@ -357,9 +374,6 @@ func decodeError(err error) error {
 func (c *Config) applyDefaults() {
 	d := Default()
 	c.Version = Version
-	for i := range c.Agents {
-		c.Agents[i].Batch = "" // not used; the next save removes it
-	}
 	if c.Settings.Lookback == 0 {
 		c.Settings.Lookback = d.Settings.Lookback
 	}
@@ -387,33 +401,10 @@ func (c *Config) applyDefaults() {
 			}
 		}
 	}
-	if len(c.Agents) == 0 {
-		c.Agents = d.Agents
-	}
-	for i := range c.Agents {
-		a := &c.Agents[i]
-		def := NewAgent(a.ID)
-		if a.Name == "" {
-			a.Name = a.ID
-		}
-		if a.Driver == "" {
-			a.Driver = def.Driver
-		}
-		if a.CLI == "" {
-			a.CLI = def.CLI
-		}
-		if a.Session == "" {
-			a.Session = def.Session
-		}
-		if a.Payload == "" {
-			a.Payload = def.Payload
-		}
-		if a.InlineMaxBytes == 0 {
-			a.InlineMaxBytes = def.InlineMaxBytes
-		}
-		if a.MessageMaxChars == 0 {
-			a.MessageMaxChars = def.MessageMaxChars
-		}
+	c.Unsorted.Agent.defaults(UnsortedID, "Unsorted")
+	for i := range c.Spaces {
+		s := &c.Spaces[i]
+		s.Agent.defaults(s.ID, orID(s.Name, s.ID))
 	}
 	if len(c.Schedules) == 0 {
 		c.Schedules = d.Schedules
@@ -444,6 +435,31 @@ func (c *Config) applyDefaults() {
 				s.Conversations[j].Read = ReadAll
 			}
 		}
+	}
+}
+
+// defaults fills the empty fields of the agent of a space with the default
+// values, and sets its ID and name, which are not in the file.
+func (a *Agent) defaults(id, name string) {
+	def := NewAgent(id)
+	a.ID, a.Name = id, name
+	if a.Driver == "" {
+		a.Driver = def.Driver
+	}
+	if a.CLI == "" {
+		a.CLI = def.CLI
+	}
+	if a.Session == "" {
+		a.Session = def.Session
+	}
+	if a.Payload == "" {
+		a.Payload = def.Payload
+	}
+	if a.InlineMaxBytes == 0 {
+		a.InlineMaxBytes = def.InlineMaxBytes
+	}
+	if a.MessageMaxChars == 0 {
+		a.MessageMaxChars = def.MessageMaxChars
 	}
 }
 
@@ -500,16 +516,6 @@ func (c *Config) Account(id string) (*Account, bool) {
 	return nil, false
 }
 
-// Agent returns the agent with this ID.
-func (c *Config) Agent(id string) (*Agent, bool) {
-	for i := range c.Agents {
-		if c.Agents[i].ID == id {
-			return &c.Agents[i], true
-		}
-	}
-	return nil, false
-}
-
 // Schedule returns the schedule with this ID.
 func (c *Config) Schedule(id string) (*Schedule, bool) {
 	for i := range c.Schedules {
@@ -538,8 +544,10 @@ func (c *Config) Space(id string) (*Space, bool) {
 
 // UnsortedSpace describes Unsorted as a space.
 func (c *Config) UnsortedSpace() Space {
-	return Space{ID: UnsortedID, Name: "Unsorted", Agent: c.Unsorted.Agent, Schedule: c.Unsorted.Schedule,
-		Conversations: c.Unsorted.Conversations}
+	a := c.Unsorted.Agent
+	a.ID, a.Name = UnsortedID, "Unsorted"
+	return Space{ID: UnsortedID, Name: "Unsorted", Paused: c.Unsorted.Paused, Schedule: c.Unsorted.Schedule,
+		Instruction: c.Unsorted.Instruction, Agent: a, Conversations: c.Unsorted.Conversations}
 }
 
 // AllSpaces returns Unsorted first, then the spaces.
@@ -830,36 +838,31 @@ func (c *Config) SetLabel(account, id, label string) error {
 	return nil
 }
 
-// SpacesUsing returns the spaces (Unsorted first) that use the agent or the
-// schedule with this ID. kind is "agent" or "schedule". Unsorted uses a
-// schedule only when it has an agent.
+// SpacesUsing returns the spaces (Unsorted first) that use the schedule with
+// this ID. kind is "schedule". A paused Unsorted does not use its schedule.
 func (c *Config) SpacesUsing(kind, id string) []Space {
 	var out []Space
 	for _, s := range c.AllSpaces() {
-		switch {
-		case kind == "agent" && s.Agent == id:
-			out = append(out, s)
-		case kind == "schedule" && s.Schedule == id && s.Agent != "":
+		if kind == "schedule" && s.Schedule == id && (s.ID != UnsortedID || !s.Paused) {
 			out = append(out, s)
 		}
 	}
 	return out
 }
 
-// Replace sets the agent or the schedule old to new in each space that uses
-// it, Unsorted too. kind is "agent" or "schedule".
+// Replace sets the schedule old to new in each space that uses it, Unsorted
+// too. kind is "schedule".
 func (c *Config) Replace(kind, old, new string) {
-	set := func(agent, schedule *string) {
-		if kind == "agent" && *agent == old {
-			*agent = new
-		}
-		if kind == "schedule" && *schedule == old {
-			*schedule = new
-		}
+	if kind != "schedule" {
+		return
 	}
-	set(&c.Unsorted.Agent, &c.Unsorted.Schedule)
+	if c.Unsorted.Schedule == old {
+		c.Unsorted.Schedule = new
+	}
 	for i := range c.Spaces {
-		set(&c.Spaces[i].Agent, &c.Spaces[i].Schedule)
+		if c.Spaces[i].Schedule == old {
+			c.Spaces[i].Schedule = new
+		}
 	}
 }
 
@@ -956,47 +959,38 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	agents := map[string]bool{}
-	if len(c.Agents) == 0 {
-		add("agents: at least one agent is necessary")
-	}
-	for i, a := range c.Agents {
-		at := id("agents", i, a.ID)
-		if agents[a.ID] {
-			add("%s: the ID is used two times", at)
-		}
-		agents[a.ID] = true
+	agent := func(at string, a Agent, instruction string) {
 		switch a.Driver {
 		case DriverDryRun, DriverOrca:
 		default:
-			add("%s.driver: %q is not dry-run or orca", at, a.Driver)
+			add("%s.agent.driver: %q is not dry-run or orca", at, a.Driver)
 		}
 		switch a.Session {
 		case SessionNew, SessionReuse, SessionWorktree:
 		default:
-			add("%s.session: %q is not new, reuse or worktree", at, a.Session)
+			add("%s.agent.session: %q is not new, reuse or worktree", at, a.Session)
 		}
 		switch a.Payload {
 		case PayloadPointer, PayloadInline:
 		default:
-			add("%s.payload: %q is not pointer or inline", at, a.Payload)
+			add("%s.agent.payload: %q is not pointer or inline", at, a.Payload)
 		}
 		if a.InlineMaxBytes < MinInlineBytes || a.InlineMaxBytes > MaxInlineBytes {
-			add("%s.inline_max_bytes: %d is not between %d and %d", at, a.InlineMaxBytes, MinInlineBytes, MaxInlineBytes)
+			add("%s.agent.inline_max_bytes: %d is not between %d and %d", at, a.InlineMaxBytes, MinInlineBytes, MaxInlineBytes)
 		}
 		if a.MessageMaxChars < 100 || a.MessageMaxChars > 20000 {
-			add("%s.message_max_chars: %d is not between 100 and 20000", at, a.MessageMaxChars)
+			add("%s.agent.message_max_chars: %d is not between 100 and 20000", at, a.MessageMaxChars)
 		}
 		if a.Driver == DriverOrca {
-			if a.Workspace == "" {
-				add("%s.workspace: the orca driver needs a workspace folder", at)
+			if a.Folder == "" {
+				add("%s.agent.folder: the orca driver needs a folder", at)
 			}
 			if a.CLI == "" {
-				add("%s.cli: the orca driver needs an agent CLI, for example claude", at)
+				add("%s.agent.cli: the orca driver needs an agent CLI, for example claude", at)
 			}
 		}
-		if strings.Contains(a.Primer, "```") {
-			add("%s.primer: the instruction cannot contain three backticks (```)", at)
+		if strings.Contains(instruction, "```") {
+			add("%s.instruction: the instruction cannot contain three backticks (```)", at)
 		}
 	}
 
@@ -1052,14 +1046,12 @@ func (c *Config) Validate() error {
 	}
 
 	level("unsorted", c.Unsorted.Read)
-	if c.Unsorted.Agent != "" && !agents[c.Unsorted.Agent] {
-		add("unsorted.agent: the agent %q does not exist", c.Unsorted.Agent)
-	}
+	agent("unsorted", c.Unsorted.Agent, c.Unsorted.Instruction)
 	if c.Unsorted.Schedule != "" && !schedules[c.Unsorted.Schedule] {
 		add("unsorted.schedule: the schedule %q does not exist", c.Unsorted.Schedule)
 	}
-	if c.Unsorted.Agent != "" && c.Unsorted.Schedule == "" {
-		add("unsorted.schedule: an Unsorted space with an agent needs a schedule")
+	if !c.Unsorted.Paused && c.Unsorted.Schedule == "" {
+		add("unsorted.schedule: an Unsorted space that sends needs a schedule")
 	}
 	conversations("unsorted", c.Unsorted.Conversations)
 
@@ -1078,9 +1070,7 @@ func (c *Config) Validate() error {
 		} else {
 			names[n] = true
 		}
-		if !agents[s.Agent] {
-			add("%s.agent: the agent %q does not exist", at, s.Agent)
-		}
+		agent(at, s.Agent, s.Instruction)
 		if !schedules[s.Schedule] {
 			add("%s.schedule: the schedule %q does not exist", at, s.Schedule)
 		}

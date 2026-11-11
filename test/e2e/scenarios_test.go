@@ -286,10 +286,10 @@ func TestS01FirstStart(t *testing.T) {
 	}
 }
 
-// openSection opens Setup and presses tab n times: 1 Agents, 2 Schedules,
-// 3 Settings, 4 Send log. It waits for text of that section.
+// openSection opens Setup and presses tab n times: 1 Schedules, 2 Settings,
+// 3 Send log. It waits for text of that section.
 func openSection(tm *harness.Term, n int, want string) string {
-	tm.Press("Tab", `Accounts · Agents · Schedules`, 5*time.Second) // Spaces → Accounts
+	tm.Press("Tab", `Accounts · Schedules · Settings`, 5*time.Second) // Spaces → Accounts
 	for range n {
 		tm.Keys("Tab")
 	}
@@ -391,7 +391,7 @@ func TestS05S06S07CollectDryRunUnreadNoDuplicates(t *testing.T) {
 
 	// S05
 	s, code := p.run("run --once")
-	if code != 0 || !strings.Contains(s, "collected 3 new messages") || !strings.Contains(s, "batch of Unsorted to triage (dry-run, 3 messages): sent") {
+	if code != 0 || !strings.Contains(s, "collected 3 new messages") || !strings.Contains(s, "batch of Unsorted (dry-run, 3 messages): sent") {
 		t.Fatalf("exit %d, screen:\n%s", code, s)
 	}
 	ds := p.digests()
@@ -472,7 +472,7 @@ func TestS09ScheduleValidation(t *testing.T) {
 	p := newPerson(t, "S09")
 	tm := p.term("config")
 	tm.WaitFor(`\+ New space`, 30*time.Second)
-	openSection(tm, 2, `every 15m · every day · all day`)
+	openSection(tm, 1, `every 15m · every day · all day`)
 	tm.Press("Enter", `▌ Name`, 5*time.Second)
 	tm.Press("Tab", `▌ Send every`, 5*time.Second)
 	tm.Replace("abc")
@@ -493,7 +493,7 @@ func TestS10ExitWithoutSaving(t *testing.T) {
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
 	tm.WaitFor(`\+ New space`, 30*time.Second)
-	openSection(tm, 2, `every 15m · every day · all day`)
+	openSection(tm, 1, `every 15m · every day · all day`)
 	tm.Press("Enter", `▌ Name`, 5*time.Second)
 	tm.Press("Tab", `▌ Send every`, 5*time.Second)
 	tm.Replace("45m")
@@ -523,7 +523,7 @@ func TestS11S12DaemonTicksAndSingleInstance(t *testing.T) {
 	d.WaitFor(`daemon started`, 20*time.Second)
 	d.WaitFor(`msg=poll account=work new=0`, 20*time.Second)
 	w.Post(t, w.Bob, w.Selected, "posted while the daemon runs")
-	d.WaitFor(`msg=dispatch space=unsorted agent=triage driver=dry-run messages=1`, 75*time.Second)
+	d.WaitFor(`msg=dispatch space=unsorted agent=dry-run messages=1`, 75*time.Second)
 	ds := p.digests()
 	if len(ds) != 1 || !slices.Contains(texts(readDigest(t, ds[0])), "posted while the daemon runs") {
 		t.Fatalf("digests = %v", ds)
@@ -562,7 +562,7 @@ func TestS13ScheduleHours(t *testing.T) {
 		t.Fatalf("digests = %d, want 0", n)
 	}
 	s, _ = p.run("status")
-	if !strings.Contains(s, "Messages: 1 waiting") || !regexp.MustCompile(`unsorted\s+Unsorted\s+triage\s+always\s+next (\S+ )?\d\d:\d\d\s+1 waiting`).MatchString(s) {
+	if !strings.Contains(s, "Messages: 1 waiting") || !regexp.MustCompile(`unsorted\s+Unsorted\s+dry-run\s+always\s+next (\S+ )?\d\d:\d\d\s+1 waiting`).MatchString(s) {
 		t.Fatalf("status:\n%s", s)
 	}
 }
@@ -577,7 +577,8 @@ func TestS20FullScreenTUI(t *testing.T) {
 	p.addAccount(w, w.Selected)
 	before, _ := os.ReadFile(p.configFile())
 	tm := p.term("config")
-	s := tm.WaitFor(`Everything else · conversations in no space`, 30*time.Second)
+	tm.WaitFor(`Everything else · conversations in no space`, 30*time.Second)
+	s := tm.WaitFor(`# selected`, 30*time.Second) // the listing of the account gives the names
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	head := strings.Join(strings.Fields(lines[0]), " ")
 	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*ctrl\+r run now$`).MatchString(head) {
@@ -586,7 +587,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 	if !strings.Contains(lines[1], "No run yet. ctrl+r reads all accounts") {
 		t.Errorf("the line under the header = %q", lines[1])
 	}
-	for _, want := range []string{"● Everything else", "New conversations", "Ignored", "+ New space", "Sends to   triage", "# selected"} {
+	for _, want := range []string{"● Everything else", "New conversations", "Ignored", "+ New space", "Agent      dry-run", "Status     ● Sending", "# selected"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Spaces area does not show %q:\n%s", want, s)
 		}
@@ -594,7 +595,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 	if len(lines) < 38 {
 		t.Errorf("the TUI uses %d of 40 lines, want the full window", len(lines))
 	}
-	openSection(tm, 3, `Lookback\s+1d`)
+	openSection(tm, 2, `Lookback\s+1d`)
 	tm.Press("Enter", `▌ Lookback`, 5*time.Second)
 	tm.Replace("45m")
 	s = tm.Press("Escape", `\[d\] Discard`, 5*time.Second)
@@ -639,8 +640,8 @@ func TestS22ReadOneDirectConversation(t *testing.T) {
 	tm.Press("Enter", `is in Bob\. Saved`, 5*time.Second)
 	// Everything else is the second row; its first row is its read level.
 	tm.Press("Down", `▌● Everything else`, 5*time.Second)
-	tm.Press("Enter", `▌  (#|@|⧉) `, 5*time.Second) // the panel, on the first conversation
-	tm.Keys("Up", "Up", "Up")
+	tm.Press("Enter", `▌  (#|@|⧉) `, 5*time.Second)                                  // the panel, on the first conversation
+	tm.Keys("Up", "Up", "Up", "Up", "Up")                                            // When, Session, Agent, Status, the read level
 	tm.Press("Right", `New and other conversations: Ignored\. Saved`, 5*time.Second) // Only for me → Ignored
 	tm.Press("q", `Saved /`, 5*time.Second)
 
@@ -651,7 +652,7 @@ func TestS22ReadOneDirectConversation(t *testing.T) {
 	w.Post(t, w.Bob, w.Direct, "S22 direct to alice")
 	w.Post(t, w.Bob, w.Selected, "S22 in a channel, @"+w.Alice.Name)
 	s, code := p.run("run --once")
-	if code != 0 || !strings.Contains(s, "collected 1 new messages") || !strings.Contains(s, "batch of Bob to triage (dry-run, 1 messages)") {
+	if code != 0 || !strings.Contains(s, "collected 1 new messages") || !strings.Contains(s, "batch of Bob (dry-run, 1 messages)") {
 		t.Fatalf("exit %d, screen:\n%s", code, s)
 	}
 	got := texts(readDigest(t, p.digests()[0]))

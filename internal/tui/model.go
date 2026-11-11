@@ -23,19 +23,18 @@ import (
 type tabID int
 
 // The tabs. The header groups them in three areas: Feed, Spaces, and Setup
-// with the sections Accounts, Agents, Schedules, Settings and Send log.
+// with the sections Accounts, Schedules, Settings and Send log.
 const (
 	tabFeed tabID = iota
 	tabSpaces
 	tabAccounts
-	tabAgents
 	tabSchedules
 	tabSettings
 	tabActivity
 	numTabs
 )
 
-var tabNames = []string{"Feed", "Spaces", "Accounts", "Agents", "Schedules", "Settings", "Send log"}
+var tabNames = []string{"Feed", "Spaces", "Accounts", "Schedules", "Settings", "Send log"}
 
 // The areas of the header.
 const (
@@ -117,9 +116,10 @@ type model struct {
 	svcErr     error
 	loaded     bool
 
-	acc, spc, agt, sch, act                   int   // cursors of the lists
-	accOff, spcOff, agtOff, schOff, actOffset int   // first visible rows
-	setupTab                                  tabID // the last section of Setup
+	acc, spc, sch, act                int    // cursors of the lists
+	accOff, spcOff, schOff, actOffset int    // first visible rows
+	setupTab                          tabID  // the last section of Setup
+	spaceForm                         string // the space whose agent form the Spaces panel shows; "" for none
 
 	spcFocus    bool                // the panel of the Spaces area has the keyboard
 	row, rowOff int                 // the cursor and the first visible row of that panel
@@ -305,12 +305,10 @@ func (m *model) formTarget() (string, func() *form) {
 			return "acc:+pair", m.pairForm
 		}
 		return "acc:+", m.newAccountForm
-	case tabAgents:
-		if m.agt < len(m.u.cfg.Agents) {
-			id := m.u.cfg.Agents[m.agt].ID
-			return "agt:" + id, func() *form { return m.agentForm(id) }
+	case tabSpaces:
+		if id := m.spaceForm; id != "" {
+			return "spc:" + id, func() *form { return m.agentForm(id) }
 		}
-		return "agt:+", func() *form { return m.agentForm("") }
 	case tabSchedules:
 		if m.sch < len(m.u.cfg.Schedules) {
 			id := m.u.cfg.Schedules[m.sch].ID
@@ -423,6 +421,10 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.spin, cmd = m.spin.Update(msg)
 		return cmd
 	case formEsc:
+		if m.spaceForm != "" {
+			m.cancelSpaceForm()
+			return nil
+		}
 		if m.replyCard != 0 {
 			m.cancelReply()
 			return nil
@@ -551,8 +553,6 @@ func (m *model) tabKey(k string) tea.Cmd {
 		cmd = m.keyAccounts(k)
 	case tabSpaces:
 		cmd = m.keySpaces(k)
-	case tabAgents:
-		cmd = m.keyAgents(k)
 	case tabSchedules:
 		cmd = m.keySchedules(k)
 	case tabSettings:
@@ -564,6 +564,9 @@ func (m *model) tabKey(k string) tea.Cmd {
 
 func (m *model) setTab(t tabID) tea.Cmd {
 	m.tab = t
+	if t != tabSpaces {
+		m.spaceForm = "" // the agent form of a space closes when the user leaves the Spaces area
+	}
 	clear(m.convSel)
 	if areaOf(t) == areaSetup {
 		m.setupTab = t
@@ -615,8 +618,6 @@ func (m *model) click(ms tea.Mouse) tea.Cmd {
 		return m.clickList(y, &m.acc, m.accOff, len(m.u.cfg.Accounts)+1)
 	case tabSpaces:
 		return m.clickSpaces(x, y)
-	case tabAgents:
-		return m.clickList(y, &m.agt, m.agtOff, len(m.u.cfg.Agents)+1)
 	case tabSchedules:
 		return m.clickList(y, &m.sch, m.schOff, len(m.u.cfg.Schedules)+1)
 	case tabActivity:
@@ -661,12 +662,12 @@ func (m *model) quit() tea.Cmd {
 	return nil
 }
 
-const helpText = `The model   Account → Conversation → Space → Agent + Schedule
+const helpText = `The model   Account → Conversation → Space (its agent) + Schedule
             An account only connects. Each DM, group or channel
             is in no space, one space or more, with a read level
             in each: All messages, or Only for me (mentions and
             direct messages). Everything else reads the others.
-            A space sends to one agent on one schedule.
+            A space sends to its own agent on a schedule.
 
 Areas       click Feed, Spaces or Setup · tab next section
 Everywhere  ctrl+r run now · / find a conversation · q quit
@@ -679,12 +680,12 @@ Feed        ←/→ panel: Spaces, Cards, Card · ↑/↓ in the panel
             c copy reply · o open the thread · d done · u unread
             s sort · F space · a done cards
 Spaces      enter open · a add conversations · x delete space
-            u undo the last change · esc back to the list
+            u undo · esc back · Status, Agent, Session, When: enter
   a row     enter its spaces · ←/→ read level · x remove
             space select · n rename · i ignore · k keep (new)
 Spaces of   space check · ←/→ read level · enter save
 a conversation
-Setup       Accounts · Agents · Schedules: enter edit · x delete
+Setup       Accounts · Schedules: enter edit · x delete
             Settings: i install the service · u uninstall it
             Send log: enter show the digest · F space`
 
@@ -899,8 +900,6 @@ func (m *model) renderTab(w, h int) string {
 		return m.viewAccounts(w, h)
 	case tabSpaces:
 		return m.viewSpaces(w, h)
-	case tabAgents:
-		return m.viewAgents(w, h)
 	case tabSchedules:
 		return m.viewSchedules(w, h)
 	case tabSettings:
@@ -917,8 +916,6 @@ func (m *model) tabHints() []hint {
 		return m.hintsAccounts()
 	case tabSpaces:
 		return m.hintsSpaces()
-	case tabAgents:
-		return m.hintsAgents()
 	case tabSchedules:
 		return m.hintsSchedules()
 	case tabSettings:

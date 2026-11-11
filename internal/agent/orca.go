@@ -167,16 +167,17 @@ func isCode(err error, code string) bool {
 	return errors.As(err, &oe) && oe.Code == code
 }
 
-// workspace returns the absolute workspace path.
+// workspace returns the absolute path of the folder of the agent.
 func (o *Orca) workspace() (string, error) {
-	ws, err := ExpandWorkspace(o.p.Workspace)
+	ws, err := ExpandWorkspace(o.p.Folder)
 	if err != nil {
-		return "", fmt.Errorf("agent %q: %w", o.p.ID, err)
+		return "", fmt.Errorf("space %q: %w", o.p.ID, err)
 	}
 	return ws, nil
 }
 
-// ExpandWorkspace returns the absolute path of a workspace: ~/ is the home folder.
+// ExpandWorkspace returns the absolute path of the folder of an agent: ~/ is
+// the home folder.
 func ExpandWorkspace(ws string) (string, error) {
 	if strings.HasPrefix(ws, "~/") {
 		home, err := os.UserHomeDir()
@@ -186,7 +187,7 @@ func ExpandWorkspace(ws string) (string, error) {
 		ws = filepath.Join(home, ws[2:])
 	}
 	if !filepath.IsAbs(ws) {
-		return "", fmt.Errorf("workspace %q is not an absolute path", ws)
+		return "", fmt.Errorf("the folder %q is not an absolute path", ws)
 	}
 	return filepath.Clean(ws), nil
 }
@@ -235,12 +236,12 @@ func (o *Orca) launch(ctx context.Context) (string, string, error) {
 }
 
 // TabTitle is the name of the Orca tab of a session that i2a starts.
-func TabTitle(a config.Agent, s config.Space) string { return a.Title() + " · " + s.Title() }
+func TabTitle(s config.Space) string { return "i2a · " + s.Title() }
 
 // rename names the tab of a terminal that i2a started. A failure is a note
 // for the detail; the batch still goes.
 func (o *Orca) rename(ctx context.Context, handle string) string {
-	if err := o.call(ctx, nil, "terminal", "rename", "--terminal", handle, "--title", TabTitle(o.p, o.space)); err != nil {
+	if err := o.call(ctx, nil, "terminal", "rename", "--terminal", handle, "--title", TabTitle(o.space)); err != nil {
 		return "; tab name not set: " + err.Error()
 	}
 	return ""
@@ -255,7 +256,7 @@ func (o *Orca) launchTerminal(ctx context.Context) (string, error) {
 	err = o.call(ctx, &lr, o.launchArgs(ws)...)
 	if isCode(err, "selector_not_found") {
 		if addErr := o.call(ctx, nil, "repo", "add", "--path", ws); addErr != nil {
-			return "", fmt.Errorf("orca does not know the workspace %s and cannot add it (%v). Add the folder in Orca, then try again", ws, addErr)
+			return "", fmt.Errorf("orca does not know the folder %s and cannot add it (%v). Add the folder in Orca, then try again", ws, addErr)
 		}
 		err = o.call(ctx, &lr, o.launchArgs(ws)...)
 	}

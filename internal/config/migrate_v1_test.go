@@ -56,26 +56,24 @@ func TestMigrateV1ProfilesAndChannelRoutes(t *testing.T) {
 	if c.Migration == nil {
 		t.Fatal("no migration report")
 	}
-	if len(c.Agents) != 2 || c.Agents[0].ID != "triage" || c.Agents[0].CLI != "claude" || c.Agents[0].Workspace != "~/notes" || c.Agents[1].ID != "reviewer" {
-		t.Errorf("agents = %+v", c.Agents)
+	if c.Version != Version || c.Migration.From != 1 {
+		t.Errorf("version %d, report from %d", c.Version, c.Migration.From)
 	}
 	if a, ok := c.Account("work"); !ok || a.Platform != PlatformMattermost || a.URL != "https://chat.example.com" || a.ReadEvery.D() != time.Minute {
 		t.Errorf("account = %+v", a)
 	}
 	triage, _ := c.Space("triage")
 	reviewer, _ := c.Space("reviewer")
-	if len(triage.Conversations) != 1 || triage.Conversations[0].ID != "C1" || triage.Conversations[0].Read != ReadAll || triage.Agent != "triage" {
+	if len(triage.Conversations) != 1 || triage.Conversations[0].ID != "C1" || triage.Conversations[0].Read != ReadAll ||
+		triage.Agent.CLI != "claude" || triage.Agent.Folder != "~/notes" || triage.Agent.ID != "triage" {
 		t.Errorf("space triage = %+v", triage)
 	}
 	if len(reviewer.Conversations) != 2 || reviewer.Conversations[0].ID != "C2" || reviewer.Conversations[0].Read != ReadAll ||
 		reviewer.Conversations[1].ID != "C9" || reviewer.Conversations[1].Read != ReadMentions {
 		t.Errorf("space reviewer = %+v", reviewer)
 	}
-	if c.Unsorted.Agent != "triage" || c.Unsorted.Read != ReadMentions || c.Unsorted.Schedule != "default" {
+	if c.Unsorted.Paused || c.Unsorted.Agent.Folder != "~/notes" || c.Unsorted.Agent.ID != UnsortedID || c.Unsorted.Read != ReadMentions || c.Unsorted.Schedule != "default" {
 		t.Errorf("Unsorted = %+v", c.Unsorted)
-	}
-	if got := c.Agents[0].Batch; got != "" {
-		t.Errorf("batch template = %q, want none", got)
 	}
 	if !strings.Contains(c.Migration.Text(), `Agent "triage": the batch template is not used.`) {
 		t.Errorf("report:\n%s", c.Migration.Text())
@@ -144,7 +142,7 @@ enabled = false
 	}
 }
 
-func TestLoadWritesBackupAndVersion2(t *testing.T) {
+func TestLoadWritesBackupAndVersion3(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(path, []byte(readmeV1), 0o600); err != nil {
@@ -165,7 +163,7 @@ func TestLoadWritesBackupAndVersion2(t *testing.T) {
 		t.Errorf("backup mode = %v, %v", info, err)
 	}
 	b, _ := os.ReadFile(path)
-	if !strings.Contains(string(b), "version = 2") || strings.Contains(string(b), "[[sources]]") {
+	if !strings.Contains(string(b), "version = 3") || strings.Contains(string(b), "[[sources]]") || strings.Contains(string(b), "[[agents]]") {
 		t.Errorf("new file:\n%s", b)
 	}
 	again, err := Load(path)

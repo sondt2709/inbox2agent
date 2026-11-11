@@ -69,9 +69,9 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		{[]string{"unsorted", "conversations", "items", "read"}, []string{"", "all", "mentions", "off"}},
 		{[]string{"unsorted", "read"}, []string{"", "all", "mentions", "off"}},
 		{[]string{"accounts", "items", "platform"}, []string{"mattermost", "whatsapp"}},
-		{[]string{"agents", "items", "driver"}, []string{"", "orca", "dry-run"}},
-		{[]string{"agents", "items", "session"}, []string{"", "new", "reuse", "worktree"}},
-		{[]string{"agents", "items", "payload"}, []string{"", "pointer", "inline"}},
+		{[]string{"spaces", "items", "agent", "driver"}, []string{"", "orca", "dry-run"}},
+		{[]string{"spaces", "items", "agent", "session"}, []string{"", "new", "reuse", "worktree"}},
+		{[]string{"unsorted", "agent", "payload"}, []string{"", "pointer", "inline"}},
 		{[]string{"schedules", "items", "days", "items"}, Days},
 		{[]string{"notify", "min_urgency"}, []string{"", "high", "normal", "low"}},
 		{[]string{"notify", "via"}, []string{"", "auto", "orca", "terminal-notifier", "osascript"}},
@@ -86,9 +86,8 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		want []string
 	}{
 		{[]string{"accounts", "items"}, []string{"id", "platform"}},
-		{[]string{"spaces", "items"}, []string{"id", "agent", "schedule"}},
+		{[]string{"spaces", "items"}, []string{"id", "schedule"}},
 		{[]string{"spaces", "items", "conversations", "items"}, []string{"account", "id"}},
-		{[]string{"agents", "items"}, []string{"id"}},
 		{[]string{"schedules", "items"}, []string{"id"}},
 	} {
 		if got := strs(at(t, s, tc.path...)["required"]); !slices.Equal(got, tc.want) {
@@ -110,7 +109,7 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		t.Errorf("space id pattern = %v", p)
 	}
 	// 0 is the default; another value is in the range.
-	v := at(t, s, "agents", "items", "inline_max_bytes")["anyOf"].([]any)
+	v := at(t, s, "spaces", "items", "agent", "inline_max_bytes")["anyOf"].([]any)
 	if r := v[1].(map[string]any); len(v) != 2 || v[0].(map[string]any)["const"] != float64(0) ||
 		r["minimum"] != float64(MinInlineBytes) || r["maximum"] != float64(MaxInlineBytes) {
 		t.Errorf("inline_max_bytes = %v", v)

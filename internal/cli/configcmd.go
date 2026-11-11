@@ -31,12 +31,16 @@ Tombi. "i2a config schema" prints the schema.
 The items:
   [[accounts]]               one login. Add it with "i2a account add": the
                              token goes to the secret store, not to the file.
-  [[agents]]                 how to send a batch (driver orca or dry-run).
   [[schedules]]              when a space sends (every, days, hours).
   [unsorted]                 the space of each conversation that no space
-                             lists; agent = '' holds its messages.
-  [[spaces]]                 id, name, agent, schedule, and its
-  [[spaces.conversations]]   conversations: account, id, read (all,
+                             lists; paused = true holds its messages.
+  [[spaces]]                 id, name, schedule, paused (true: the space
+                             does not send; its messages wait), instruction
+                             (plain text, sent with each batch), and
+  [spaces.agent]             how to send its batches: driver (orca or
+                             dry-run), cli, folder, session, payload, limits,
+                             model, orca_bin; [unsorted.agent] for Unsorted.
+  [[spaces.conversations]]   its conversations: account, id, read (all,
                              mentions or off) and label. A conversation can
                              be in many spaces, each with its own read level;
                              each space gets its own copy of each message.
@@ -66,8 +70,9 @@ func newConfigCheckCmd() *cobra.Command {
 		Short: "Check a configuration file; exit 1 with each problem",
 		Long: `Check a configuration file with the same checks as the daemon: the TOML
 format, unknown keys, the values, the references between items (a space names
-an agent and a schedule that exist), the IDs that are used two times and the
-templates. With no file, check config.toml. The command writes no file.`,
+a schedule that exists), the IDs that are used two times and the
+instructions (no three backticks). A version 1 or 2 file is checked after its
+conversion to version 3. With no file, check config.toml. The command writes no file.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := ""
@@ -92,9 +97,12 @@ templates. With no file, check config.toml. The command writes no file.`,
 			for _, s := range c.AllSpaces() {
 				n += len(s.Conversations)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid: %s, %s, %s, %s and Unsorted, %s\n", path,
-				count(len(c.Accounts), "account"), count(len(c.Agents), "agent"), count(len(c.Schedules), "schedule"),
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid: %s, %s, %s and Unsorted, %s\n", path,
+				count(len(c.Accounts), "account"), count(len(c.Schedules), "schedule"),
 				count(len(c.Spaces), "space"), count(n, "conversation"))
+			if c.Migration != nil {
+				fmt.Fprint(cmd.ErrOrStderr(), c.Migration.Text())
+			}
 			return nil
 		},
 	}

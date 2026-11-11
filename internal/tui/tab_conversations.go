@@ -288,7 +288,13 @@ func (m *model) newSpace(name string) (string, string) {
 			}
 		}
 		id = config.NewID(name, func(id string) bool { _, ok := c.Space(id); return ok })
-		c.Spaces = append(c.Spaces, config.Space{ID: id, Name: name, Agent: c.Agents[0].ID, Schedule: c.Schedules[0].ID})
+		src, _ := c.Space(m.agentSource())
+		if src == nil {
+			src = &config.Space{Agent: c.Unsorted.Agent}
+		}
+		a := src.Agent
+		a.ID, a.Name = id, name
+		c.Spaces = append(c.Spaces, config.Space{ID: id, Name: name, Agent: a, Schedule: c.Schedules[0].ID})
 		return nil
 	}); errors.Is(err, errNameUsed) {
 		return "", "The name " + name + " is used."
@@ -297,6 +303,15 @@ func (m *model) newSpace(name string) (string, string) {
 	}
 	m.savedAny = true
 	return id, ""
+}
+
+// agentSource is the space whose agent a new space copies: the selected
+// space, else Unsorted.
+func (m *model) agentSource() string {
+	if it := m.selectedRail(); it.kind == "space" {
+		return it.space
+	}
+	return config.UnsortedID
 }
 
 // renameDialog sets the label of a conversation.

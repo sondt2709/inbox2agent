@@ -82,7 +82,7 @@ type Target struct {
 // AgentText names the agent, its driver and the space for a person, for
 // example "Claude for work · orca · space Acme".
 func (t Target) AgentText() string {
-	return t.Agent.Title() + " · " + t.Agent.Driver + " · space " + t.Space.Title()
+	return t.Agent.Title() + " · space " + t.Space.Title()
 }
 
 // Session names the session that gets the ask for a person, for example
@@ -149,11 +149,10 @@ func target(cfg *config.Config, c inbox.Card, msgs []inbox.Message, space string
 	if !ok {
 		return Target{}, fmt.Errorf("the space %q of the card is not in the configuration", space)
 	}
-	a, ok := cfg.Agent(s.Agent)
-	if !ok || a.Driver == config.DriverDryRun {
+	if s.Paused || s.Agent.Driver == config.DriverDryRun {
 		return Target{}, &NoAgentError{Space: s.Title()}
 	}
-	return Target{Card: c, Messages: msgs, Space: *s, Agent: *a}, nil
+	return Target{Card: c, Messages: msgs, Space: *s, Agent: s.Agent}, nil
 }
 
 // Send checks the text, records the ask as queued and sends it. When the agent
@@ -213,7 +212,7 @@ func deliver(ctx context.Context, d Deps, t Target, a inbox.Ask, wait time.Durat
 	}
 	defer unlock()
 
-	r, err := render.Ask(t.Agent, t.Space.Title(), render.AskID(d.Now(), t.Space.ID, a.ID),
+	r, err := render.Ask(t.Agent, t.Space.Instruction, t.Space.Title(), render.AskID(d.Now(), t.Space.ID, a.ID),
 		render.AskInput{ID: a.ID, Card: t.Card, Messages: t.Messages, Text: a.Text}, d.CardCommand)
 	if err != nil {
 		return finish(ctx, d, a, inbox.AskFailed, "", err.Error())

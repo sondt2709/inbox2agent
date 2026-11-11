@@ -9,8 +9,9 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-// Migration is the report of the conversion of a version 1 file.
+// Migration is the report of the conversion of a version 1 or 2 file.
 type Migration struct {
+	From   int      // the version of the old file
 	Backup string   // the path of the old file; set by Load
 	Notes  []string // each change in behavior, one sentence each
 }
@@ -18,7 +19,7 @@ type Migration struct {
 // Text returns the report for a person.
 func (m *Migration) Text() string {
 	var b bytes.Buffer
-	b.WriteString("i2a converted the configuration to version 2 (accounts, conversations, spaces, agents, schedules).\n")
+	fmt.Fprintf(&b, "i2a converted the configuration from version %d to version %d (accounts, conversations, spaces with their agent, schedules).\n", m.From, Version)
 	if m.Backup != "" {
 		fmt.Fprintf(&b, "The old file is %s.\n", m.Backup)
 	}
@@ -92,16 +93,16 @@ func isV1(b []byte) (bool, error) {
 // (D9): sources become accounts, profiles become agents, the timing becomes
 // the schedule "default", each profile that a channel uses becomes a space,
 // and the fallback of the other conversations becomes Unsorted.
-func migrateV1(b []byte) (*Config, error) {
+func migrateV1(b []byte) (*v2Config, *Migration, error) {
 	old := v1Config{Notify: Notify{Enabled: true, MinUrgency: "normal"}} // the version 1 defaults
 	dec := toml.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&old); err != nil {
-		return nil, decodeError(err)
+		return nil, nil, decodeError(err)
 	}
-	c := Default()
-	c.Agents, c.Schedules = nil, nil
-	m := &Migration{}
+	d := Default()
+	c := &v2Config{Version: 2, Settings: d.Settings, Notify: d.Notify}
+	m := &Migration{From: 1}
 	note := func(format string, a ...any) { m.Notes = append(m.Notes, fmt.Sprintf(format, a...)) }
 
 	if old.Timing.Lookback != 0 {
@@ -123,7 +124,7 @@ func migrateV1(b []byte) (*Config, error) {
 	c.Schedules = []Schedule{{ID: "default", Name: "default", Every: every, Hours: old.Timing.ActiveHours}}
 
 	for _, p := range old.Profiles {
-		a := NewAgent(p.Name)
+		a := newV2Agent(p.Name)
 		a.Driver, a.CLI, a.Workspace, a.Session, a.Payload = orStr(p.Driver, a.Driver), orStr(p.Agent, a.CLI), p.Workspace, orStr(p.Session, a.Session), orStr(p.Payload, a.Payload)
 		if p.InlineMaxBytes != 0 {
 			a.InlineMaxBytes = p.InlineMaxBytes
@@ -139,7 +140,7 @@ func migrateV1(b []byte) (*Config, error) {
 		c.Agents = append(c.Agents, a)
 	}
 	if len(c.Agents) == 0 {
-		c.Agents = []Agent{NewAgent("triage")}
+		c.Agents = []v2Agent{newV2Agent("triage")}
 	}
 	first := c.Agents[0].ID
 
@@ -149,7 +150,7 @@ func migrateV1(b []byte) (*Config, error) {
 				return &c.Spaces[i].Conversations
 			}
 		}
-		c.Spaces = append(c.Spaces, Space{ID: profile, Name: profile, Agent: profile, Schedule: "default"})
+		c.Spaces = append(c.Spaces, v2Space{ID: profile, Name: profile, Agent: profile, Schedule: "default"})
 		return &c.Spaces[len(c.Spaces)-1].Conversations
 	}
 
@@ -159,7 +160,7 @@ func migrateV1(b []byte) (*Config, error) {
 			read = ReadMentions
 		}
 	}
-	c.Unsorted = Unsorted{Agent: first, Schedule: "default", Read: read}
+	c.Unsorted = v2Unsorted{Agent: first, Schedule: "default", Read: read}
 	if len(old.Sources) > 0 {
 		c.Unsorted.Agent = orStr(old.Sources[0].Profile, first)
 	}
@@ -206,8 +207,7 @@ func migrateV1(b []byte) (*Config, error) {
 			note("Account %q: mentions in channels and groups that no space lists now arrive too. To stop them: i2a config, Spaces, Everything else: select them with space and press i to ignore them.", s.ID)
 		}
 	}
-	c.Migration = m
-	return c, nil
+	return c, m, nil
 }
 
 func orStr(s, def string) string {

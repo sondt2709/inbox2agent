@@ -245,7 +245,7 @@ func (e *Engine) pollOne(ctx context.Context, sc config.Account, now time.Time) 
 type BatchResult struct {
 	Space      string // the ID of the space
 	SpaceName  string
-	Agent      string // the ID of the agent
+	Agent      string // the description of the agent of the space, for example "orca · claude"
 	Driver     string
 	Count      int
 	Status     string
@@ -295,13 +295,10 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 	}
 	got := map[int64]map[string]string{} // the deliveries of this round
 	for _, s := range e.cfg.AllSpaces() {
-		if s.Agent == "" || (spaces != nil && !slices.Contains(spaces, s.ID)) {
+		if s.Paused || (spaces != nil && !slices.Contains(spaces, s.ID)) {
 			continue
 		}
-		a, ok := e.cfg.Agent(s.Agent)
-		if !ok {
-			continue
-		}
+		a := s.Agent
 		msgs := groups[s.ID]
 		if a.Driver == config.DriverDryRun {
 			// A dry run previews each message one time for each space.
@@ -320,8 +317,8 @@ func (e *Engine) Dispatch(ctx context.Context, spaces []string) (DispatchResult,
 		for _, m := range msgs {
 			states[m.ID] = e.aggregate(m, got[m.ID], s.ID, state)
 		}
-		br := e.deliver(ctx, s, *a, msgs, now, states)
-		e.notify(*a, br)
+		br := e.deliver(ctx, s, a, msgs, now, states)
+		e.notify(a, br)
 		res.Batches = append(res.Batches, br)
 		if br.Err == nil && br.Status == agent.StatusSent {
 			for _, m := range msgs {
@@ -475,7 +472,7 @@ func (e *Engine) SendAsks(ctx context.Context) ([]inbox.Ask, error) {
 }
 
 func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, msgs []inbox.Message, now time.Time, states map[int64]string) BatchResult {
-	br := BatchResult{Space: s.ID, SpaceName: s.Title(), Agent: p.ID, Driver: p.Driver, Count: len(msgs)}
+	br := BatchResult{Space: s.ID, SpaceName: s.Title(), Agent: p.Title(), Driver: p.Driver, Count: len(msgs)}
 	fail := func(id int64, err error) BatchResult {
 		br.Status, br.Err = store.DispatchFailed, err
 		if id > 0 {
@@ -483,10 +480,10 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 				e.d.Log.Error("record dispatch", "err", ferr)
 			}
 		}
-		e.d.Log.Error("dispatch failed", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "err", err)
+		e.d.Log.Error("dispatch failed", "space", s.ID, "agent", p.Title(), "messages", len(msgs), "err", err)
 		return br
 	}
-	id, err := e.d.Store.CreateDispatch(ctx, store.Dispatch{Space: s.ID, Agent: p.ID, Driver: p.Driver, CreatedAt: now, MessageCount: len(msgs)})
+	id, err := e.d.Store.CreateDispatch(ctx, store.Dispatch{Space: s.ID, Agent: p.Title(), Driver: p.Driver, CreatedAt: now, MessageCount: len(msgs)})
 	if err != nil {
 		return fail(0, err)
 	}
@@ -494,7 +491,7 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 	if p.Driver == config.DriverDryRun {
 		cardCommand = "" // no agent reads a dry run
 	}
-	r, err := render.Render(p, s.Title(), render.BatchID(now, s.ID, id), msgs, e.d.Paths.DigestDir, cardCommand)
+	r, err := render.Render(p, s.Instruction, s.Title(), render.BatchID(now, s.ID, id), msgs, e.d.Paths.DigestDir, cardCommand)
 	if err != nil {
 		return fail(id, err)
 	}
@@ -523,7 +520,7 @@ func (e *Engine) deliver(ctx context.Context, s config.Space, p config.Agent, ms
 	if err := e.d.Store.FinishDispatchStates(ctx, id, out.Status, br.Detail, s.ID, state, ids, states); err != nil {
 		return fail(id, err)
 	}
-	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.ID, "driver", p.Driver, "messages", len(msgs), "status", out.Status,
+	e.d.Log.Info("dispatch", "space", s.ID, "agent", p.Title(), "messages", len(msgs), "status", out.Status,
 		"detail", br.Detail, "digest", r.DigestPath)
 	return br
 }
@@ -637,10 +634,10 @@ func Summary(polls []PollResult, d DispatchResult) string {
 	}
 	for _, br := range d.Batches {
 		if br.Err != nil {
-			fmt.Fprintf(&b, "batch of %s to %s (%s, %d messages): failed: %v\n", br.SpaceName, br.Agent, br.Driver, br.Count, br.Err)
+			fmt.Fprintf(&b, "batch of %s (%s, %d messages): failed: %v\n", br.SpaceName, br.Agent, br.Count, br.Err)
 			continue
 		}
-		fmt.Fprintf(&b, "batch of %s to %s (%s, %d messages): %s", br.SpaceName, br.Agent, br.Driver, br.Count, br.Status)
+		fmt.Fprintf(&b, "batch of %s (%s, %d messages): %s", br.SpaceName, br.Agent, br.Count, br.Status)
 		if br.Detail != "" {
 			fmt.Fprintf(&b, " - %s", br.Detail)
 		}

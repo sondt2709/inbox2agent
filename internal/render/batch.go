@@ -36,18 +36,19 @@ func BatchID(now time.Time, space string, dispatchID int64) string {
 	return fmt.Sprintf("%s-%s-%d", now.UTC().Format("20060102-150405"), space, dispatchID)
 }
 
-// Instruction returns the instruction of the agent, or DefaultInstruction.
-func Instruction(p config.Agent) string {
-	if strings.TrimSpace(p.Primer) == "" {
+// Instruction returns the instruction of a space, or DefaultInstruction.
+func Instruction(s string) string {
+	if strings.TrimSpace(s) == "" {
 		return DefaultInstruction
 	}
-	return p.Primer
+	return s
 }
 
 // Render sanitizes the messages, writes the digest file and renders the
-// prompt. space is the name of the space of the batch. cardCommand is the
-// command of the CLI instruction; "" (dry-run) leaves that part out.
-func Render(p config.Agent, space, id string, msgs []inbox.Message, digestDir, cardCommand string) (*Rendered, error) {
+// prompt. instruction and space are the instruction and the name of the space
+// of the batch. cardCommand is the command of the CLI instruction; ""
+// (dry-run) leaves that part out.
+func Render(p config.Agent, instruction, space, id string, msgs []inbox.Message, digestDir, cardCommand string) (*Rendered, error) {
 	if len(msgs) == 0 {
 		return nil, fmt.Errorf("render: no messages")
 	}
@@ -68,9 +69,9 @@ func Render(p config.Agent, space, id string, msgs []inbox.Message, digestDir, c
 	if cardCommand != "" {
 		cli = CLIInstruction(cardCommand)
 	}
-	full, err := Prompt(Instruction(p), content, cli)
+	full, err := Prompt(Instruction(instruction), content, cli)
 	if err != nil {
-		return nil, fmt.Errorf("agent %q: %w", p.ID, err)
+		return nil, fmt.Errorf("space %q: %w", p.ID, err)
 	}
 	if err := os.MkdirAll(digestDir, 0o700); err != nil {
 		return nil, err

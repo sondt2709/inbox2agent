@@ -1,0 +1,153 @@
+#:schema ./config.schema.json
+# The shape of a real version 2 file (2026-11-11): 4 agents, each used by one
+# space, Unsorted on hold. Names, IDs, paths and texts are replaced.
+version = 2
+
+[settings]
+lookback = '1d'
+retention = '7d'
+
+[notify]
+enabled = true
+min_urgency = 'normal'
+
+[[accounts]]
+id = 'work'
+name = 'mattermost'
+platform = 'mattermost'
+url = 'https://chat.example.com'
+user = 'alice'
+read_every = '5m'
+
+[[accounts]]
+id = 'phone'
+name = 'whatsapp'
+platform = 'whatsapp'
+read_every = '1m'
+
+[[agents]]
+id = 'triage'
+name = 'triage'
+driver = 'orca'
+cli = 'claude'
+workspace = '/Users/me/work/notes'
+session = 'reuse'
+payload = 'inline'
+inline_max_bytes = 8000
+message_max_chars = 2000
+orca_bin = '/usr/local/bin/orca'
+primer = """
+Tóm tắt các tin nhắn, đề xuất câu trả lời bằng tiếng Anh.
+"""
+
+[[agents]]
+id = 'code-review'
+name = 'code-review'
+driver = 'orca'
+cli = 'claude'
+workspace = '/Users/me/work/notes'
+session = 'reuse'
+payload = 'inline'
+inline_max_bytes = 8000
+message_max_chars = 2000
+orca_bin = '/usr/local/bin/orca'
+primer = """
+Review the pull request that the message names. Comment only on risks.
+"""
+
+[[agents]]
+id = 'onsite-support'
+name = 'onsite-support'
+driver = 'orca'
+cli = 'claude'
+workspace = '/Users/me/work/docs'
+session = 'reuse'
+payload = 'inline'
+inline_max_bytes = 16000
+message_max_chars = 4000
+orca_bin = '/usr/local/bin/orca'
+primer = """
+Help the on-site operators. Send a reply only when someone asks you."""
+
+[[agents]]
+id = 'iso'
+name = 'iso'
+driver = 'dry-run'
+cli = 'claude'
+workspace = '/Users/me/work/notes'
+session = 'reuse'
+payload = 'pointer'
+inline_max_bytes = 8000
+message_max_chars = 2000
+orca_bin = '/Applications/Orca.app/Contents/Resources/bin/orca'
+primer = """
+Handle the compliance tasks."""
+
+[[schedules]]
+id = 'default'
+name = 'default'
+every = '5m'
+hours = '09:00-22:00'
+
+[[schedules]]
+id = 'onsite'
+name = 'onsite'
+every = '1m'
+hours = '08:00-22:00'
+
+[unsorted]
+agent = ''
+schedule = 'default'
+read = 'mentions'
+
+[[unsorted.conversations]]
+account = 'work'
+id = 'c-general'
+name = 'general'
+read = 'mentions'
+
+[[spaces]]
+id = 'triage'
+name = 'triage'
+agent = 'triage'
+schedule = 'default'
+
+[[spaces.conversations]]
+account = 'phone'
+id = '111@g.us'
+read = 'all'
+
+[[spaces]]
+id = 'code-review'
+name = 'code-review'
+agent = 'code-review'
+schedule = 'default'
+
+[[spaces.conversations]]
+account = 'work'
+id = 'c-review'
+name = 'review'
+read = 'all'
+
+[[spaces]]
+id = 'onsite'
+name = 'Onsite group'
+agent = 'onsite-support'
+schedule = 'onsite'
+
+[[spaces.conversations]]
+account = 'phone'
+id = '222@g.us'
+read = 'all'
+
+[[spaces]]
+id = 'iso'
+name = 'iso'
+agent = 'iso'
+schedule = 'default'
+
+[[spaces.conversations]]
+account = 'work'
+id = 'c-iso'
+name = 'iso'
+read = 'all'

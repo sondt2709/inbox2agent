@@ -31,12 +31,12 @@ func TestHeaderShowsTheAreasAndSetupSections(t *testing.T) {
 		t.Errorf("i2a config opens tab %d, want Spaces", m.tab)
 	}
 	at(m, tabAccounts) // a click on Setup
-	if sub := lines(m)[1]; m.tab != tabAccounts || !strings.Contains(sub, "Accounts · Agents · Schedules · Settings · Send log") {
+	if sub := lines(m)[1]; m.tab != tabAccounts || !strings.Contains(sub, "Accounts · Schedules · Settings · Send log") {
 		t.Fatalf("3 opens tab %d with %q", m.tab, sub)
 	}
-	send(m, "tab", "tab", "tab", "tab")
+	send(m, "tab", "tab", "tab")
 	if m.tab != tabActivity {
-		t.Errorf("tab 4 times from Accounts: tab %d, want Send log", m.tab)
+		t.Errorf("tab 3 times from Accounts: tab %d, want Send log", m.tab)
 	}
 	send(m, "tab")
 	if m.tab != tabFeed {
@@ -56,14 +56,14 @@ func TestSpacesAreaShowsASpaceAndItsConversations(t *testing.T) {
 	m := newTestModel(t)
 	s := screen(m)
 	for _, want := range []string{"● Acme", "Everything else", "New conversations", "Ignored", "+ New space",
-		"Name       Acme", "Sends to   claude-work", "When       always", "Conversations · 1", "# release", "All messages"} {
+		"Name       Acme", "Status     ● Sending", "Agent      orca · claude · /home/user/notes · reuse", "Session    none", "When       always", "Conversations · 1", "# release", "All messages"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Spaces area has no %q:\n%s", want, s)
 		}
 	}
 	send(m, "down") // Everything else
 	s = screen(m)
-	for _, want := range []string{"New and other conversations read Only for me", "Sends to   triage", "Conversations in no space · 2",
+	for _, want := range []string{"New and other conversations read Only for me", "Agent      dry-run", "Status     ● Sending", "Conversations in no space · 2",
 		"@ @bob", "⧉ bob, carol"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Everything else has no %q:\n%s", want, s)
@@ -95,7 +95,7 @@ func TestLevelRemoveAndUndoInASpace(t *testing.T) {
 	// Another process changes the file: undo does not write it.
 	send(m, "x")
 	b, _ := os.ReadFile(m.u.d.Paths.ConfigFile)
-	side := "\n[[spaces]]\nid = 'side'\nname = 'Side'\nagent = 'triage'\nschedule = 'always'\n"
+	side := "\n[[spaces]]\nid = 'side'\nname = 'Side'\nschedule = 'always'\n"
 	if err := os.WriteFile(m.u.d.Paths.ConfigFile, append(b, []byte(side)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestLevelRemoveAndUndoInASpace(t *testing.T) {
 func TestSpacesDialogAddsASecondSpaceAndMoves(t *testing.T) {
 	m := newTestModel(t)
 	if err := m.u.commit(func(c *config.Config) error {
-		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always"})
 		return nil
 	}, nil); err != nil {
 		t.Fatal(err)
@@ -233,21 +233,61 @@ func TestAddConversationsWithTheSearch(t *testing.T) {
 
 func TestSettingRowsOfASpaceSaveAtOnce(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "enter", "up") // the panel, then the row When
-	send(m, "up", "enter") // Sends to
-	pd, ok := m.topDialog().(*pickDialog)
-	if !ok || len(pd.options) != 2 {
-		t.Fatalf("enter on Sends to: %v", m.topDialog())
+	send(m, "enter", "up", "up", "up", "up") // the panel, then the rows When, Session, Agent, Status
+	send(m, "enter")
+	if c := loadFile(t, m); !c.Spaces[0].Paused {
+		t.Fatalf("enter on Status did not pause Acme")
 	}
-	send(m, "up", "enter") // triage
-	if c := loadFile(t, m); c.Spaces[0].Agent != "triage" {
-		t.Errorf("agent of Acme = %s", c.Spaces[0].Agent)
+	if s := screen(m); !strings.Contains(s, "○ Acme") || !strings.Contains(s, "○ Paused: does not send") {
+		t.Errorf("the screen does not show the pause:\n%s", s)
+	}
+	send(m, "enter")
+	if c := loadFile(t, m); c.Spaces[0].Paused {
+		t.Errorf("a second enter did not resume Acme")
 	}
 	send(m, "up", "enter", "ctrl+u")
 	typeText(m, "Acme Corp")
 	send(m, "enter")
 	if c := loadFile(t, m); c.Spaces[0].Name != "Acme Corp" || c.Spaces[0].ID != "acme" {
 		t.Errorf("rename: %+v", c.Spaces[0])
+	}
+}
+
+// The When dialog renames the schedule of the space; its ID stays.
+func TestWhenDialogRenamesTheSchedule(t *testing.T) {
+	m := newTestModel(t)
+	send(m, "enter", "up", "enter") // the row When
+	pd, ok := m.topDialog().(*pickDialog)
+	if !ok || len(pd.options) != 3 || pd.options[1].label != "Rename always…" || pd.options[2].label != "Edit the times of always in Setup" {
+		t.Fatalf("the When dialog: %+v", m.topDialog())
+	}
+	send(m, "down", "enter", "ctrl+u")
+	typeText(m, "Work hours")
+	send(m, "enter")
+	c := loadFile(t, m)
+	if sc, _ := c.Schedule("always"); sc.Name != "Work hours" || c.Spaces[0].Schedule != "always" {
+		t.Fatalf("schedule = %+v, Acme uses %q", sc, c.Spaces[0].Schedule)
+	}
+	if s := screen(m); !strings.Contains(s, "When       Work hours") {
+		t.Errorf("the row When does not show the new name:\n%s", s)
+	}
+	send(m, "enter", "down", "down", "enter") // Edit the times
+	if m.tab != tabSchedules || m.form == nil || !m.form.active || m.form.field("every") == nil {
+		t.Errorf("Edit the times did not open the schedule form: tab %d", m.tab)
+	}
+}
+
+// A new space copies the agent of the selected space, with no instruction.
+func TestNewSpaceCopiesTheAgent(t *testing.T) {
+	m := newTestModel(t)
+	id, errText := m.newSpace("Borealis")
+	if errText != "" {
+		t.Fatal(errText)
+	}
+	c := loadFile(t, m)
+	b, _ := c.Space(id)
+	if b.Agent.Title() != "orca · claude" || b.Agent.Folder != "/home/user/notes" || b.Instruction != "" || b.Paused {
+		t.Errorf("new space = %+v", b)
 	}
 }
 
@@ -262,12 +302,12 @@ func TestDeleteASpaceFromTheList(t *testing.T) {
 
 func TestEverythingElseOnHold(t *testing.T) {
 	m := newTestModel(t)
-	send(m, "down", "enter", "up", "up") // the row Sends to of Everything else
-	send(m, "enter", "up", "enter")      // hold is the first choice
-	if c := loadFile(t, m); c.Unsorted.Agent != "" {
-		t.Fatalf("agent of Unsorted = %q, want hold", c.Unsorted.Agent)
+	send(m, "down", "enter", "up", "up", "up", "up") // the row Status of Everything else
+	send(m, "enter")
+	if c := loadFile(t, m); !c.Unsorted.Paused {
+		t.Fatalf("Unsorted is not paused")
 	}
-	if s := screen(m); !strings.Contains(s, "hold: does not send") || !strings.Contains(s, "○ Everything else") {
+	if s := screen(m); !strings.Contains(s, "Hold: does not send") || !strings.Contains(s, "○ Everything else") {
 		t.Errorf("the panel does not show hold:\n%s", s)
 	}
 }
@@ -332,7 +372,7 @@ func TestReadAgainWhenEverythingElseIsOff(t *testing.T) {
 func TestDeleteASpaceKeepsTheLabelAndLevel(t *testing.T) {
 	m := newTestModel(t)
 	changeFile(t, m, func(c *config.Config) error {
-		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: "claude-work", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: config.NewAgent("beta"), Schedule: "always"})
 		if err := c.SetSpaces("work", "C1", "release", []config.Link{{Space: "acme", Read: config.ReadMentions}, {Space: "beta", Read: config.ReadAll}}); err != nil {
 			return err
 		}
@@ -395,7 +435,7 @@ func TestRequeueSkipsTheSpacesThatTheRowHad(t *testing.T) {
 	var calls []string
 	m.u.d.Store = requeueStore{calls: &calls}
 	if err := m.u.commit(func(c *config.Config) error {
-		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: "triage", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "team", Name: "Team", Agent: config.NewAgent("team"), Schedule: "always"})
 		return nil
 	}, nil); err != nil {
 		t.Fatal(err)
@@ -425,7 +465,7 @@ func TestNoSpaceKeepsTheLabel(t *testing.T) {
 func TestRequeueOptionForAnyRowThatGetsASpace(t *testing.T) {
 	m := newTestModel(t)
 	changeFile(t, m, func(c *config.Config) error {
-		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: "triage", Schedule: "always"})
+		c.Spaces = append(c.Spaces, config.Space{ID: "beta", Name: "Beta", Agent: config.NewAgent("beta"), Schedule: "always"})
 		if err := c.SetSpaces("work", "D1", "@bob", []config.Link{{Space: "acme", Read: config.ReadAll}, {Space: "beta", Read: config.ReadAll}}); err != nil {
 			return err
 		}

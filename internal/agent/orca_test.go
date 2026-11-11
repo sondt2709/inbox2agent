@@ -93,7 +93,7 @@ func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *f
 	p := config.NewAgent("triage")
 	p.Driver = config.DriverOrca
 	p.Session = session
-	p.Workspace = "/home/user/notes"
+	p.Folder = "/home/user/notes"
 	sess := memSessions{}
 	o := NewOrca(p, spaceTriage, sess)
 	o.Claude = nil // the Orca check; a test sets a fixture finder
@@ -101,7 +101,7 @@ func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *f
 	f := &fakeOrca{t: t, answers: answers}
 	o.Run = f.run
 	msg := inbox.Message{SourceID: "work", SourceType: "mattermost", ExternalID: "p1", Author: "bob", Text: "hi", CreatedAt: time.Now()}
-	r, err := render.Render(p, "Triage", "20260102-030405-triage-1", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
+	r, err := render.Render(p, "", "Triage", "20260102-030405-triage-1", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestWorktreeModeCreatesThenSubmits(t *testing.T) {
 	if send := f.called("terminal send")[0]; flag(send, "--terminal") != worktreeHandle {
 		t.Errorf("send args = %v", send)
 	}
-	if rn := f.called("terminal rename"); len(rn) != 1 || flag(rn[0], "--terminal") != worktreeHandle || flag(rn[0], "--title") != "triage · Triage" {
+	if rn := f.called("terminal rename"); len(rn) != 1 || flag(rn[0], "--terminal") != worktreeHandle || flag(rn[0], "--title") != "i2a · Triage" {
 		t.Errorf("rename = %v, want the tab name of the worktree terminal", rn)
 	}
 }
@@ -363,7 +363,7 @@ func TestReuseKeepsOneSessionForEachSpace(t *testing.T) {
 func askFor(t *testing.T, o *Orca) *render.Rendered {
 	t.Helper()
 	c := inbox.Card{ID: 4, Key: "mm:lena-pf-login", Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh, Title: "Lena"}
-	a, err := render.Ask(o.p, "Triage", "20260102-030405-triage-ask7", render.AskInput{ID: 7, Card: c, Text: "Research more."}, "/usr/local/bin/i2a")
+	a, err := render.Ask(o.p, "", "Triage", "20260102-030405-triage-ask7", render.AskInput{ID: 7, Card: c, Text: "Research more."}, "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +651,7 @@ func TestNewSessionGetsTabName(t *testing.T) {
 		t.Fatal(err)
 	}
 	rn := f.called("terminal rename")
-	if len(rn) != 1 || flag(rn[0], "--terminal") != launchedHandle || flag(rn[0], "--title") != "triage · Triage" {
+	if len(rn) != 1 || flag(rn[0], "--terminal") != launchedHandle || flag(rn[0], "--title") != "i2a · Triage" {
 		t.Errorf("rename = %v", rn)
 	}
 	if strings.Contains(res.Detail, "tab name") {
@@ -752,9 +752,8 @@ func TestReuseKeepsSessionWhenInstructionChanges(t *testing.T) {
 	if _, err := o.Deliver(context.Background(), r1); err != nil {
 		t.Fatal(err)
 	}
-	o.p.Primer = "Một hướng dẫn khác: answer in Vietnamese."
 	msg := inbox.Message{SourceID: "work", SourceType: "mattermost", ExternalID: "p2", Author: "bob", Text: "again", CreatedAt: time.Now()}
-	r2, err := render.Render(o.p, "Triage", "20260102-030405-triage-2", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
+	r2, err := render.Render(o.p, "Một hướng dẫn khác: answer in Vietnamese.", "Triage", "20260102-030405-triage-2", []inbox.Message{msg}, t.TempDir(), "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}

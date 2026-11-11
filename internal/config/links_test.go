@@ -11,9 +11,9 @@ func linked(t *testing.T) *Config {
 	c := Default()
 	c.Accounts = []Account{NewMattermostAccount("work", "https://chat.example.com")}
 	c.Spaces = []Space{
-		{ID: "review", Name: "Review", Agent: "triage", Schedule: "always",
+		{ID: "review", Name: "Review", Agent: NewAgent("x"), Schedule: "always",
 			Conversations: []Conversation{{Account: "work", ID: "C1", Read: ReadAll}}},
-		{ID: "team", Name: "Team", Agent: "triage", Schedule: "always",
+		{ID: "team", Name: "Team", Agent: NewAgent("x"), Schedule: "always",
 			Conversations: []Conversation{{Account: "work", ID: "C1", Read: ReadMentions, Label: "Releases"}}},
 	}
 	if err := c.Validate(); err != nil {
@@ -58,7 +58,7 @@ func TestLinksOfAConversationInTwoSpaces(t *testing.T) {
 func TestAddLinkMoveAndSetLevel(t *testing.T) {
 	c := Default()
 	c.Accounts = []Account{NewMattermostAccount("work", "https://chat.example.com")}
-	c.Spaces = []Space{{ID: "review", Agent: "triage", Schedule: "always"}, {ID: "team", Agent: "triage", Schedule: "always"}}
+	c.Spaces = []Space{{ID: "review", Agent: NewAgent("x"), Schedule: "always"}, {ID: "team", Agent: NewAgent("x"), Schedule: "always"}}
 	if err := c.SetLabel("work", "C1", "Releases"); err != nil { // an entry in Unsorted
 		t.Fatal(err)
 	}

@@ -19,11 +19,11 @@ func askCardFixture() inbox.Card {
 
 func TestAskPrompt(t *testing.T) {
 	p := config.NewAgent("triage")
-	p.Primer = "Answer in Vietnamese."
+	instr := "Answer in Vietnamese."
 	msg := m("Can PF get their own login?")
 	msg.ID = 812
 	in := AskInput{ID: 7, Card: askCardFixture(), Messages: []inbox.Message{msg}, Text: "  Check the auth code and give me the effort.\n"}
-	r, err := Ask(p, "Acme", AskID(time.Date(2026, 10, 29, 13, 1, 0, 0, time.UTC), "triage", 7), in, "/usr/local/bin/i2a")
+	r, err := Ask(p, instr, "Acme", AskID(time.Date(2026, 10, 29, 13, 1, 0, 0, time.UTC), "triage", 7), in, "/usr/local/bin/i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestAskPrompt(t *testing.T) {
 func TestAskWithoutKey(t *testing.T) {
 	c := askCardFixture()
 	c.Key = ""
-	r, err := Ask(config.NewAgent("triage"), "Acme", "a1", AskInput{ID: 2, Card: c, Text: "more"}, "i2a")
+	r, err := Ask(config.NewAgent("triage"), "", "Acme", "a1", AskInput{ID: 2, Card: c, Text: "more"}, "i2a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestAskWithoutKey(t *testing.T) {
 }
 
 func TestAskTextWithFenceIsAnError(t *testing.T) {
-	_, err := Ask(config.NewAgent("triage"), "Acme", "a1", AskInput{ID: 2, Card: askCardFixture(), Text: "run\n```\nx"}, "i2a")
+	_, err := Ask(config.NewAgent("triage"), "", "Acme", "a1", AskInput{ID: 2, Card: askCardFixture(), Text: "run\n```\nx"}, "i2a")
 	if !errors.Is(err, ErrFenceInInstruction) {
 		t.Errorf("err = %v", err)
 	}
@@ -92,7 +92,7 @@ func TestAskDropsMessagesOverTheLimit(t *testing.T) {
 		x.ID = int64(i + 1)
 		msgs = append(msgs, x)
 	}
-	r, err := Ask(p, "Acme", "a1", AskInput{ID: 1, Card: askCardFixture(), Messages: msgs, Text: strings.Repeat("y", 4000)}, "i2a")
+	r, err := Ask(p, "", "Acme", "a1", AskInput{ID: 1, Card: askCardFixture(), Messages: msgs, Text: strings.Repeat("y", 4000)}, "i2a")
 	if err != nil {
 		t.Fatal(err)
 	}

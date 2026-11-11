@@ -83,7 +83,7 @@ func Update(path string, change func(*Config) error) (*Config, string, error) {
 			return nil, "", fmt.Errorf("%s: %w", path, err)
 		}
 		if c.Migration != nil {
-			if err := backupV1(path, b, c); err != nil {
+			if err := backup(path, b, c); err != nil {
 				return nil, "", err
 			}
 		}
@@ -103,7 +103,6 @@ const (
 	KindSettings     = "settings" // Settings and Notify together
 	KindUnsorted     = "unsorted"
 	KindAccount      = "account"
-	KindAgent        = "agent"
 	KindSchedule     = "schedule"
 	KindSpace        = "space"
 	KindConversation = "conversation" // the ID is "<account>/<conversation>"
@@ -130,13 +129,10 @@ func Item(c *Config, kind, id string) (item any, ok bool) {
 	case KindUnsorted:
 		u := c.Unsorted
 		u.Conversations = nil
+		u.Agent.ID, u.Agent.Name = "", "" // set at load, not in the file
 		return u, true
 	case KindAccount:
 		if a, ok := c.Account(id); ok {
-			return *a, true
-		}
-	case KindAgent:
-		if a, ok := c.Agent(id); ok {
 			return *a, true
 		}
 	case KindSchedule:
@@ -149,6 +145,7 @@ func Item(c *Config, kind, id string) (item any, ok bool) {
 		if s, ok := c.Space(id); ok {
 			x := *s
 			x.Conversations = nil
+			x.Agent.ID, x.Agent.Name = "", "" // set at load, not in the file
 			return x, true
 		}
 	case KindConversation:

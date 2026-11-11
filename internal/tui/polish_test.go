@@ -53,7 +53,7 @@ func withAcme(t *testing.T, h *feedHarness) {
 	}
 	cfg := config.Default()
 	cfg.Accounts = []config.Account{config.NewMattermostAccount("work", "https://chat.example.com")}
-	cfg.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: "triage", Schedule: "always",
+	cfg.Spaces = []config.Space{{ID: "acme", Name: "Acme", Agent: config.NewAgent("acme"), Schedule: "always",
 		Conversations: []config.Conversation{{Account: "work", ID: "C9", Read: config.ReadAll}}}}
 	if err := config.Save(h.m.u.d.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestSpaceFilterKeepsTheIDAndResets(t *testing.T) {
 	}
 	// Another process adds a space before Acme: the filter stays on Acme.
 	cfg := loadFile(t, h.m)
-	cfg.Spaces = append([]config.Space{{ID: "aaa", Name: "Aaa", Agent: "triage", Schedule: "always"}}, cfg.Spaces...)
+	cfg.Spaces = append([]config.Space{{ID: "aaa", Name: "Aaa", Agent: config.NewAgent("aaa"), Schedule: "always"}}, cfg.Spaces...)
 	if err := config.Save(h.m.u.d.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestCardDetailWrapsTheMetaLine(t *testing.T) {
 func TestActivityWithASpaceThatHasNoSend(t *testing.T) {
 	m := newTestModel(t)
 	cfg := loadFile(t, m)
-	cfg.Spaces = append(cfg.Spaces, config.Space{ID: "quiet", Name: "Quiet", Agent: "triage", Schedule: "always"})
+	cfg.Spaces = append(cfg.Spaces, config.Space{ID: "quiet", Name: "Quiet", Agent: config.NewAgent("quiet"), Schedule: "always"})
 	if err := config.Save(m.u.d.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}

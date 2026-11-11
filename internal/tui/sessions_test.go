@@ -61,11 +61,21 @@ func newSessionsModel(t *testing.T) *sessionsHarness {
 			}}}
 	}
 	cfg := h.m.u.cfg
-	a, _ := cfg.Agent("triage")
-	a.Driver, a.Workspace, a.OrcaBin = config.DriverOrca, "/home/user/notes", "/usr/local/bin/orca"
-	cfg.Spaces = append(cfg.Spaces, config.Space{ID: "acme", Name: "Acme", Agent: "triage", Schedule: "always"})
-	at(h.m, tabAgents)
+	orca := func(id string) config.Agent {
+		a := config.NewAgent(id)
+		a.Driver, a.Folder, a.OrcaBin = config.DriverOrca, "/home/user/notes", "/usr/local/bin/orca"
+		return a
+	}
+	cfg.Unsorted.Agent = orca(config.UnsortedID)
+	cfg.Spaces = append(cfg.Spaces, config.Space{ID: "acme", Name: "Acme", Agent: orca("acme"), Schedule: "always"})
+	at(h.m, tabSpaces)
 	return h
+}
+
+// open opens the sessions dialog of a space, as enter on its row Session does.
+func (h *sessionsHarness) open(space string) {
+	sp, _ := h.m.u.cfg.Space(space)
+	run(h.m, h.m.openSessions(*sp), 0)
 }
 
 func (h *sessionsHarness) session(t *testing.T, space string) inbox.Session {
@@ -85,21 +95,28 @@ func (h *sessionsHarness) set(t *testing.T, ss inbox.Session) {
 	}
 }
 
-func TestAgentsShowsTheSessionOfEachSpace(t *testing.T) {
+func TestSessionRowAndDialog(t *testing.T) {
 	h := newSessionsModel(t)
 	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA})
 	h.handles[4242] = "term_a"
-	h.m.buildForm(true)
-	s := screen(h.m)
-	if !strings.Contains(s, "Unsorted: term_a · Claude 04ebe19c") || !strings.Contains(s, "Acme: no session") || !strings.Contains(s, "s sessions") {
-		t.Fatalf("the detail does not show the sessions:\n%s", s)
+	h.m.selectSpace(config.UnsortedID)
+	if s := screen(h.m); !strings.Contains(s, "Session    term_a · Claude 04ebe19c") {
+		t.Fatalf("the panel of Everything else does not show the session:\n%s", s)
 	}
-	send(h.m, "s")
-	s = screen(h.m)
-	for _, want := range []string{"Sessions of triage", "Unsorted  live", "term_a  Claude 04ebe19c  Mattermost inbox triage", "Acme", "no session"} {
+	h.m.selectSpace("acme")
+	if s := screen(h.m); !strings.Contains(s, "Session    none") {
+		t.Fatalf("the panel of Acme does not show no session:\n%s", s)
+	}
+	h.m.selectSpace(config.UnsortedID)
+	run(h.m, h.m.settingDialog(railItem{kind: railElse, space: config.UnsortedID}, "session"), 0)
+	s := screen(h.m)
+	for _, want := range []string{"Session of Unsorted", "Unsorted  live", "term_a  Claude 04ebe19c  Mattermost inbox triage"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the dialog has no %q:\n%s", want, s)
 		}
+	}
+	if strings.Contains(s, "Acme") && strings.Contains(s, "no session\n") {
+		t.Errorf("the dialog of Unsorted shows another space:\n%s", s)
 	}
 	send(h.m, "o")
 	if len(h.switched) != 1 || h.switched[0] != "term_a" {
@@ -110,11 +127,11 @@ func TestAgentsShowsTheSessionOfEachSpace(t *testing.T) {
 	}
 }
 
-func TestAgentsSessionOfAnotherClaudeSession(t *testing.T) {
+func TestSessionOfAnotherClaudeSession(t *testing.T) {
 	h := newSessionsModel(t)
 	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionB})
 	h.handles[4242] = "term_a" // term_a runs session A now
-	send(h.m, "s")
+	h.open(config.UnsortedID)
 	if s := screen(h.m); !strings.Contains(s, "Unsorted  other session") || !strings.Contains(s, "Claude d9c92c0a (runs 04ebe19c now)") {
 		t.Errorf("the dialog does not show the other session:\n%s", s)
 	}
@@ -123,7 +140,8 @@ func TestAgentsSessionOfAnotherClaudeSession(t *testing.T) {
 func TestLinkSessionByHandle(t *testing.T) {
 	h := newSessionsModel(t)
 	h.handles[4242] = "term_c"
-	send(h.m, "s", "l")
+	h.open(config.UnsortedID)
+	send(h.m, "l")
 	h.m.topDialog().(*inputDialog).input.SetValue("term_c")
 	send(h.m, "enter")
 	ss := h.session(t, config.UnsortedID)
@@ -135,14 +153,15 @@ func TestLinkSessionByHandle(t *testing.T) {
 	}
 }
 
-func TestLinkSessionByIDOutsideTheWorkspace(t *testing.T) {
+func TestLinkSessionByIDOutsideTheFolder(t *testing.T) {
 	h := newSessionsModel(t)
 	h.handles[4343] = "term_d" // cwd /home/user/other
-	send(h.m, "s", "down", "l")
+	h.open("acme")
+	send(h.m, "l")
 	h.m.topDialog().(*inputDialog).input.SetValue(fixSessionB)
 	send(h.m, "enter")
 	s := screen(h.m)
-	if !strings.Contains(s, "The session runs in /home/user/other, not in the workspace") {
+	if !strings.Contains(s, "The session runs in /home/user/other, not in the folder") {
 		t.Fatalf("no confirmation for another workspace:\n%s", s)
 	}
 	if ss := h.session(t, "acme"); ss.Handle != "" {
@@ -156,7 +175,8 @@ func TestLinkSessionByIDOutsideTheWorkspace(t *testing.T) {
 
 func TestLinkSessionNoClaudeProcess(t *testing.T) {
 	h := newSessionsModel(t)
-	send(h.m, "s", "l")
+	h.open(config.UnsortedID)
+	send(h.m, "l")
 	h.m.topDialog().(*inputDialog).input.SetValue("term_d")
 	send(h.m, "enter")
 	if s := screen(h.m); !strings.Contains(s, "no running Claude session in term_d") {
@@ -171,7 +191,8 @@ func TestLinkSessionOfAnotherSpace(t *testing.T) {
 	h := newSessionsModel(t)
 	h.set(t, inbox.Session{Space: "acme", Handle: "term_c", AgentSession: fixSessionA})
 	h.handles[4242] = "term_c"
-	send(h.m, "s", "l")
+	h.open(config.UnsortedID)
+	send(h.m, "l")
 	h.m.topDialog().(*inputDialog).input.SetValue("term_c")
 	send(h.m, "enter")
 	if s := screen(h.m); !strings.Contains(s, "The space Acme has this session") {
@@ -187,7 +208,8 @@ func TestUnlinkSession(t *testing.T) {
 	h := newSessionsModel(t)
 	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA})
 	h.handles[4242] = "term_a"
-	send(h.m, "s", "u", "y")
+	h.open(config.UnsortedID)
+	send(h.m, "u", "y")
 	if ss := h.session(t, config.UnsortedID); ss.Handle != "" {
 		t.Errorf("session = %+v, want none", ss)
 	}

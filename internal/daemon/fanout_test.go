@@ -18,14 +18,16 @@ import (
 // each with its own orca agent.
 func twoSpaces() *config.Config {
 	c := cfgWith("work")
-	c.Agents = append(c.Agents, config.NewAgent("reviewer"), config.NewAgent("teamer"))
-	for i := range c.Agents {
-		c.Agents[i].Driver, c.Agents[i].Workspace = config.DriverOrca, "/w"
+	orca := func(id string) config.Agent {
+		a := config.NewAgent(id)
+		a.Driver, a.Folder = config.DriverOrca, "/w"
+		return a
 	}
+	c.Unsorted.Agent = orca(config.UnsortedID)
 	c.Spaces = []config.Space{
-		{ID: "review", Name: "Review", Agent: "reviewer", Schedule: "always",
+		{ID: "review", Name: "Review", Agent: orca("review"), Schedule: "always",
 			Conversations: []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadAll}}},
-		{ID: "team", Name: "Team", Agent: "teamer", Schedule: "always",
+		{ID: "team", Name: "Team", Agent: orca("team"), Schedule: "always",
 			Conversations: []config.Conversation{{Account: "work", ID: "Cr", Read: config.ReadMentions}}},
 	}
 	return c

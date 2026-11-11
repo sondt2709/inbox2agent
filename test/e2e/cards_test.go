@@ -227,7 +227,7 @@ func TestS24CardUpdateDoneAndReject(t *testing.T) {
 // suggested reply stays plain.
 func TestS36MarkdownBody(t *testing.T) {
 	p := newPerson(t, "S36")
-	if err := os.WriteFile(filepath.Join(p.home, "config.toml"), []byte("version = 2\n[[agents]]\nid = \"triage\"\ndriver = \"dry-run\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(p.home, "config.toml"), []byte("version = 3\n[unsorted.agent]\ndriver = \"dry-run\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, code := p.addCards(`[{"category":"action","urgency":"high","title":"**S36** release is ` + "`blocked`" + `",
