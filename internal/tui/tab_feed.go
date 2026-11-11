@@ -637,7 +637,23 @@ func (m *model) cardDetail(c inbox.Card, w int) string {
 		}
 		meta.WriteString(faint.Render(sep + "key " + c.Key))
 	}
-	b.WriteString(wrap.Render(meta.String()) + "\n\n")
+	b.WriteString(wrap.Render(meta.String()) + "\n")
+	if c.Handle != "" {
+		// The handle stays whole on one line: in an Orca terminal, cmd+click
+		// on term_… shows that terminal. The Claude session goes to the next
+		// line when the panel is narrow.
+		line, sep := "terminal "+c.Handle, " · "
+		if lipgloss.Width(line+" · Claude 12345678") > w {
+			sep = "\n"
+		}
+		if c.AgentSession != "" {
+			line += sep + "Claude " + shortID(c.AgentSession)
+		}
+		for _, l := range strings.Split(line, "\n") {
+			b.WriteString(faint.Render(truncate(l, w)) + "\n")
+		}
+	}
+	b.WriteString("\n")
 	if c.Body != "" {
 		b.WriteString(m.md.body(c.ID, c.UpdatedAt, c.Body, w) + "\n\n")
 	}

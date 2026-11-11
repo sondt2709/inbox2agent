@@ -8,6 +8,9 @@ import "time"
 type Session struct {
 	Space        string
 	Handle       string
-	AgentSession string // the Claude session ID; "" when not known
-	CreatedAt    time.Time
+	AgentSession string    // the Claude session ID; "" when not known
+	Name         string    // the name of the Claude session; "" when not known
+	OrcaAgent    string    // the Orca agent that runs it: "claude" or "claude-agent-teams"; "" when not known
+	CreatedAt    time.Time // when i2a stored the session
+	LastSent     time.Time // the last prompt that i2a sent to it; zero for none
 }

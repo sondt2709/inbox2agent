@@ -18,7 +18,17 @@ type ClaudeProc struct {
 	Name      string // the name of the Claude session
 	Cwd       string
 	Handle    string // ORCA_TERMINAL_HANDLE of the process; "" when it does not run in Orca
+	OrcaAgent string // the Orca agent that started it (OrcaAgentClaude, OrcaAgentTeams); "" outside Orca
 }
+
+// The Orca agents that run Claude Code. Orca starts claude-agent-teams as
+// "claude --teammate-mode auto …" with ORCA_AGENT_TEAMS_TEAM_ID set, and
+// claude as "claude --plugin-dir <Orca agent view> …" (Orca 1.4.253).
+// agentIdentity of "orca terminal show" does not tell them apart.
+const (
+	OrcaAgentClaude = "claude"
+	OrcaAgentTeams  = "claude-agent-teams"
+)
 
 // ErrClaudeUnknown means that i2a cannot read the Claude sessions: the
 // folder is missing, a file does not decode, or the OS is not supported.
@@ -32,6 +42,7 @@ var ErrNoProcess = errors.New("no such process")
 type ProcInfo struct {
 	Start  time.Time
 	Handle string // ORCA_TERMINAL_HANDLE from the environment of the process
+	Teams  bool   // ORCA_AGENT_TEAMS_TEAM_ID is set: Orca started it as claude-agent-teams
 }
 
 // ClaudeFinder finds the running Claude Code processes. Claude Code writes
@@ -100,7 +111,14 @@ func (f *ClaudeFinder) All() ([]ClaudeProc, error) {
 		if c.Kind != "" && c.Kind != "interactive" {
 			continue
 		}
-		out = append(out, ClaudeProc{PID: c.PID, SessionID: c.SessionID, Name: c.Name, Cwd: c.Cwd, Handle: p.Handle})
+		agent := ""
+		switch {
+		case p.Teams:
+			agent = OrcaAgentTeams
+		case p.Handle != "":
+			agent = OrcaAgentClaude
+		}
+		out = append(out, ClaudeProc{PID: c.PID, SessionID: c.SessionID, Name: c.Name, Cwd: c.Cwd, Handle: p.Handle, OrcaAgent: agent})
 	}
 	return out, nil
 }

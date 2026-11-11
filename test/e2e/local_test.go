@@ -209,14 +209,20 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 		t.Errorf("the second prompt does not have the new instruction and the yaml content:\n%s", b)
 	}
 
-	// S16: close the terminal. The next batch starts a new session.
+	first := p.session(config.UnsortedID)
+	if first.Name != "i2a · Unsorted" || first.LastSent.IsZero() {
+		t.Errorf("stored session = %+v, want the name i2a · Unsorted and a last send", first)
+	}
+
+	// S16: close the terminal, as an Orca restart does. The next batch
+	// resumes the stored Claude session in a new terminal.
 	closeTerminal(bin, h1)
 	w.Post(t, w.Bob, w.Selected, "S16: after the terminal closed")
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "started session term_") {
+	if code != 0 || !strings.Contains(unwrap(s), "resumed Claude session "+first.AgentSession[:8]+" in term_") {
 		t.Fatalf("after close: exit %d, screen:\n%s", code, s)
 	}
-	h2 := handleRe.FindString(s)
+	h2 := p.session(config.UnsortedID).Handle // the longer detail wraps the handle on the screen
 	t.Cleanup(func() { closeTerminal(bin, h2) })
 	if h2 == h1 {
 		t.Fatalf("the new session has the old handle %s", h1)
@@ -225,6 +231,26 @@ func TestS15S16OrcaReuseInlineAndRestart(t *testing.T) {
 	if text := readAgent(t, bin, h2, "S16: after", "S16/orca-terminal.txt"); !promptLine.MatchString(text) {
 		t.Fatalf("the new session did not get the batch:\n%s", text)
 	}
+	resumedIn(t, h2, first.AgentSession)
+	if second := p.session(config.UnsortedID); second.Handle != h2 || second.AgentSession != first.AgentSession || second.Name != "i2a · Unsorted" {
+		t.Errorf("stored session = %+v, want %s with the Claude session %s", second, h2, first.AgentSession)
+	}
+}
+
+// unwrap joins the screen lines, so a text that the terminal wrapped is one
+// line again.
+func unwrap(screen string) string { return strings.ReplaceAll(screen, "\n", "") }
+
+// resumedIn checks that the terminal runs the Claude session id with the
+// name i2a · Unsorted, from the Claude session files.
+func resumedIn(t *testing.T, handle, id string) {
+	t.Helper()
+	procs, err := agent.NewClaudeFinder().InTerminal(handle)
+	if err != nil || len(procs) != 1 || procs[0].SessionID != id || procs[0].Name != "i2a · Unsorted" {
+		t.Errorf("Claude in %s = %+v, %v; want the session %s named i2a · Unsorted", handle, procs, err, id)
+	}
+	b, _ := json.Marshal(procs)
+	writeEvidence(t, t.Name()+"/claude-in-new-terminal.json", string(b))
 }
 
 func TestS17OrcaNotReachable(t *testing.T) {
@@ -523,8 +549,8 @@ func TestS43OrcaClaudeExitedInTheSession(t *testing.T) {
 		t.Errorf("tab name = %q, want %q", title, "i2a · Unsorted")
 	}
 	first := p.session(config.UnsortedID)
-	if first.Handle != h1 || first.AgentSession == "" {
-		t.Fatalf("stored session = %+v, want %s with its Claude session", first, h1)
+	if first.Handle != h1 || first.AgentSession == "" || first.Name != "i2a · Unsorted" {
+		t.Fatalf("stored session = %+v, want %s with its Claude session and the name i2a · Unsorted", first, h1)
 	}
 
 	// /exit while a shell command of the agent runs opens a dialog
@@ -546,12 +572,14 @@ func TestS43OrcaClaudeExitedInTheSession(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 
+	// The shell stays in h1. The next batch resumes the session in a new
+	// terminal and sends nothing to the shell.
 	w.Post(t, w.Bob, w.Selected, "S43 second: echo S43-shell-got-it")
 	s, code = p.run("run --once")
-	if code != 0 || !strings.Contains(s, "started session term_") {
+	if code != 0 || !strings.Contains(unwrap(s), "resumed Claude session "+first.AgentSession[:8]+" in term_") {
 		t.Fatalf("after /exit: exit %d, screen:\n%s", code, s)
 	}
-	h2 := handleRe.FindString(s)
+	h2 := p.session(config.UnsortedID).Handle
 	t.Cleanup(func() { closeTerminal(bin, h2) })
 	if h2 == h1 {
 		t.Fatalf("the batch went to the shell of %s", h1)
@@ -563,9 +591,10 @@ func TestS43OrcaClaudeExitedInTheSession(t *testing.T) {
 	if strings.Contains(string(b), "S43 second") || strings.Contains(string(b), "S43-shell-got-it") {
 		t.Errorf("the shell of %s got the batch:\n%s", h1, b)
 	}
+	resumedIn(t, h2, first.AgentSession)
 	second := p.session(config.UnsortedID)
-	if second.Handle != h2 || second.AgentSession == "" || second.AgentSession == first.AgentSession {
-		t.Errorf("stored session = %+v, want %s with a new Claude session", second, h2)
+	if second.Handle != h2 || second.AgentSession != first.AgentSession {
+		t.Errorf("stored session = %+v, want %s with the Claude session %s", second, h2, first.AgentSession)
 	}
 }
 
@@ -598,4 +627,83 @@ func (p *person) session(space string) inbox.Session {
 		p.t.Fatal(err)
 	}
 	return ss
+}
+
+// setSession stores the session of a space, as a link in the dashboard does.
+func (p *person) setSession(ss inbox.Session) {
+	p.t.Helper()
+	st, err := store.Open(filepath.Join(p.home, "inbox.db"))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.SetSession(context.Background(), ss); err != nil {
+		p.t.Fatal(err)
+	}
+}
+
+// S47: Orca has two Claude agents. A claude-agent-teams session gets its
+// batch (Orca reports observation "unsupported" for it), and after its
+// terminal closes, the next batch resumes it under claude-agent-teams, not
+// under the cli of the space (claude).
+func TestS47OrcaAgentTeamsSession(t *testing.T) {
+	bin := needOrca(t)
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S47")
+	p.realClaude()
+	p.addAccount(w, w.Selected)
+	ws := orcaWorkspace(t)
+	p.editConfig(orcaAgent(bin, ws, config.SessionReuse, config.PayloadInline))
+
+	// The user started a claude-agent-teams session in Orca and linked it.
+	launch := exec.Command(bin, "agent", "launch", "--agent", agent.OrcaAgentTeams, "--surface", "terminal", "--worktree", "path:"+ws, "--json")
+	launch.Env = append(os.Environ(), "ORCA_TERMINAL_HANDLE=")
+	out, err := launch.Output()
+	h1 := handleRe.FindString(string(out))
+	if err != nil || h1 == "" {
+		t.Fatalf("orca agent launch: %v %s", err, out)
+	}
+	t.Cleanup(func() { closeTerminal(bin, h1) })
+	finder := agent.NewClaudeFinder()
+	var proc agent.ClaudeProc
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(time.Second) {
+		if procs, err := finder.InTerminal(h1); err == nil && len(procs) == 1 {
+			proc = procs[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no Claude process in %s", h1)
+		}
+	}
+	if proc.OrcaAgent != agent.OrcaAgentTeams {
+		t.Fatalf("Claude in %s = %+v, want the Orca agent %s", h1, proc, agent.OrcaAgentTeams)
+	}
+	p.setSession(inbox.Session{Space: config.UnsortedID, Handle: h1, AgentSession: proc.SessionID, CreatedAt: time.Now()})
+
+	w.Post(t, w.Bob, w.Selected, "S47 first: the vendor call moved to Thursday")
+	s, code := p.run("run --once")
+	if code != 0 || !strings.Contains(unwrap(s), "sent to "+h1+", Orca cannot observe this agent") {
+		t.Fatalf("first batch: exit %d, screen:\n%s", code, s)
+	}
+	readAgent(t, bin, h1, "S47 first", "S47/orca-terminal-1.txt")
+	if ss := p.session(config.UnsortedID); ss.OrcaAgent != agent.OrcaAgentTeams || ss.LastSent.IsZero() {
+		t.Errorf("stored session = %+v, want the Orca agent %s and a last send", ss, agent.OrcaAgentTeams)
+	}
+
+	closeTerminal(bin, h1)
+	w.Post(t, w.Bob, w.Selected, "S47 second: please confirm the room")
+	s, code = p.run("run --once")
+	if code != 0 || !strings.Contains(unwrap(s), "resumed Claude session "+proc.SessionID[:8]+" in term_") ||
+		!strings.Contains(unwrap(s), "("+agent.OrcaAgentTeams+")") {
+		t.Fatalf("after close: exit %d, screen:\n%s", code, s)
+	}
+	h2 := p.session(config.UnsortedID).Handle
+	t.Cleanup(func() { closeTerminal(bin, h2) })
+	readAgent(t, bin, h2, "S47 second", "S47/orca-terminal-2.txt")
+	procs, err := finder.InTerminal(h2)
+	if err != nil || len(procs) != 1 || procs[0].SessionID != proc.SessionID || procs[0].OrcaAgent != agent.OrcaAgentTeams {
+		t.Errorf("Claude in %s = %+v, %v; want %s under %s", h2, procs, err, proc.SessionID, agent.OrcaAgentTeams)
+	}
+	b, _ := json.Marshal(procs)
+	writeEvidence(t, "S47/claude-in-new-terminal.json", string(b))
 }

@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/sondt2709/inbox2agent/internal/agent"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
@@ -151,7 +153,36 @@ func printStore(w io.Writer, st *store.Store, cfg *config.Config) error {
 		fmt.Fprintf(w, "  %s  %s → %s  %s  %d messages  %s\n", d.CreatedAt.Local().Format("2006-01-02 15:04:05"),
 			space, or(d.Agent, "-"), strings.ToUpper(d.Status), d.MessageCount, d.Detail)
 	}
+	sessions, err := st.Sessions(ctx)
+	if err != nil {
+		return err
+	}
+	printSessions(w, sessions)
 	return nil
+}
+
+// printSessions prints the stored agent session of each space: the Orca
+// terminal, the Claude session ID, its name and the last send, so the user
+// can find the session in Orca (the handle) or with claude --resume.
+func printSessions(w io.Writer, sessions []inbox.Session) {
+	if len(sessions) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Sessions:")
+	for _, s := range sessions {
+		last := "no send yet"
+		if !s.LastSent.IsZero() {
+			last = "last send " + s.LastSent.Local().Format("2006-01-02 15:04")
+		}
+		name := ""
+		if s.OrcaAgent == agent.OrcaAgentTeams {
+			name = "  agent teams"
+		}
+		if s.Name != "" {
+			name += "  " + strconv.Quote(s.Name)
+		}
+		fmt.Fprintf(w, "  %-12s %s  Claude %s%s  %s\n", s.Space, s.Handle, or(s.AgentSession, "unknown"), name, last)
+	}
 }
 
 func printService(w io.Writer) {

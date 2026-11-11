@@ -183,7 +183,7 @@ In Spaces, the list at the left has each space (`●` sends, `○` is paused or 
 | Name | `enter` renames the space |
 | Status | `enter` pauses or resumes the space ("Sending" or "Paused: does not send"). A paused space keeps its messages until they expire after `lookback`. |
 | Agent | `enter` opens the form of the agent of this space in the panel: driver, CLI, folder, session, model, payload, limits and the instruction. `ctrl+s` saves, `esc` goes back. |
-| Session | the Orca terminal and the Claude session of the space. `enter` or `s` opens the session dialog: `l` links a terminal or a Claude session, `u` unlinks, `o` shows the terminal in Orca. |
+| Session | the Orca terminal, the Claude session, its name and the last send of the space (`i2a status` prints them too). Use the name or the ID with `claude --resume` to find the session. `enter` or `s` opens the session dialog: `l` links a terminal or a Claude session, `u` unlinks, `o` shows the terminal in Orca. |
 | When | `enter` picks the schedule, renames it (its ID stays) or opens its times in Setup › Schedules |
 | A conversation | `enter` sets its spaces · `←` / `→` changes its read level in this space · `x` removes it from this space · `n` gives it a name |
 | Many conversations | `space` selects a row, then `enter` sets the spaces of all selected rows |
@@ -326,7 +326,7 @@ Summarise each topic in one line and suggest a reply in English.
 
 [spaces.agent]            # how i2a sends the batches of this space; only this space uses it
 driver = "orca"           # orca | dry-run
-cli = "claude"
+cli = "claude"              # the Orca agent: claude, claude-agent-teams, codex, …
 folder = "~/notes"        # a git folder, or a folder that you added in Orca
 session = "reuse"         # reuse | new | worktree
 payload = "pointer"       # pointer | inline
@@ -390,7 +390,7 @@ The agent of a space tells `i2a` how to send its batches (`[spaces.agent]`, or t
 
 | Setting | Values | Effect |
 |---|---|---|
-| `session` | `reuse` | One long agent session for each space. Each batch has the full prompt, so a change of the instruction keeps the session. If the session is closed, `i2a` starts a new one. If the agent is busy, `i2a` keeps the batch until the next send time. |
+| `session` | `reuse` | One long agent session for each space. Each batch has the full prompt, so a change of the instruction keeps the session. If the terminal is closed (also after a restart of Orca), or Claude Code exited in it, `i2a` opens a new terminal with the same Orca agent (`claude` or `claude-agent-teams`) and resumes the same Claude session with `/resume`, so the agent keeps what it knew. If the user ran `/clear`, unlinked the session, or Claude cannot open the old session, `i2a` starts a new session named `i2a · <space>`. If the agent is busy, `i2a` keeps the batch until the next send time. |
 | | `new` | A new agent session for each batch. |
 | | `worktree` | A new Orca worktree `i2a-<batch-id>` for each batch. The folder must be a git repository. |
 | `payload` | `pointer` | The prompt names the digest file. The agent reads the file. |

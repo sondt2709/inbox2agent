@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -75,7 +75,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   handle      TEXT NOT NULL,
   created_at  INTEGER NOT NULL,
   primer_hash TEXT NOT NULL DEFAULT '',
-  agent_session TEXT NOT NULL DEFAULT ''
+  agent_session TEXT NOT NULL DEFAULT '',
+  agent_name    TEXT NOT NULL DEFAULT '',
+  last_sent_at  INTEGER NOT NULL DEFAULT 0,
+  orca_agent    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS cards (
   id         INTEGER PRIMARY KEY,
@@ -182,7 +185,8 @@ func (s *Store) migrate() error {
 	// adds cards.handle, migrateV6 renames the profile columns to space and
 	// migrateV7 adds messages.for_me, the deliveries and cards.space, and
 	// migrateV8 adds sessions.agent_session and cards.agent_session, and
-	// migrateV9 adds the reply reference of the messages.
+	// migrateV9 adds the reply reference of the messages, and migrateV10 adds
+	// sessions.agent_name, sessions.last_sent_at and sessions.orca_agent.
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
@@ -197,7 +201,7 @@ func (s *Store) migrate() error {
 	case v > SchemaVersion:
 		return fmt.Errorf("the store has schema version %d; this i2a supports %d. Update i2a", v, SchemaVersion)
 	case v == SchemaVersion:
-		return nil
+		return s.ensureV10()
 	}
 	if err := s.backup(v); err != nil {
 		return err
@@ -207,7 +211,7 @@ func (s *Store) migrate() error {
 		run func() error
 	}{
 		{2, s.migrateV2}, {3, s.migrateV3}, {4, s.migrateV4}, {5, s.migrateV5},
-		{6, s.migrateV6}, {7, s.migrateV7}, {8, s.migrateV8}, {9, s.migrateV9},
+		{6, s.migrateV6}, {7, s.migrateV7}, {8, s.migrateV8}, {9, s.migrateV9}, {10, s.migrateV10},
 	}
 	for _, st := range steps {
 		if v >= st.to {
@@ -431,6 +435,44 @@ func (s *Store) migrateV9() error {
 		}
 	}
 	if _, err := tx.Exec(`UPDATE schema_version SET version = 9`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ensureV10 adds sessions.orca_agent to a version 10 store that a build
+// before the release of version 10 wrote without it. It writes nothing when
+// the column exists.
+func (s *Store) ensureV10() error {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'orca_agent'`).Scan(&n); err != nil || n == 1 {
+		return err
+	}
+	return s.migrateV10()
+}
+
+// migrateV10 adds the name of the Claude session, the time of the last
+// prompt sent to it and the Orca agent that runs it, so the user can find
+// the session of a space and a resume launches the same agent.
+func (s *Store) migrateV10() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no effect after Commit
+	for _, col := range []string{"agent_name TEXT NOT NULL DEFAULT ''", "last_sent_at INTEGER NOT NULL DEFAULT 0", "orca_agent TEXT NOT NULL DEFAULT ''"} {
+		name, _, _ := strings.Cut(col, " ")
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = ?`, name).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN ` + col); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`UPDATE schema_version SET version = 10`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -828,29 +870,55 @@ func (s *Store) Counts(ctx context.Context) (map[string]int, error) {
 // Session returns the stored session of a space. Handle is "" when none exists.
 func (s *Store) Session(ctx context.Context, space string) (inbox.Session, error) {
 	out := inbox.Session{Space: space}
-	var created int64
-	err := s.db.QueryRowContext(ctx, `SELECT handle, agent_session, created_at FROM sessions WHERE space = ?`, space).
-		Scan(&out.Handle, &out.AgentSession, &created)
+	var created, sent int64
+	err := s.db.QueryRowContext(ctx, `SELECT handle, agent_session, agent_name, orca_agent, created_at, last_sent_at FROM sessions WHERE space = ?`, space).
+		Scan(&out.Handle, &out.AgentSession, &out.Name, &out.OrcaAgent, &created, &sent)
 	if errors.Is(err, sql.ErrNoRows) {
 		return inbox.Session{Space: space}, nil
 	}
-	out.CreatedAt = time.UnixMilli(created).UTC()
+	out.CreatedAt, out.LastSent = time.UnixMilli(created).UTC(), sentTime(sent)
 	return out, err
+}
+
+// sentTime is the zero time for 0 (no send yet).
+func sentTime(ms int64) time.Time {
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms).UTC()
+}
+
+func sentMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
 }
 
 // SetSession stores the session of a space. The column primer_hash is not
 // used since each prompt has the instruction; it gets ”.
 func (s *Store) SetSession(ctx context.Context, ss inbox.Session) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, agent_session, created_at, primer_hash) VALUES (?, ?, ?, ?, '')
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, agent_session, agent_name, orca_agent, created_at, last_sent_at, primer_hash)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, '')
 	  ON CONFLICT(space) DO UPDATE SET handle = excluded.handle, agent_session = excluded.agent_session,
-	  created_at = excluded.created_at, primer_hash = ''`,
-		ss.Space, ss.Handle, ss.AgentSession, ss.CreatedAt.UnixMilli())
+	  agent_name = excluded.agent_name, orca_agent = excluded.orca_agent, created_at = excluded.created_at,
+	  last_sent_at = excluded.last_sent_at, primer_hash = ''`,
+		ss.Space, ss.Handle, ss.AgentSession, ss.Name, ss.OrcaAgent, ss.CreatedAt.UnixMilli(), sentMillis(ss.LastSent))
+	return err
+}
+
+// TouchSession records a prompt sent to the stored session of a space: the
+// time and the name of the Claude session ("" keeps the stored name). It
+// changes nothing when the stored handle is another one.
+func (s *Store) TouchSession(ctx context.Context, space, handle, name string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET last_sent_at = ?, agent_name = CASE WHEN ? = '' THEN agent_name ELSE ? END
+	  WHERE space = ? AND handle = ?`, at.UnixMilli(), name, name, space, handle)
 	return err
 }
 
 // Sessions returns the stored sessions of all spaces, by space.
 func (s *Store) Sessions(ctx context.Context) ([]inbox.Session, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT space, handle, agent_session, created_at FROM sessions ORDER BY space`)
+	rows, err := s.db.QueryContext(ctx, `SELECT space, handle, agent_session, agent_name, orca_agent, created_at, last_sent_at FROM sessions ORDER BY space`)
 	if err != nil {
 		return nil, err
 	}
@@ -858,11 +926,11 @@ func (s *Store) Sessions(ctx context.Context) ([]inbox.Session, error) {
 	var out []inbox.Session
 	for rows.Next() {
 		var ss inbox.Session
-		var created int64
-		if err := rows.Scan(&ss.Space, &ss.Handle, &ss.AgentSession, &created); err != nil {
+		var created, sent int64
+		if err := rows.Scan(&ss.Space, &ss.Handle, &ss.AgentSession, &ss.Name, &ss.OrcaAgent, &created, &sent); err != nil {
 			return nil, err
 		}
-		ss.CreatedAt = time.UnixMilli(created).UTC()
+		ss.CreatedAt, ss.LastSent = time.UnixMilli(created).UTC(), sentTime(sent)
 		out = append(out, ss)
 	}
 	return out, rows.Err()

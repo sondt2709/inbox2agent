@@ -57,7 +57,7 @@ func TestClaudeFinderInTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ClaudeProc{{PID: 4242, SessionID: sessionA, Name: "Mattermost inbox triage", Cwd: "/home/user/notes", Handle: "term_a"}}
+	want := []ClaudeProc{{PID: 4242, SessionID: sessionA, Name: "Mattermost inbox triage", Cwd: "/home/user/notes", Handle: "term_a", OrcaAgent: OrcaAgentClaude}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
