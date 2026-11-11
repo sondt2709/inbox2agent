@@ -997,10 +997,11 @@ func (m *model) feedHints() []hint {
 	case focusSpaces:
 		return []hint{{"↑↓", "space"}, {"→", "cards"}, {"ctrl+r", "run now"}, {"F", "space list"}}
 	case focusCard:
-		return []hint{{"↑↓", "scroll"}, {"r", "reply"}, {"t", "ask agent"}, {"o", "open thread"}, {"c", "copy reply"}, {"←", "cards"}, {"pgup/pgdn", "page"}}
+		return []hint{{"↑↓", "scroll"}, {"r", "reply"}, {"t", "ask agent"}, {"o", "open thread"}, {"c", "copy reply"}, {"←", "cards"}, {"pgup/pgdn", "page"},
+			{"d", "done"}, {"u", "unread"}, {"s", "sort"}, {"a", "done cards"}, {"F", "space list"}}
 	}
 	return []hint{{"r", "reply"}, {"t", "ask agent"}, {"d", "done"}, {"o", "open thread"}, {"→", "card"}, {"←", "spaces"}, {"c", "copy reply"},
-		{"u", "unread"}, {"s", "sort"}, {"a", "done cards"}}
+		{"u", "unread"}, {"s", "sort"}, {"a", "done cards"}, {"F", "space list"}, {"enter", "mark read"}}
 }
 
 // activeSpace returns the space of the filter of the Feed and Activity, or ""

@@ -3,8 +3,10 @@ package tui
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 )
@@ -32,7 +34,6 @@ var (
 	warnStyle    = lipgloss.NewStyle().Foreground(yellow)
 	errStyle     = lipgloss.NewStyle().Foreground(red)
 	infoStyle    = lipgloss.NewStyle().Foreground(blue)
-	keyStyle     = lipgloss.NewStyle().Foreground(fgColor).Bold(true)
 	panelStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(borderFg).Padding(0, 1)
 	panelTitle   = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	selectedRow  = lipgloss.NewStyle().Background(accentDim).Foreground(lipgloss.Color("#FFFDF5")).Bold(true)
@@ -113,13 +114,87 @@ var (
 	hintKey   = lipgloss.NewStyle().Foreground(mutedFg)           // the secondary color
 )
 
-// renderHints writes each hint as the label, then the key: "Reply r".
-func renderHints(hs []hint) string {
-	parts := make([]string, 0, len(hs))
-	for _, h := range hs {
-		parts = append(parts, hintLabel.Render(upperFirst(h.desc))+" "+hintKey.Render(h.key))
+// chipBg is the background of a button in the header and the footer.
+var chipBg = lipgloss.Color("#26232F")
+
+var (
+	chipPad   = lipgloss.NewStyle().Background(chipBg)
+	chipLabel = hintLabel.Background(chipBg)
+	chipKey   = hintKey.Background(chipBg)
+)
+
+// moreKey is the key of the More… button: it opens the list of all the
+// actions of the screen. No keyboard key has this name.
+const moreKey = "more…"
+
+// barZone is a button of the header or the footer: a click sends its key.
+type barZone struct {
+	x0, x1, y int
+	key       string
+}
+
+// keyName returns the key name that keyPress knows for the key of a hint.
+// A hint with two keys or a word ("↑↓", "pgup/pgdn", "type") has none, and
+// stays text.
+func keyName(k string) (string, bool) {
+	switch k {
+	case "←":
+		return "left", true
+	case "→":
+		return "right", true
+	case "↑":
+		return "up", true
+	case "↓":
+		return "down", true
+	case "enter", "esc", "space", "tab", "shift+tab", "pgup", "pgdown", moreKey:
+		return k, true
 	}
-	return strings.Join(parts, faint.Render("  ·  "))
+	if len(k) == len("ctrl+x") && strings.HasPrefix(k, "ctrl+") {
+		return k, true
+	}
+	if utf8.RuneCountInString(k) == 1 && k != " " {
+		return k, true
+	}
+	return "", false
+}
+
+// renderHint writes one hint as the label, then the key: "Reply r". A button
+// is a chip with a dim background.
+func renderHint(h hint) string {
+	if h.key == moreKey {
+		return chipPad.Render(" ") + chipLabel.Render(h.desc) + chipPad.Render(" ")
+	}
+	if _, ok := keyName(h.key); ok {
+		return chipPad.Render(" ") + chipLabel.Render(upperFirst(h.desc)) + chipPad.Render(" ") + chipKey.Render(h.key) + chipPad.Render(" ")
+	}
+	return hintLabel.Render(upperFirst(h.desc)) + " " + hintKey.Render(h.key)
+}
+
+// layoutHints writes the hints from column x of row y. It returns the text
+// and the zone of each button, so the drawing and the clicks cannot differ.
+func layoutHints(hs []hint, x, y int) (string, []barZone) {
+	var b strings.Builder
+	var zs []barZone
+	for i, h := range hs {
+		if i > 0 {
+			b.WriteString("  ")
+			x += 2
+		}
+		s := renderHint(h)
+		w := lipgloss.Width(s)
+		if k, ok := keyName(h.key); ok {
+			zs = append(zs, barZone{x0: x, x1: x + w, y: y, key: k})
+		}
+		b.WriteString(s)
+		x += w
+	}
+	return b.String(), zs
+}
+
+// renderHints writes the hints with no click zones.
+func renderHints(hs []hint) string {
+	s, _ := layoutHints(hs, 0, 0)
+	return s
 }
 
 // upperFirst writes the first letter of s as a capital letter.
@@ -132,15 +207,23 @@ func upperFirst(s string) string {
 	return string(r)
 }
 
-// fitHints renders the hints that fit in w columns, in their order. It drops
-// whole hints from the end and never cuts a hint.
-func fitHints(hs []hint, w int) string {
-	for n := len(hs); n > 0; n-- {
-		if s := renderHints(hs[:n]); lipgloss.Width(s) <= w {
-			return s
+// fitHints returns the hints that fit in w columns, in their order. It drops
+// whole hints from the end and never cuts a hint. When it drops a button, the
+// last hint is More…, which lists all of them.
+func fitHints(hs []hint, w int) []hint {
+	if lipgloss.Width(renderHints(hs)) <= w {
+		return hs
+	}
+	for n := len(hs) - 1; n >= 0; n-- {
+		out := slices.Clone(hs[:n])
+		if slices.ContainsFunc(hs[n:], func(h hint) bool { _, ok := keyName(h.key); return ok }) {
+			out = append(out, hint{moreKey, "More…"})
+		}
+		if lipgloss.Width(renderHints(out)) <= w {
+			return out
 		}
 	}
-	return ""
+	return nil
 }
 
 func truncate(s string, n int) string {

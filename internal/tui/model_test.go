@@ -195,7 +195,7 @@ func runWithTimeout(cmd tea.Cmd) tea.Msg {
 func TestDashboardShowsTheModel(t *testing.T) {
 	m := newTestModel(t)
 	s := screen(m)
-	for _, want := range []string{"Feed", "Spaces", "Setup", "● running", "ctrl+r run now", "● Acme", "Everything else",
+	for _, want := range []string{"Feed", "Spaces", "Setup", "● running", "Run now ctrl+r", "● Acme", "Everything else",
 		"Agent      orca · claude · /home/user/notes · reuse", "Status     ● Sending", "Conversations · 1", "# release"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the dashboard does not show %q:\n%s", want, s)
@@ -209,13 +209,13 @@ func TestDashboardShowsTheModel(t *testing.T) {
 		at(m, tabSettings)
 		send(m, "enter", "ctrl+u", "9")
 		lines := strings.Split(screen(m), "\n")
-		if !strings.Contains(lines[0], "Setup") || !strings.Contains(lines[0], "ctrl+r run now") || !strings.Contains(lines[1], "● unsaved changes") {
+		if !strings.Contains(lines[0], "Setup") || !strings.Contains(lines[0], "Run now ctrl+r") || !strings.Contains(lines[1], "● unsaved changes") {
 			t.Errorf("at %d columns the header or the unsaved mark does not fit:\n%s\n%s", w, lines[0], lines[1])
 		}
 		send(m, "esc", "d")
 	}
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	if head := strings.Split(screen(m), "\n")[0]; !strings.Contains(head, "Setup") || !strings.Contains(head, "ctrl+r run now") {
+	if head := strings.Split(screen(m), "\n")[0]; !strings.Contains(head, "Setup") || !strings.Contains(head, "Run now ctrl+r") {
 		t.Errorf("at 80 columns the header = %q", head)
 	}
 }
@@ -459,7 +459,7 @@ func TestDigestViewer(t *testing.T) {
 func TestSpaceAgentForm(t *testing.T) {
 	m := newTestModel(t)
 	at(m, tabSpaces)
-	send(m, "enter", "up", "up", "up", "enter") // the row Agent of Acme
+	send(m, "enter", "up", "up", "up", "up", "enter") // the row Agent of Acme
 	if m.spaceForm != "acme" || m.form == nil || !m.form.active {
 		t.Fatalf("enter on the row Agent did not open the agent form: %q", m.spaceForm)
 	}
@@ -493,7 +493,7 @@ func TestSpaceAgentForm(t *testing.T) {
 func TestSpaceAgentFormEsc(t *testing.T) {
 	m := newTestModel(t)
 	at(m, tabSpaces)
-	send(m, "enter", "up", "up", "up", "enter", "esc")
+	send(m, "enter", "up", "up", "up", "up", "enter", "esc")
 	if m.spaceForm != "" || m.form != nil {
 		t.Fatalf("esc did not close an unchanged form")
 	}

@@ -250,8 +250,8 @@ func TestS45PauseASpace(t *testing.T) {
 	tm := p.term("config")
 	tm.WaitFor(`Status\s+● Sending`, 30*time.Second) // the panel of Team, the first space
 	tm.Press("Enter", `Spaces enter`, 5*time.Second) // the panel; the cursor is on the conversation
-	for range 4 {
-		tm.Keys("Up") // When, Session, Agent, Status
+	for range 5 {
+		tm.Keys("Up") // + Add conversations, When, Session, Agent, Status
 	}
 	tm.Press("Enter", `Status\s+○ Paused: does not send`, 5*time.Second)
 	tm.WaitFor(`○ Team`, 5*time.Second)
@@ -343,4 +343,57 @@ schedule = 'always'
 	if s, _ := p.run("status"); strings.Contains(s, "converted") {
 		t.Errorf("the second load converted again:\n%s", s)
 	}
+}
+
+// S48: the mouse only. A click on "+ New space" and the Save button makes a
+// space, a click on "+ Add conversations", on a row and on OK adds a channel
+// to it, and a click on "Run now ctrl+r" sends its message. Only the name and
+// the search text come from the keyboard.
+func TestS48MouseOnly(t *testing.T) {
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S48")
+	p.addAccount(w)
+	tm := p.term("config")
+	tm.WaitFor(`\+ New space`, 30*time.Second)
+	tm.ClickText("+ New space", false) // the first click selects the row
+	tm.WaitFor(`▌\s+\+ New space`, 5*time.Second)
+	tm.ClickText("+ New space", false) // a click on the selected row opens it
+	tm.WaitFor(`The name of the new space`, 5*time.Second)
+	tm.Type("Review")
+	tm.ClickText("Save enter", true)
+	tm.WaitFor(`Created the space Review`, 5*time.Second)
+
+	tm.ClickText("+ Add conversations", false)
+	tm.WaitFor(`Add conversations to Review`, 5*time.Second)
+	tm.Type("selec")
+	tm.WaitFor(`# selected`, 10*time.Second)
+	tm.ClickText("# selected", false)
+	tm.WaitFor(`\[x\] # selected`, 5*time.Second)
+	tm.Shot("S48-add-dialog")
+	tm.ClickText("OK", false)
+	tm.WaitFor(`Saved`, 5*time.Second)
+	c := p.config()
+	review := ""
+	for _, sp := range c.Spaces {
+		if sp.Name == "Review" {
+			review = sp.ID
+		}
+	}
+	if r := c.Routes("work", w.Selected); review == "" || !slices.Equal(r, []string{review}) {
+		t.Fatalf("the file lists the channel in %v, want only Review (%q)", r, review)
+	}
+
+	w.Post(t, w.Bob, w.Selected, "S48 the build is green")
+	tm.ClickText("Run now ctrl+r", false)
+	s := tm.WaitFor(`Last run .*Review: \w+ \(1\)`, 30*time.Second)
+	tm.Shot("S48-run-now")
+	var all []string
+	for _, d := range p.digests() {
+		all = append(all, texts(readDigest(t, d))...)
+	}
+	if !slices.Equal(all, []string{"S48 the build is green"}) {
+		t.Fatalf("digest texts = %q; screen:\n%s", all, s)
+	}
+	tm.ClickText("Quit q", true)
+	tm.WaitFor(`\[exit 0\]`, 5*time.Second)
 }

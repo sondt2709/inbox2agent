@@ -15,7 +15,7 @@ func (m *model) hintsSchedules() []hint {
 	if m.sch >= len(m.u.cfg.Schedules) {
 		return []hint{{"↑↓", "move"}, {"enter", "add a schedule"}}
 	}
-	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "delete"}}
+	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "delete"}, {"a", "add a schedule"}}
 }
 
 func (m *model) keySchedules(k string) tea.Cmd {
