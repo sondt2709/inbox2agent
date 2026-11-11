@@ -581,7 +581,7 @@ func TestS20FullScreenTUI(t *testing.T) {
 	s := tm.WaitFor(`# selected`, 30*time.Second) // the listing of the account gives the names
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	head := strings.Join(strings.Fields(lines[0]), " ")
-	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*ctrl\+r run now$`).MatchString(head) {
+	if !regexp.MustCompile(`^◆ i2a Feed( \d+)? Spaces( \d+ new)? Setup .*Run now ctrl\+r$`).MatchString(head) {
 		t.Errorf("the header = %q", head)
 	}
 	if !strings.Contains(lines[1], "No run yet. ctrl+r reads all accounts") {
