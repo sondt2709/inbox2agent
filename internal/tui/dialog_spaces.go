@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
@@ -320,17 +321,36 @@ func (m *model) requeue(rows []convRow) tea.Cmd {
 
 // ---- search ----
 
-// searchDialog finds a conversation of any account. With a space, each row
-// shows if the space has it, space adds or removes it, and ←→ change its
-// level there. Without a space, enter opens the spaces dialog of the row.
+// searchDialog finds a conversation of any account. Without a space, enter
+// opens the spaces dialog of the row. With a space it is the add dialog: each
+// row shows if the space has it, space adds or removes it, and ←→ change its
+// level there. The changes wait in pending until OK saves them in one save;
+// Cancel and esc forget them.
 type searchDialog struct {
-	m      *model
-	space  string // "" to find a conversation
-	input  textinput.Model
-	typing bool
-	cursor int
-	off    int
+	m       *model
+	space   string // "" to find a conversation
+	input   textinput.Model
+	typing  bool
+	cursor  int
+	off     int
+	pending map[string]spacePick // by convKey
+	button  int                  // the button that has the keyboard: btnNone, btnOK or btnCancel
+	btnY    int                  // the body line of the buttons
+	btnX    [2][2]int            // the columns of OK and Cancel on that line
+	err     string
 }
+
+// spacePick is a row in the space of the add dialog, and its level there.
+type spacePick struct {
+	in    bool
+	level string
+}
+
+const (
+	btnNone = iota
+	btnOK
+	btnCancel
+)
 
 func (m *model) newSearchDialog(space string) *searchDialog {
 	in := textinput.New()
@@ -338,10 +358,16 @@ func (m *model) newSearchDialog(space string) *searchDialog {
 	in.Placeholder = "name, account or space"
 	in.CharLimit = 60
 	in.Focus()
-	return &searchDialog{m: m, space: space, input: in, typing: true}
+	return &searchDialog{m: m, space: space, input: in, typing: true, pending: map[string]spacePick{}, btnY: -1}
 }
 
-func (d *searchDialog) title() string { return "Find a conversation" }
+func (d *searchDialog) title() string {
+	if d.space == "" {
+		return "Find a conversation"
+	}
+	s, _ := d.m.u.cfg.Space(d.space)
+	return "Add conversations to " + s.Title()
+}
 
 func (d *searchDialog) size(W, H int) (int, int) { return min(W-4, 96), H - 4 }
 
@@ -352,7 +378,37 @@ func (d *searchDialog) rows(m *model) []convRow {
 	})
 }
 
+// saved returns whether the file has the row in the space of the dialog, and its level there.
+func (d *searchDialog) saved(r convRow) spacePick {
+	lv, in := levelIn(r, d.space)
+	if !in || inNoSpace(r) {
+		return spacePick{level: config.ReadAll}
+	}
+	return spacePick{in: true, level: lv}
+}
+
+// pick returns the row in the space of the dialog with the changes that wait for OK.
+func (d *searchDialog) pick(r convRow) spacePick {
+	if p, ok := d.pending[convKey(r.Account.ID, r.ID)]; ok {
+		return p
+	}
+	return d.saved(r)
+}
+
+// set keeps p as the change of the row, or forgets the change when p is the saved state.
+func (d *searchDialog) set(r convRow, p spacePick) {
+	k := convKey(r.Account.ID, r.ID)
+	if p == d.saved(r) {
+		delete(d.pending, k)
+		return
+	}
+	d.pending[k] = p
+}
+
 func (d *searchDialog) update(m *model, msg tea.Msg) tea.Cmd {
+	if c, ok := msg.(tea.MouseClickMsg); ok {
+		return d.click(m, c.Mouse())
+	}
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		if d.typing {
@@ -361,6 +417,12 @@ func (d *searchDialog) update(m *model, msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		return nil
+	}
+	if d.space != "" && k.String() == "ctrl+s" {
+		return d.save(m)
+	}
+	if d.button != btnNone {
+		return d.keyButton(m, k.String())
 	}
 	rows := d.rows(m)
 	if d.typing {
@@ -393,6 +455,10 @@ func (d *searchDialog) update(m *model, msg tea.Msg) tea.Cmd {
 	case "/":
 		d.typing = true
 		return d.input.Focus()
+	case "tab":
+		if d.space != "" {
+			d.button = btnOK
+		}
 	case "up", "k":
 		if d.cursor == 0 {
 			d.typing = true
@@ -402,56 +468,151 @@ func (d *searchDialog) update(m *model, msg tea.Msg) tea.Cmd {
 	case "down", "j":
 		d.cursor = min(max(0, len(rows)-1), d.cursor+1)
 	case "enter":
-		if d.cursor >= len(rows) {
-			return nil
+		if d.space != "" {
+			return d.save(m)
 		}
-		if d.space == "" {
+		if d.cursor < len(rows) {
 			m.closeDialog()
 			m.openDialog(m.newSpacesDialog(rows[d.cursor : d.cursor+1]))
-			return nil
 		}
-		m.closeDialog()
 	case "space", "x":
 		if d.space != "" && d.cursor < len(rows) {
-			d.toggle(m, rows[d.cursor])
+			p := d.pick(rows[d.cursor])
+			p.in = !p.in
+			d.set(rows[d.cursor], p)
 		}
 	case "left", "right", "h", "l":
 		if d.space != "" && d.cursor < len(rows) {
-			if _, in := levelIn(rows[d.cursor], d.space); in && !inNoSpace(rows[d.cursor]) {
-				m.toggleLevel(rows[d.cursor:d.cursor+1], d.space)
+			if p := d.pick(rows[d.cursor]); p.in {
+				p.level = map[string]string{config.ReadAll: config.ReadMentions}[p.level]
+				if p.level == "" {
+					p.level = config.ReadAll // also from off, which a file can have
+				}
+				d.set(rows[d.cursor], p)
 			}
 		}
 	}
 	return nil
 }
 
-// toggle adds the row to the space of the dialog, or removes it.
-func (d *searchDialog) toggle(m *model, r convRow) {
-	s, _ := m.u.cfg.Space(d.space)
-	_, in := levelIn(r, d.space)
-	in = in && !inNoSpace(r)
-	if in {
-		m.editLinks([]convRow{r}, func(c *config.Config, x convRow) []config.Link {
-			return orNoSpace(c, x, slices.DeleteFunc(realLinks(c, x.Account.ID, x.ID), func(l config.Link) bool { return l.Space == d.space }))
-		}, fmt.Sprintf("Removed %s from %s.", r.Title(), s.Title()))
-		return
+// keyButton handles a key while OK or Cancel has the keyboard.
+func (d *searchDialog) keyButton(m *model, k string) tea.Cmd {
+	switch k {
+	case "esc":
+		m.closeDialog()
+	case "enter", "space":
+		if d.button == btnOK {
+			return d.save(m)
+		}
+		m.closeDialog()
+	case "left", "right", "h", "l":
+		d.button = btnOK + btnCancel - d.button
+	case "tab":
+		if d.button == btnOK {
+			d.button = btnCancel
+			return nil
+		}
+		d.button, d.typing = btnNone, true
+		return d.input.Focus()
+	case "shift+tab":
+		if d.button == btnCancel {
+			d.button = btnOK
+			return nil
+		}
+		d.button = btnNone
+	case "up", "k":
+		d.button = btnNone
 	}
-	m.editLinks([]convRow{r}, func(c *config.Config, x convRow) []config.Link {
-		return append(realLinks(c, x.Account.ID, x.ID), config.Link{Space: d.space, Read: config.ReadAll})
-	}, fmt.Sprintf("Added %s to %s.", r.Title(), s.Title()))
+	return nil
+}
+
+// click runs the button under the mouse.
+func (d *searchDialog) click(m *model, ms tea.Mouse) tea.Cmd {
+	if d.space == "" || ms.Button != tea.MouseLeft {
+		return nil
+	}
+	x, y := m.dialogPoint(d, ms)
+	if y != d.btnY {
+		return nil
+	}
+	switch {
+	case x >= d.btnX[0][0] && x < d.btnX[0][1]:
+		return d.save(m)
+	case x >= d.btnX[1][0] && x < d.btnX[1][1]:
+		m.closeDialog()
+	}
+	return nil
+}
+
+// save writes the changes of the add dialog in one save and closes it.
+func (d *searchDialog) save(m *model) tea.Cmd {
+	if len(d.pending) == 0 {
+		m.closeDialog()
+		return nil
+	}
+	var rows []convRow
+	var added, removed, level int
+	for _, r := range m.convRows() {
+		p, ok := d.pending[convKey(r.Account.ID, r.ID)]
+		if !ok {
+			continue
+		}
+		rows = append(rows, r)
+		switch was := d.saved(r); {
+		case p.in && !was.in:
+			added++
+		case !p.in && was.in:
+			removed++
+		default:
+			level++
+		}
+	}
+	var parts []string
+	if added > 0 {
+		parts = append(parts, "added "+plural(added, "conversation", "conversations"))
+	}
+	if removed > 0 {
+		parts = append(parts, "removed "+plural(removed, "conversation", "conversations"))
+	}
+	if level > 0 {
+		parts = append(parts, "changed the read level of "+plural(level, "conversation", "conversations"))
+	}
+	s, _ := m.u.cfg.Space(d.space)
+	done := s.Title() + ": " + strings.Join(parts, ", ") + "."
+	pending, space := d.pending, d.space
+	if !m.editLinks(rows, func(c *config.Config, x convRow) []config.Link {
+		p := pending[convKey(x.Account.ID, x.ID)]
+		links := realLinks(c, x.Account.ID, x.ID)
+		i := slices.IndexFunc(links, func(l config.Link) bool { return l.Space == space })
+		switch {
+		case p.in && i >= 0:
+			links[i].Read = p.level
+		case p.in:
+			links = append(links, config.Link{Space: space, Read: p.level})
+		case i >= 0:
+			links = slices.Delete(links, i, i+1)
+		}
+		return orNoSpace(c, x, links)
+	}, done) {
+		d.err = m.status
+		return nil
+	}
+	m.closeDialog()
+	return nil
 }
 
 func (d *searchDialog) view(w, h int) string { return d.render(d.m, w, h) }
 
 func (d *searchDialog) render(m *model, w, h int) string {
 	rows := d.rows(m)
-	head := d.input.View()
-	if d.space != "" {
-		s, _ := m.u.cfg.Space(d.space)
-		head = faint.Render("Add to "+s.Title()+" · ") + head
-	}
-	lines := []string{head, ""}
+	lines := []string{d.input.View(), ""}
 	listH := max(1, h-4)
+	if d.space != "" {
+		listH = max(1, h-6) // a blank line and the buttons
+		if d.err != "" {
+			listH = max(1, listH-2)
+		}
+	}
 	d.cursor = min(d.cursor, max(0, len(rows)-1))
 	d.off = scrollTo(d.cursor, d.off, listH)
 	end := min(len(rows), d.off+listH)
@@ -459,12 +620,6 @@ func (d *searchDialog) render(m *model, w, h int) string {
 	for i := d.off; i < end; i++ {
 		r := rows[i]
 		box := ""
-		if d.space != "" {
-			box = "[ ] "
-			if _, in := levelIn(r, d.space); in && !inNoSpace(r) {
-				box = okStyle.Render("[x]") + " "
-			}
-		}
 		where := m.spacesText(r)
 		if inNoSpace(r) {
 			where = "Everything else"
@@ -472,12 +627,22 @@ func (d *searchDialog) render(m *model, w, h int) string {
 				where = "ignored"
 			}
 		}
-		if lv, in := levelIn(r, d.space); d.space != "" && in && !inNoSpace(r) {
-			where = levelText(lv) + faint.Render(" · ") + where
+		if d.space != "" {
+			p := d.pick(r)
+			box = "[ ] "
+			if p.in {
+				box = okStyle.Render("[x]") + " "
+				where = levelText(p.level) + faint.Render(" · ") + where
+			}
+			if _, changed := d.pending[convKey(r.Account.ID, r.ID)]; changed {
+				box = dirtyStyle.Render("*") + box
+			} else {
+				box = " " + box
+			}
 		}
 		text := fmt.Sprintf("%s%s %-*s %-12s %s  %s", box, kindMark(r.Kind), nameW, truncate(r.Title(), nameW),
 			truncate(r.Account.Title(), 12), where, faint.Render(m.lastText(r.Last)))
-		if i == d.cursor && !d.typing {
+		if i == d.cursor && !d.typing && d.button == btnNone {
 			lines = append(lines, selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(text), w)))
 		} else {
 			lines = append(lines, "  "+text)
@@ -487,15 +652,47 @@ func (d *searchDialog) render(m *model, w, h int) string {
 		lines = append(lines, faint.Render("  No conversation matches."))
 	}
 	lines = append(lines, "", faint.Render(fmt.Sprintf("newest message first · %d of %d", len(rows), len(m.convRows()))))
+	if d.space == "" {
+		return strings.Join(lines, "\n")
+	}
+	if d.err != "" {
+		lines = append(lines, "", errStyle.Render(truncate(d.err, w)))
+	}
+	lines = append(lines, "")
+	d.btnY = len(lines)
+	var bs []string
+	x := 0
+	for i, b := range []struct {
+		label string
+		st    lipgloss.Style
+	}{{"OK", btnPrimary}, {"Cancel", btnNormal}} {
+		text, st := b.label, b.st
+		if d.button == btnOK+i {
+			text, st = "▸ "+text, st.Underline(true)
+		}
+		r := st.Render(text)
+		d.btnX[i] = [2]int{x, x + lipgloss.Width(r)}
+		bs = append(bs, r)
+		x += lipgloss.Width(r) + 2
+	}
+	line := strings.Join(bs, "  ")
+	if n := len(d.pending); n > 0 {
+		line += "  " + dirtyStyle.Render(plural(n, "change", "changes")+" not saved")
+	}
+	lines = append(lines, line)
 	return strings.Join(lines, "\n")
 }
 
 func (d *searchDialog) hints() []hint {
-	if d.typing {
+	switch {
+	case d.button != btnNone:
+		return []hint{{"enter", "choose"}, {"←→", "OK or Cancel"}, {"esc", "cancel"}}
+	case d.typing && d.space != "":
+		return []hint{{"type", "search"}, {"enter ↓", "to the list"}, {"ctrl+s", "OK"}, {"esc", "clear or cancel"}}
+	case d.typing:
 		return []hint{{"type", "search"}, {"enter ↓", "to the list"}, {"esc", "clear or close"}}
-	}
-	if d.space != "" {
-		return []hint{{"space", "add or remove"}, {"←→", "read level"}, {"/", "search"}, {"esc", "close"}}
+	case d.space != "":
+		return []hint{{"space", "add or remove"}, {"←→", "read level"}, {"enter", "OK"}, {"esc", "cancel"}, {"tab", "buttons"}, {"/", "search"}}
 	}
 	return []hint{{"enter", "set its spaces"}, {"/", "search"}, {"esc", "close"}}
 }

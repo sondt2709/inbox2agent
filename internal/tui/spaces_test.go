@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
 )
@@ -217,17 +218,60 @@ func TestAddConversationsWithTheSearch(t *testing.T) {
 	if !ok || d.space != "acme" {
 		t.Fatalf("a in Acme opens %v", m.topDialog())
 	}
+	if s := screen(m); !strings.Contains(s, "Add conversations to Acme") || !strings.Contains(s, "OK") || !strings.Contains(s, "Cancel") {
+		t.Fatalf("the add dialog has no title or no buttons:\n%s", s)
+	}
+	routes := func() []string { return loadFile(t, m).Routes("work", "D1") }
 	typeText(m, "bob")
-	send(m, "enter", "space") // to the list, then add the first row: @bob
-	if r := loadFile(t, m).Routes("work", "D1"); !slices.Equal(r, []string{"acme"}) {
-		t.Fatalf("routes of @bob = %v, want acme", r)
+	send(m, "enter", "space") // to the list, then mark the first row: @bob
+	if r := routes(); !slices.Equal(r, []string{config.UnsortedID}) {
+		t.Fatalf("space saved at once: routes of @bob = %v", r)
 	}
-	if !strings.Contains(screen(m), "[x]") {
-		t.Errorf("the row has no check mark:\n%s", screen(m))
+	if s := screen(m); !strings.Contains(s, "[x]") || !strings.Contains(s, "1 change not saved") {
+		t.Errorf("the row has no check mark, or the dialog does not count the change:\n%s", s)
 	}
-	send(m, "space")
-	if r := loadFile(t, m).Routes("work", "D1"); !slices.Equal(r, []string{config.UnsortedID}) {
-		t.Errorf("space again: routes %v, want Everything else", r)
+	send(m, "esc") // Cancel
+	if m.topDialog() != nil || !slices.Equal(routes(), []string{config.UnsortedID}) {
+		t.Fatalf("esc: dialog open %v, routes %v, want closed and no change", m.topDialog() != nil, routes())
+	}
+
+	// tab to OK, tab to Cancel, enter: no change.
+	send(m, "a")
+	typeText(m, "bob")
+	send(m, "enter", "space", "tab", "tab", "enter")
+	if m.topDialog() != nil || !slices.Equal(routes(), []string{config.UnsortedID}) {
+		t.Fatalf("Cancel: dialog open %v, routes %v, want closed and no change", m.topDialog() != nil, routes())
+	}
+
+	// tab to OK and enter saves.
+	send(m, "a")
+	typeText(m, "bob")
+	send(m, "enter", "space", "tab", "enter")
+	if r := routes(); m.topDialog() != nil || !slices.Equal(r, []string{"acme"}) {
+		t.Fatalf("OK: dialog open %v, routes of @bob = %v, want acme", m.topDialog() != nil, r)
+	}
+
+	// A click on OK saves: remove @bob again.
+	send(m, "a")
+	typeText(m, "bob")
+	send(m, "enter", "space")
+	d = m.topDialog().(*searchDialog)
+	screen(m)
+	bx, by, _, _ := m.dialogBox(d)
+	m.Update(tea.MouseClickMsg{X: bx + 2 + d.btnX[0][0] + 1, Y: by + 2 + d.btnY, Button: tea.MouseLeft})
+	if r := routes(); m.topDialog() != nil || !slices.Equal(r, []string{config.UnsortedID}) {
+		t.Errorf("a click on OK: dialog open %v, routes %v, want Everything else", m.topDialog() != nil, r)
+	}
+}
+
+func TestFooterHintIsLabelThenKey(t *testing.T) {
+	s := renderHints([]hint{{"r", "reply"}})
+	if got := ansi.Strip(s); got != "Reply r" {
+		t.Fatalf("hint = %q, want \"Reply r\"", got)
+	}
+	label, key := strings.Index(s, "Reply"), strings.LastIndex(s, "r")
+	if !strings.Contains(s[:label], "38;2;125;86;244") || strings.Contains(s[label:key], "38;2;125;86;244") {
+		t.Errorf("the label must have the primary color #7D56F4 and the key another color: %q", s)
 	}
 }
 
@@ -316,11 +360,11 @@ func TestNarrowFooterKeepsTheMainKeys(t *testing.T) {
 	m := newTestModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	footer := func() string { l := lines(m); return l[len(l)-1] }
-	if f := footer(); !strings.Contains(f, "ctrl+r run now") || !strings.Contains(f, "enter open") {
+	if f := footer(); !strings.Contains(f, "Run now ctrl+r") || !strings.Contains(f, "Open enter") {
 		t.Errorf("Spaces at 80 columns: %q", f)
 	}
 	send(m, "enter")
-	if f := footer(); !strings.Contains(f, "enter spaces") || !strings.Contains(f, "←→ level") {
+	if f := footer(); !strings.Contains(f, "Spaces enter") || !strings.Contains(f, "Level ←→") {
 		t.Errorf("the panel of a space at 80 columns: %q", f)
 	}
 }

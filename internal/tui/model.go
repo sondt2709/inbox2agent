@@ -729,8 +729,7 @@ func (m *model) render() string {
 	if d == nil {
 		return base
 	}
-	dw, dh := d.size(m.w, m.h)
-	dw, dh = max(20, dw), max(5, dh)
+	x, y, dw, dh := m.dialogBox(d)
 	innerW, innerH := dw-4, dh-3
 	var body string
 	if bd, ok := d.(*busyDialog); ok {
@@ -740,11 +739,24 @@ func (m *model) render() string {
 	}
 	box := dialogStyle.Width(dw).Height(dh).MaxHeight(dh).Render(
 		dialogTitle.Render(d.title()) + "\n" + clipLines(body, innerW, innerH))
-	x, y := (m.w-dw)/2, max(contentTop, (m.h-dh)/2)
 	return lipgloss.NewCompositor(
 		lipgloss.NewLayer(base),
 		lipgloss.NewLayer(box).X(x).Y(y).Z(1),
 	).Render()
+}
+
+// dialogBox returns the position and the outer size of the box of d.
+func (m *model) dialogBox(d dialog) (x, y, w, h int) {
+	w, h = d.size(m.w, m.h)
+	w, h = max(20, w), max(5, h)
+	return (m.w - w) / 2, max(contentTop, (m.h-h)/2), w, h
+}
+
+// dialogPoint returns the position of the mouse in the body of the box of d:
+// the border and the padding at the left, the border and the title at the top.
+func (m *model) dialogPoint(d dialog, ms tea.Mouse) (x, y int) {
+	bx, by, _, _ := m.dialogBox(d)
+	return ms.X - bx - 2, ms.Y - by - 2
 }
 
 // renderHeader draws the brand, the areas with their counts, and at the
