@@ -111,7 +111,7 @@ func (d *confirmDialog) view(w, _ int) string {
 func (d *confirmDialog) hints() []hint {
 	var hs []hint
 	for _, c := range d.choices {
-		hs = append(hs, hint{c.key, strings.ToLower(c.label)})
+		hs = append(hs, hint{c.key, c.label})
 	}
 	return append(hs, hint{"esc", "cancel"})
 }
