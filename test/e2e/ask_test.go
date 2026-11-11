@@ -150,17 +150,17 @@ func TestS31AskTheAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	ps := string(prompt)
-	for _, want := range []string{`about card 1 (key "mm:s31")`, "--- ask ---\nS31 check the auth code and give me the effort in hours.\n--- end ---",
+	for _, want := range []string{"My question about the card 1 (key \"mm:s31\"):\nS31 check the auth code and give me the effort in hours.\n```",
 		`card add and the key "mm:s31"`, `S31 can PF get their own login for the demo?`} {
 		if !strings.Contains(ps, want) {
 			t.Errorf("the prompt does not contain %q:\n%s", want, ps)
 		}
 	}
-	if n := strings.Count(ps, "```i2a-data-"); n != 1 || strings.Count(ps, "I did not check the auth code.") != 1 {
-		t.Errorf("the prompt has %d data fences:\n%s", n, ps)
+	if n := strings.Count(ps, "```yaml\n"); n != 1 || strings.Count(ps, "I did not check the auth code.") != 1 {
+		t.Errorf("the prompt has %d yaml fences:\n%s", n, ps)
 	}
-	if i, j := strings.Index(ps, "```i2a-data-"), strings.Index(ps, "I did not check the auth code."); j < i {
-		t.Errorf("the card body is outside the data block:\n%s", ps)
+	if i, j, k := strings.Index(ps, "```yaml\n"), strings.Index(ps, "I did not check the auth code."), strings.Index(ps, "This is the instruction to interact with i2a via CLI:"); j < i || j > k {
+		t.Errorf("the card body is outside the content:\n%s", ps)
 	}
 	log, _ := os.ReadFile(filepath.Join(calls, "calls.log"))
 	if !strings.Contains(string(log), "terminal show --terminal "+fixtureHandle) || !strings.Contains(string(log), "terminal send --terminal "+fixtureHandle) {

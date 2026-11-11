@@ -148,13 +148,13 @@ func TestSessions(t *testing.T) {
 	if ss, _ := s.Session(ctx, "triage"); ss.Handle != "" {
 		t.Fatalf("session = %+v, want no handle", ss)
 	}
-	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_1", PrimerHash: "hash1", CreatedAt: time.Now()}); err != nil {
+	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_1", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_2", AgentSession: "s2", PrimerHash: "hash2", CreatedAt: time.Now()}); err != nil {
+	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_2", AgentSession: "s2", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if ss, _ := s.Session(ctx, "triage"); ss.Handle != "term_2" || ss.PrimerHash != "hash2" || ss.AgentSession != "s2" {
+	if ss, _ := s.Session(ctx, "triage"); ss.Handle != "term_2" || ss.AgentSession != "s2" {
 		t.Fatalf("session = %+v, want term_2 s2 hash2", ss)
 	}
 	if err := s.DeleteSession(ctx, "triage"); err != nil {

@@ -159,8 +159,8 @@ func TestMigrateV5RenamesProfileToSpace(t *testing.T) {
 	if err != nil || len(ds) != 4 || ds[0].Space != "triage" || ds[0].Agent != "triage" {
 		t.Errorf("dispatches = %+v, %v, want 4 with space and agent triage", ds, err)
 	}
-	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" || ss.PrimerHash != "h1" {
-		t.Errorf("session of triage = %q %q %v", ss.Handle, ss.PrimerHash, err)
+	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" {
+		t.Errorf("session of triage = %q %v", ss.Handle, err)
 	}
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM asks WHERE space = 'triage'`).Scan(&n); err != nil || n != 2 {
 		t.Errorf("asks of triage = %d, %v, want 2", n, err)
@@ -471,7 +471,7 @@ func v7Store(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSession(context.Background(), inbox.Session{Space: "triage", Handle: "term_a", PrimerHash: "h1", CreatedAt: time.Now()}); err != nil {
+	if err := s.SetSession(context.Background(), inbox.Session{Space: "triage", Handle: "term_a", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range append(dropV9, `ALTER TABLE sessions DROP COLUMN agent_session`, `ALTER TABLE cards DROP COLUMN agent_session`,
@@ -495,7 +495,7 @@ func TestMigrateV7AddsTheClaudeSessions(t *testing.T) {
 	if v, _ := s.Version(ctx); v != SchemaVersion {
 		t.Fatalf("version = %d, want %d", v, SchemaVersion)
 	}
-	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" || ss.PrimerHash != "h1" || ss.AgentSession != "" {
+	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_a" || ss.AgentSession != "" {
 		t.Errorf("session = %+v, %v, want term_a with no Claude session", ss, err)
 	}
 	saved, err := s.SaveCards(ctx, []inbox.Card{{Category: inbox.CategoryInfo, Urgency: inbox.UrgencyLow, Title: "t",

@@ -17,6 +17,7 @@ require (
 	github.com/yuin/goldmark v1.7.17
 	github.com/zalando/go-keyring v0.2.8
 	go.mau.fi/whatsmeow v0.0.0-20261028111316-d24d079a3755
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.0

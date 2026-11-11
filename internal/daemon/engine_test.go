@@ -543,9 +543,9 @@ func TestNotifyAfterFailedRealDispatchOnly(t *testing.T) {
 	}
 }
 
-// The primer of a real driver ends with the card section, which names this
-// i2a with I2A_HOME. A dry run has no card section.
-func TestPrimerHasCardSectionForRealDriverOnly(t *testing.T) {
+// The prompt of a real driver ends with the CLI instruction, which names this
+// i2a with I2A_HOME. A dry run has no CLI instruction.
+func TestCLIInstructionForRealDriverOnly(t *testing.T) {
 	cfg := cfgWith("work")
 	h := newHarness(t, cfg)
 	h.e.d.CardCommand = render.CardCommand("/opt/i2a/bin/i2a", h.paths.DataDir)
@@ -565,16 +565,23 @@ func TestPrimerHasCardSectionForRealDriverOnly(t *testing.T) {
 	if len(h.drv.batches) != 2 {
 		t.Fatalf("batches = %d, want 2", len(h.drv.batches))
 	}
-	if dry := h.drv.batches[0]; strings.Contains(dry.Primer, "card add") {
-		t.Errorf("dry-run primer has the card section")
+	digest := func(i int) string {
+		b, err := os.ReadFile(h.drv.batches[i].DigestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
 	}
-	orca := h.drv.batches[1]
+	if dry := digest(0); strings.Contains(dry, "card add") {
+		t.Errorf("the dry-run prompt has the CLI instruction:\n%s", dry)
+	}
+	orca := digest(1)
 	want := "I2A_HOME=" + h.paths.DataDir + " /opt/i2a/bin/i2a card add <<'EOF'"
-	if !strings.Contains(orca.Primer, want) {
-		t.Errorf("orca primer does not contain %q:\n%s", want, orca.Primer)
+	if !strings.Contains(orca, want) {
+		t.Errorf("the orca prompt does not contain %q:\n%s", want, orca)
 	}
-	if !strings.Contains(orca.Messages, `{"id":`) {
-		t.Errorf("the data lines have no id: %s", orca.Messages)
+	if !strings.Contains(h.drv.batches[1].Content, "- id: ") {
+		t.Errorf("the content has no id: %s", h.drv.batches[1].Content)
 	}
 }
 
@@ -614,7 +621,7 @@ func TestDispatchSendsQueuedAsksBeforeBatches(t *testing.T) {
 	if strings.Join(h.drv.events, ",") != "ask,batch" {
 		t.Errorf("driver calls = %v, want the ask first", h.drv.events)
 	}
-	if h.drv.askHandles[0] != "term_card" || !strings.Contains(h.drv.asks[0].Prompt, "--- ask ---\nResearch more.\n--- end ---") {
+	if h.drv.askHandles[0] != "term_card" || !strings.Contains(h.drv.asks[0].Prompt, "):\nResearch more.\n```") {
 		t.Errorf("ask to %q: %s", h.drv.askHandles[0], h.drv.asks[0].Prompt)
 	}
 	if len(d.Asks) != 1 || d.Asks[0].ID != a.ID || d.Asks[0].State != inbox.AskSent {

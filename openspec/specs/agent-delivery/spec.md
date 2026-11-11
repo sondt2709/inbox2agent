@@ -15,33 +15,41 @@ The `dry-run` driver SHALL write the digest file and return `sent`. It SHALL NOT
 - **THEN** the next `orca` batch of the space contains 76 messages
 
 ### Requirement: Orca new-session mode
-In `new` mode, the `orca` driver SHALL run `orca agent launch` with the `cli` of the agent, `--surface terminal` and the workspace selector, and without `--prompt`. Then the driver SHALL wait until the agent TUI is idle and submit a prompt made of the primer and the batch prompt, as the requirement "Prompt submission" says.
+In `new` mode, the `orca` driver SHALL run `orca agent launch` with the `cli` of the agent, `--surface terminal` and the workspace selector, and without `--prompt`. Then the driver SHALL wait until the agent TUI is idle and submit the prompt of the batch, as the requirement "Prompt submission" says.
 
 #### Scenario: New session for each batch
 - **WHEN** two batches of a space go to an agent in `new` mode
-- **THEN** Orca shows two agent terminals, and each agent started a turn with the primer and one batch prompt
+- **THEN** Orca shows two agent terminals, and each agent started a turn with the prompt of one batch
 
 ### Requirement: Prompt submission
-The `orca` driver SHALL submit a prompt with `orca terminal send --text <prompt> --enter --wait-submit 30`. Before the first prompt to a new terminal, the driver SHALL wait up to 90 seconds for `tui-idle`. When the send result has `observation: "unsupported"`, no agent runs in the terminal: the driver SHALL return the error "no agent runs in <handle>", SHALL NOT send Enter again, and SHALL delete the stored session of the space. When the send result does not include the stage `turn_started` and the observation is not `unsupported`, the driver SHALL send one bare Enter to the terminal and record the detail "turn not proven, Enter sent again". The driver SHALL NOT send the prompt text again.
+The `orca` driver SHALL submit a prompt with `orca terminal send --text <prompt> --enter --wait-submit 30`. Before the first prompt to a new terminal, the driver SHALL check each second, for up to 90 seconds, that the agent runs in the terminal: exactly one interactive Claude process when the `cli` is Claude Code and i2a can read the Claude processes, else Orca reports `agentIdentity`. When no agent runs after 90 seconds, the driver SHALL return the error "no agent started in the terminal <handle> after 1m30s; i2a sent nothing", SHALL NOT type into the terminal, and SHALL NOT store the session. After the agent runs, the driver SHALL wait up to 90 seconds for `tui-idle`. When the send result has `observation: "unsupported"`, no agent runs in the terminal: the driver SHALL return the error "no agent runs in <handle>", SHALL NOT send Enter again, and SHALL delete the stored session of the space. When the send result does not include the stage `turn_started` and the observation is not `unsupported`, the driver SHALL send one bare Enter to the terminal and record the detail "turn not proven, Enter sent again". The driver SHALL NOT send the prompt text again.
 
 #### Scenario: Prompt left in the input box
 - **WHEN** `orca terminal send` returns `accepted: true` and the stages are only `input_accepted`
 - **THEN** the driver sends one `orca terminal send --enter` with no text, and the dispatch status is `sent`
 
 #### Scenario: Long multi-line prompt
-- **WHEN** a new session gets a primer of 15 lines with non-ASCII text and an inline batch
+- **WHEN** a new session gets an inline prompt with an instruction of 15 lines with non-ASCII text
 - **THEN** the send result includes `turn_started`, and the input box of the agent is empty
 
 #### Scenario: Send into a shell
 - **WHEN** `orca terminal send` returns `observation: "unsupported"`
 - **THEN** the driver sends no Enter, the dispatch status is `failed` with "no agent runs in", the messages stay `pending`, and the store has no session for the space
 
+#### Scenario: Agent starts after the shell
+- **WHEN** a new terminal shows a shell for 2 seconds before Claude Code starts in it
+- **THEN** the driver sends the prompt only after Claude Code runs, and the dispatch status is `sent`
+
+#### Scenario: Agent does not start
+- **WHEN** no agent starts in a new terminal within 90 seconds
+- **THEN** the driver types nothing into the terminal, the dispatch status is `failed` with "no agent started in the terminal", and the messages stay `pending`
+
 ### Requirement: Orca reuse-session mode
-In `reuse` mode, the `orca` driver SHALL keep for each space in the store one terminal handle, the Claude session ID of the agent in that terminal, and the hash of the primer. Before a send, the driver SHALL check the session as the requirement "Claude session of a terminal" says. When the session is valid, the stored hash is the hash of the current primer, and the agent is idle, the driver SHALL send only the batch prompt with `orca terminal send --enter`. When the stored hash is `pending` (a linked session), the driver SHALL send the primer and the batch prompt to the terminal, and store the hash of the current primer. When no valid session exists, or the stored hash is another value, the driver SHALL start a new session with the primer and the batch prompt, and store the new handle, the Claude session ID and the hash for the space. The driver SHALL NOT close the old terminal. When the agent is busy, the driver SHALL return `held`, and the messages SHALL stay `pending`.
+In `reuse` mode, the `orca` driver SHALL keep for each space in the store one terminal handle and the Claude session ID of the agent in that terminal. Before a send, the driver SHALL check the session as the requirement "Claude session of a terminal" says. When the session is valid and the agent is idle, the driver SHALL send the prompt of the batch with `orca terminal send --enter`. When no valid session exists, the driver SHALL start a new session with the prompt of the batch, and store the new handle and the Claude session ID for the space. The driver SHALL NOT start a new session because the instruction, the CLI instruction or the template changed. The driver SHALL NOT close the old terminal. When the agent is busy, the driver SHALL return `held`, and the messages SHALL stay `pending`.
 
 #### Scenario: Second batch in the same session
 - **WHEN** two batches of one space go to an agent in `reuse` mode, and the agent is idle before the second batch
-- **THEN** both batches arrive in the same terminal, and the primer arrives one time only
+- **THEN** both batches arrive in the same terminal, and each has the instruction, the content and the CLI instruction
 
 #### Scenario: Two spaces with one agent
 - **WHEN** the spaces `acme` and `borealis` use the same agent in `reuse` mode, and each sends a batch
@@ -49,30 +57,34 @@ In `reuse` mode, the `orca` driver SHALL keep for each space in the store one te
 
 #### Scenario: Terminal closed
 - **WHEN** the stored terminal of a space was closed, and a new batch of the space arrives
-- **THEN** the driver starts a new session, submits the primer and the batch, and stores the new handle
+- **THEN** the driver starts a new session, submits the batch, and stores the new handle
 
 #### Scenario: Claude exited in the terminal
 - **WHEN** the user ran `/exit` in the stored terminal, so the terminal runs zsh, and a new batch of the space arrives
-- **THEN** the driver sends nothing to that terminal, starts a new session, and submits the primer and the batch there
+- **THEN** the driver sends nothing to that terminal, starts a new session, and submits the batch there
 
 #### Scenario: Another Claude session in the terminal
 - **WHEN** the user ran `/clear`, or quit Claude and started `claude` again, in the stored terminal
-- **THEN** the driver sends nothing to that terminal, and starts a new session with the primer and the batch
+- **THEN** the driver sends nothing to that terminal, and starts a new session with the batch
 
 #### Scenario: Linked session
 - **WHEN** the user linked the terminal `term_c` to the space, and a batch of the space arrives
-- **THEN** the primer and the batch arrive in `term_c`, and the next batch arrives there without the primer
+- **THEN** the batch arrives in `term_c`
 
-#### Scenario: Primer changed
-- **WHEN** the stored terminal is live, but the user changed the primer template, or the store came from schema version 2 with no hash
-- **THEN** the driver starts a new session with the new primer and the batch, and stores the new handle and hash
+#### Scenario: Instruction changed
+- **WHEN** the stored terminal is live and runs the stored Claude session, and the user changed the instruction of the agent
+- **THEN** the batch arrives in the stored terminal with the new instruction, and the dispatch detail does not say "started session"
+
+#### Scenario: Session stored by an older version
+- **WHEN** the stored row has a primer hash from an older version of i2a, and the terminal runs the stored Claude session
+- **THEN** the batch arrives in the stored terminal
 
 #### Scenario: Agent busy
 - **WHEN** the agent does not become idle within 5 seconds
 - **THEN** the dispatch status is `held`, the messages stay `pending`, and the next send time of the space sends them
 
 ### Requirement: Orca worktree mode
-In `worktree` mode, the `orca` driver SHALL create a new Orca worktree named `i2a-<batch-id>` in the workspace repository, with the `cli` of the agent and without `--prompt`. Then the driver SHALL submit a prompt made of the primer and the batch prompt, as the requirement "Prompt submission" says.
+In `worktree` mode, the `orca` driver SHALL create a new Orca worktree named `i2a-<batch-id>` in the workspace repository, with the `cli` of the agent and without `--prompt`. Then the driver SHALL submit the prompt of the batch, as the requirement "Prompt submission" says.
 
 #### Scenario: Worktree for a batch
 - **WHEN** a batch of a space goes to an agent in `worktree` mode
@@ -142,7 +154,7 @@ When the `cli` of the agent is `claude` or starts with `claude`, the driver SHAL
 
 #### Scenario: Claude exits during the wait
 - **WHEN** the check finds the stored session in the terminal, and the agent exits while the driver waits for `tui-idle`
-- **THEN** the driver sends nothing to that terminal and starts a new session with the primer and the batch
+- **THEN** the driver sends nothing to that terminal and starts a new session with the batch
 
 #### Scenario: Unknown file format
 - **WHEN** `~/.claude/sessions` holds files that do not decode

@@ -442,6 +442,29 @@ func TestDigestViewer(t *testing.T) {
 	}
 }
 
+// The Instruction field of an agent: plain text sent with each batch; three
+// backticks are refused and the file does not change.
+func TestAgentInstructionField(t *testing.T) {
+	m := newTestModel(t)
+	at(m, tabAgents)
+	send(m, "enter")
+	f := m.form.field("primer")
+	if f == nil || m.form.field("batch") != nil || !strings.Contains(screen(m), "Instruction") {
+		t.Fatalf("the agent form has no Instruction field, or has a batch field:\n%s", screen(m))
+	}
+	before := fileText(t, m)
+	f.area.SetValue("Use this:\n```\nrm\n```")
+	send(m, "ctrl+s")
+	if s := screen(m); !strings.Contains(s, "the instruction cannot contain three backticks (```)") || fileText(t, m) != before {
+		t.Fatalf("no error under the field, or the file changed:\n%s", s)
+	}
+	f.area.SetValue("Tóm tắt bằng tiếng Việt.")
+	send(m, "ctrl+s")
+	if !strings.Contains(fileText(t, m), "primer = 'Tóm tắt bằng tiếng Việt.'") {
+		t.Fatalf("the instruction was not saved:\n%s", fileText(t, m))
+	}
+}
+
 // The Settings tab shows the notifier, the Feed in iTerm2 and the notifiers
 // that i2a tries; a save writes [notify] via and terminal.
 func TestSettingsShowTheNotifier(t *testing.T) {

@@ -45,7 +45,7 @@ func TestOneConversationInTwoSpaces(t *testing.T) {
 func TestFeedShowsTheSpaceOfTheTerminalOfACard(t *testing.T) {
 	h := newFeedModel(t)
 	ctx := context.Background()
-	if err := h.st.SetSession(ctx, inbox.Session{Space: config.UnsortedID, Handle: "term_unsorted", PrimerHash: "h", CreatedAt: h.m.now()}); err != nil {
+	if err := h.st.SetSession(ctx, inbox.Session{Space: config.UnsortedID, Handle: "term_unsorted", CreatedAt: h.m.now()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.st.SaveCards(ctx, []inbox.Card{{Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh,

@@ -15,7 +15,6 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
-	"github.com/sondt2709/inbox2agent/internal/render"
 )
 
 func newRunCmd() *cobra.Command {
@@ -154,7 +153,7 @@ GET /v1/status, POST /v1/run and GET /v1/events. Example:
 				if c.Migration != nil {
 					log.Warn("configuration converted to version 2", "report", c.Migration.Text())
 				}
-				return c, render.CheckAgents(c)
+				return c, nil
 			}
 			return daemon.Run(ctx, eng, e.paths.ConfigFile, load)
 		},

@@ -18,7 +18,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"text/template"
 	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -133,8 +132,8 @@ type Agent struct {
 	MessageMaxChars int    `toml:"message_max_chars" doc:"The longest message text in a batch, from 100 to 20000 characters." min:"100" max:"20000"`
 	Model           string `toml:"model,omitempty" doc:"The model of the agent CLI. Empty: the default of the CLI."`
 	OrcaBin         string `toml:"orca_bin,omitempty" doc:"The path of the orca command. Empty: orca in PATH."`
-	Primer          string `toml:"primer,multiline,omitempty" doc:"A Go template of the first prompt of a session. Empty: the built-in primer."`
-	Batch           string `toml:"batch,multiline,omitempty" doc:"A Go template of the prompt of each batch. Empty: the built-in prompt."`
+	Primer          string `toml:"primer,multiline,omitempty" doc:"The instruction to the agent. i2a sends it with each batch and each ask, before the messages. Plain text, not a template. It cannot contain three backticks. Empty: the built-in instruction."`
+	Batch           string `toml:"batch,multiline,omitempty" doc:"Not used. i2a removes it at the next save."`
 }
 
 // Schedule tells i2a when a space sends.
@@ -358,6 +357,9 @@ func decodeError(err error) error {
 func (c *Config) applyDefaults() {
 	d := Default()
 	c.Version = Version
+	for i := range c.Agents {
+		c.Agents[i].Batch = "" // not used; the next save removes it
+	}
 	if c.Settings.Lookback == 0 {
 		c.Settings.Lookback = d.Settings.Lookback
 	}
@@ -895,9 +897,6 @@ func NewID(name string, used func(string) bool) string {
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
-// oldField finds a template action that uses a field of version 1.
-var oldField = regexp.MustCompile(`\{\{[^}]*\.(Sources|Profile)\b`)
-
 // ValidationError lists all problems in a configuration.
 type ValidationError struct{ Problems []string }
 
@@ -996,17 +995,8 @@ func (c *Config) Validate() error {
 				add("%s.cli: the orca driver needs an agent CLI, for example claude", at)
 			}
 		}
-		for name, text := range map[string]string{"primer": a.Primer, "batch": a.Batch} {
-			if text == "" {
-				continue
-			}
-			if m := oldField.FindStringSubmatch(text); m != nil {
-				add("%s.%s: the field .%s is gone; use .%s", at, name, m[1], map[string]string{"Sources": "Accounts", "Profile": "Agent"}[m[1]])
-				continue
-			}
-			if _, err := template.New(name).Option("missingkey=error").Parse(text); err != nil {
-				add("%s.%s: template error: %v", at, name, err)
-			}
+		if strings.Contains(a.Primer, "```") {
+			add("%s.primer: the instruction cannot contain three backticks (```)", at)
 		}
 	}
 

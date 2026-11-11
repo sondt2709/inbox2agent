@@ -65,8 +65,7 @@ func TestMigrateV2WritesBackupAndKeepsData(t *testing.T) {
 	if counts, _ := s.Counts(ctx); counts[inbox.StateSent] != 120 {
 		t.Errorf("counts = %v, want 120 sent", counts)
 	}
-	// A version 2 session has no primer hash, so the driver starts a new session one time.
-	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_old" || ss.PrimerHash != "" {
+	if ss, err := s.Session(ctx, "triage"); err != nil || ss.Handle != "term_old" {
 		t.Errorf("session = %+v, %v, want term_old with no hash", ss, err)
 	}
 	if _, err := s.SaveCards(ctx, []inbox.Card{{Category: inbox.CategoryInfo, Urgency: inbox.UrgencyLow, Title: "t"}}, time.Now()); err != nil {
@@ -233,7 +232,7 @@ func TestCardGetsTheSpaceOfTheSessionOfItsTerminal(t *testing.T) {
 	}
 	defer s.Close()
 	now := time.Now()
-	if err := s.SetSession(ctx, inbox.Session{Space: "team", Handle: "term_team", PrimerHash: "h", CreatedAt: now}); err != nil {
+	if err := s.SetSession(ctx, inbox.Session{Space: "team", Handle: "term_team", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	saved, err := s.SaveCards(ctx, []inbox.Card{

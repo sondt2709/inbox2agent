@@ -112,7 +112,7 @@ func TestSendToTheTerminalOfTheCard(t *testing.T) {
 		t.Errorf("driver got handle %q and wait %s", e.drv.handle, e.drv.wait)
 	}
 	p := e.drv.asks[0].Prompt
-	if !strings.Contains(p, "--- ask ---\nCheck the auth code.\n--- end ---") || !strings.Contains(p, `"text":"Can PF get their own login?"`) ||
+	if !strings.Contains(p, "):\nCheck the auth code.\n```") || !strings.Contains(p, "text: Can PF get their own login?") ||
 		!strings.Contains(p, `/usr/local/bin/i2a card add and the key "mm:lena-pf-login"`) {
 		t.Errorf("prompt = %s", p)
 	}
@@ -153,6 +153,10 @@ func TestSendRefusesBadTextAndDryRun(t *testing.T) {
 	}
 	if _, err := Send(context.Background(), e.d, e.card, strings.Repeat("x", 4001), Wait); err == nil || !strings.Contains(err.Error(), "the maximum is 4000") {
 		t.Errorf("long text: %v", err)
+	}
+	if _, err := Send(context.Background(), e.d, e.card, "run this:\n```\nrm\n```", Wait); !errors.Is(err, ErrFence) ||
+		err.Error() != "the text cannot contain three backticks (```)" {
+		t.Errorf("fence: %v", err)
 	}
 	e.d.Config.Agents[1].Driver = config.DriverDryRun
 	_, err := Send(context.Background(), e.d, e.card, "more", Wait)

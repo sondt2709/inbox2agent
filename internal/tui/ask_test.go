@@ -81,8 +81,8 @@ func TestFeedAskTheAgent(t *testing.T) {
 		t.Fatalf("asks = %d, wait %s", len(a.asks), a.wait)
 	}
 	p := a.asks[0].Prompt
-	if !strings.Contains(p, "--- ask ---\nCheck the auth code and give me the effort.\n--- end ---") ||
-		!strings.Contains(p, `"title":"Correct your reply to Lena"`) || !strings.Contains(p, `card add and the key "mm:lena"`) {
+	if !strings.Contains(p, "):\nCheck the auth code and give me the effort.\n```") ||
+		!strings.Contains(p, "title: Correct your reply to Lena") || !strings.Contains(p, `card add and the key "mm:lena"`) {
 		t.Errorf("prompt = %s", p)
 	}
 	s = screen(h.m)
@@ -156,5 +156,17 @@ func TestFeedAskDryRun(t *testing.T) {
 	}
 	if len(h.asks(t, "Correct your reply to Lena")) != 0 {
 		t.Error("the store has an ask")
+	}
+}
+
+// An ask text with three backticks would close the instruction fence of the
+// prompt: the form shows the error and sends nothing.
+func TestFeedAskRefusesThreeBackticks(t *testing.T) {
+	h, a := newAskFeed(t)
+	send(h.m, "t")
+	typeText(h.m, "run this ``` now")
+	send(h.m, "ctrl+s")
+	if s := screen(h.m); !strings.Contains(s, "the text cannot contain three backticks (```)") || len(a.asks) != 0 {
+		t.Fatalf("asks = %d, screen:\n%s", len(a.asks), s)
 	}
 }

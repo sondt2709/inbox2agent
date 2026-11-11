@@ -40,7 +40,7 @@ type Deps struct {
 	Store       Store
 	Config      *config.Config
 	NewDriver   func(a config.Agent, space config.Space, s agent.Sessions) (agent.Driver, error) // default agent.New
-	CardCommand string                                                                           // the command of the card section; see render.CardCommand
+	CardCommand string                                                                           // the command of the CLI instruction; see render.CardCommand
 	LockDir     string                                                                           // the directory of the space locks
 	Now         func() time.Time
 }
@@ -53,9 +53,23 @@ func (e *NoAgentError) Error() string {
 	return fmt.Sprintf("The space %s has no agent that reads asks.", e.Space)
 }
 
-// CheckText applies the text rule of a reply: no hidden characters, no spaces
-// at the start and the end, 1 to reply.MaxText characters.
-func CheckText(s string) (string, error) { return reply.CheckText(s) }
+// ErrFence is the error of an ask text with three backticks: the text goes
+// into the instruction fence of the prompt and could close it.
+var ErrFence = errors.New("the text cannot contain three backticks (```)")
+
+// CheckText applies the text rule of a reply (no hidden characters, no spaces
+// at the start and the end, 1 to reply.MaxText characters) and refuses three
+// backticks.
+func CheckText(s string) (string, error) {
+	v, err := reply.CheckText(s)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(v, "```") {
+		return "", ErrFence
+	}
+	return v, nil
+}
 
 // Target is the agent that gets an ask about a card.
 type Target struct {

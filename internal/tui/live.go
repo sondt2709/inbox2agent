@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
-	"github.com/sondt2709/inbox2agent/internal/render"
 )
 
 // errConflict means that another process changed the item of the form after
@@ -133,9 +132,6 @@ func readConfigFile(path, base string) fileState {
 	if h := config.Hash(b); h != base {
 		st.hash = h
 		st.cfg, st.err = config.Parse(b)
-		if st.err == nil {
-			st.err = render.CheckAgents(st.cfg)
-		}
 		if st.err != nil {
 			st.cfg = nil
 		}

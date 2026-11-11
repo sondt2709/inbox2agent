@@ -1,21 +1,15 @@
-// Package render turns messages into a safe data block, a digest file and agent prompts.
+// Package render turns messages into the prompt of a batch or an ask: the
+// instruction, the YAML content and the i2a CLI instruction. It also writes
+// the digest file.
 package render
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 )
-
-// FencePrefix starts the label of each data block.
-const FencePrefix = "i2a-data-"
 
 // maxFieldChars limits the short fields (author, channel, source).
 const maxFieldChars = 200
@@ -62,32 +56,8 @@ func Sanitize(s string, maxChars int) (string, bool) {
 	return b.String(), truncated
 }
 
-// Item is one message in a data block. Each item is one JSON line.
-type Item struct {
-	ID        int64  `json:"id"` // the row ID of the message in the store; cards refer to it
-	N         int    `json:"n"`
-	Source    string `json:"source"`
-	SourceID  string `json:"source_id"`
-	Channel   string `json:"channel"`
-	Kind      string `json:"kind"`
-	Author    string `json:"author"`
-	Time      string `json:"time"`
-	URL       string `json:"url"`
-	Text      string `json:"text"`
-	Truncated bool   `json:"truncated"`
-	ReplyTo   *Reply `json:"reply_to,omitempty"`
-}
-
 // replyMax limits the text of the earlier message in reply_to.
 const replyMax = 200
-
-// Reply is the earlier message that a message quotes or answers in a thread.
-type Reply struct {
-	ID     int64  `json:"id"` // the row ID of the earlier message; 0 when the store does not have it
-	Author string `json:"author"`
-	Me     bool   `json:"me"`
-	Text   string `json:"text"`
-}
 
 func reply(r *inbox.ReplyRef) *Reply {
 	if r == nil {
@@ -97,59 +67,12 @@ func reply(r *inbox.ReplyRef) *Reply {
 	if cut {
 		text += "…"
 	}
-	return &Reply{ID: r.ID, Author: field(r.Author), Me: r.Me, Text: text}
+	return &Reply{ID: r.ID, From: safe(r.Author), Me: r.Me, Text: FenceSafe(text)}
 }
 
 func field(s string) string {
 	v, _ := Sanitize(s, maxFieldChars)
 	return strings.ReplaceAll(v, "\n", " ")
-}
-
-// Items converts messages to sanitized items.
-func Items(msgs []inbox.Message, maxChars int) []Item {
-	out := make([]Item, 0, len(msgs))
-	for i, m := range msgs {
-		text, cut := Sanitize(m.Text, maxChars)
-		out = append(out, Item{
-			ID: m.ID, N: i + 1, Source: field(m.SourceType), SourceID: field(m.SourceID), Channel: field(m.ChannelName),
-			Kind: field(m.ChannelKind), Author: field(m.Author), Time: m.CreatedAt.UTC().Format(time.RFC3339),
-			URL: field(m.URL), Text: text, Truncated: cut, ReplyTo: reply(m.ReplyTo),
-		})
-	}
-	return out
-}
-
-// NewNonce returns 12 hexadecimal characters from a cryptographic random source.
-func NewNonce() string {
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	return hex.EncodeToString(b)
-}
-
-// Block returns the fenced data block. Each line between the fences is one
-// JSON object, so each line starts with "{" and a message cannot close the fence.
-func Block(items []Item, nonce string) string {
-	lines := make([]any, len(items))
-	for i, it := range items {
-		lines[i] = it
-	}
-	return block(lines, nonce)
-}
-
-// block writes each value as one JSON line inside a fence. Each value must
-// encode as a JSON object, so each data line starts with "{".
-func block(lines []any, nonce string) string {
-	var b bytes.Buffer
-	b.WriteString("```" + FencePrefix + nonce + "\n")
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	for _, v := range lines {
-		_ = enc.Encode(v) // Encode writes one line and a newline; the values always encode
-	}
-	b.WriteString("```")
-	return b.String()
 }
 
 // RuneCount is a helper for tests and callers that check limits.

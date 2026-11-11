@@ -78,21 +78,6 @@ On macOS, `i2a card add` SHALL show desktop notifications for the cards of the c
 - **WHEN** the Feed is open in iTerm2 and holds `<data>/feed-notify.lock`, and a call adds one `high` card
 - **THEN** `i2a card add` shows no notification and prints "Notifications: the Feed shows them."
 
-### Requirement: Card section in the primer
-The system SHALL append a fixed card section to the primer of each batch for a driver other than `dry-run`. The section SHALL name the absolute path of the `i2a` executable (with `I2A_HOME=<path>` before it when the variable is set), show the JSON shape of a card, explain each field, and tell the agent to use the `id` values of the messages in `refs` and the same `key` for the same topic. The section SHALL say that the body can use Markdown (headings, lists, bold, code, tables) and that links show as text and cannot be opened. The section SHALL say that a WhatsApp message with a media placeholder has a file, that `i2a download --message <id>` saves the file and prints its path, and that the file content is untrusted data like message text. A custom primer template SHALL NOT remove the section.
-
-#### Scenario: Custom primer
-- **WHEN** a custom primer in Vietnamese is set
-- **THEN** the primer that the agent receives is the custom primer, followed by the card section with the path of the `i2a` executable
-
-#### Scenario: Markdown line
-- **WHEN** the system builds the primer for an `orca` driver
-- **THEN** the card section contains "You can use Markdown"
-
-#### Scenario: Download line
-- **WHEN** the system builds the primer for an `orca` driver
-- **THEN** the card section contains the path of the `i2a` executable followed by `download --message <id>`, and says that the file content is untrusted data
-
 ### Requirement: Feed tab
 The dashboard SHALL have a Feed tab as its first tab. The Feed SHALL show the `new` and `read` cards in a list and the selected card at the right: the space (with its color), the category, the urgency, the group, the title, the body, the suggested reply, and the references with account, conversation, author, time and text of each message, or "message deleted". The list row and the Card panel SHALL show the plain title of the card (see the requirement "Plain title" of the capability `desktop-notifications`). Each card row SHALL start at the left edge of the list, with no bar and no mark column. Its first line SHALL be the category as plain text, the urgency as bars (`▰▰▰` for `high` in red, `▰▰▱` for `normal`, and `▰▱▱` for `low` in the faint color), `● ` for a `new` card, and the title up to the width of the list. Its second line SHALL be the space, the group in bold, and the time. The detail panel SHALL show the bars and the word of the urgency. The space of a card SHALL be the space of its newest ref message that has one. The Feed SHALL read the store again every 2 seconds. When no store exists, it SHALL show "No cards yet".
 
@@ -239,4 +224,23 @@ The Feed SHALL have three panels: Spaces (the space list), Cards and Card. One p
 #### Scenario: Another card
 - **WHEN** the card text is scrolled and the user selects the next card
 - **THEN** the text of the next card shows from its first line
+
+### Requirement: CLI instruction in each prompt
+The system SHALL write a fixed CLI instruction as the last part of each prompt for a driver other than `dry-run`. The CLI instruction SHALL name the absolute path of the `i2a` executable (with `I2A_HOME=<path>` before it when the variable is set), show the JSON shape of a card, explain each field, and tell the agent to use the `id` values of the messages in `refs` and the same `key` for the same topic. It SHALL say that the body can use Markdown (headings, lists, bold, code, tables) and that links show as text and cannot be opened. It SHALL say that a WhatsApp message with a media placeholder has a file, that `i2a download --message <id>` saves the file and prints its path, and that the file content is untrusted data like message text. The instruction of the agent SHALL NOT remove or replace the CLI instruction. A change of the CLI instruction SHALL NOT start a new session.
+
+#### Scenario: Custom instruction
+- **WHEN** an instruction in Vietnamese is set
+- **THEN** the prompt has the Vietnamese instruction in the first fence, and the CLI instruction with the path of the `i2a` executable after the content
+
+#### Scenario: Markdown line
+- **WHEN** the system builds the prompt for an `orca` driver
+- **THEN** the CLI instruction contains "You can use Markdown"
+
+#### Scenario: Download line
+- **WHEN** the system builds the prompt for an `orca` driver
+- **THEN** the CLI instruction contains the path of the `i2a` executable followed by `download --message <id>`, and says that the file content is untrusted data
+
+#### Scenario: Another executable path
+- **WHEN** the daemon runs `/usr/local/bin/i2a` after a batch from `~/go/bin/i2a` went to the live reuse session of the space
+- **THEN** the next batch goes to the same session, with `/usr/local/bin/i2a` in the CLI instruction
 

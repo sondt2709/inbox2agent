@@ -87,7 +87,7 @@ func (h *sessionsHarness) set(t *testing.T, ss inbox.Session) {
 
 func TestAgentsShowsTheSessionOfEachSpace(t *testing.T) {
 	h := newSessionsModel(t)
-	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA, PrimerHash: "h"})
+	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA})
 	h.handles[4242] = "term_a"
 	h.m.buildForm(true)
 	s := screen(h.m)
@@ -112,7 +112,7 @@ func TestAgentsShowsTheSessionOfEachSpace(t *testing.T) {
 
 func TestAgentsSessionOfAnotherClaudeSession(t *testing.T) {
 	h := newSessionsModel(t)
-	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionB, PrimerHash: "h"})
+	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionB})
 	h.handles[4242] = "term_a" // term_a runs session A now
 	send(h.m, "s")
 	if s := screen(h.m); !strings.Contains(s, "Unsorted  other session") || !strings.Contains(s, "Claude d9c92c0a (runs 04ebe19c now)") {
@@ -127,8 +127,8 @@ func TestLinkSessionByHandle(t *testing.T) {
 	h.m.topDialog().(*inputDialog).input.SetValue("term_c")
 	send(h.m, "enter")
 	ss := h.session(t, config.UnsortedID)
-	if ss.Handle != "term_c" || ss.AgentSession != fixSessionA || ss.PrimerHash != inbox.PrimerPending {
-		t.Fatalf("session = %+v, want term_c with Claude session A and the primer pending", ss)
+	if ss.Handle != "term_c" || ss.AgentSession != fixSessionA {
+		t.Fatalf("session = %+v, want term_c with Claude session A", ss)
 	}
 	if s := screen(h.m); !strings.Contains(s, "Linked term_c (Claude 04ebe19c) to Unsorted") {
 		t.Errorf("no message:\n%s", s)
@@ -169,7 +169,7 @@ func TestLinkSessionNoClaudeProcess(t *testing.T) {
 
 func TestLinkSessionOfAnotherSpace(t *testing.T) {
 	h := newSessionsModel(t)
-	h.set(t, inbox.Session{Space: "acme", Handle: "term_c", AgentSession: fixSessionA, PrimerHash: "h"})
+	h.set(t, inbox.Session{Space: "acme", Handle: "term_c", AgentSession: fixSessionA})
 	h.handles[4242] = "term_c"
 	send(h.m, "s", "l")
 	h.m.topDialog().(*inputDialog).input.SetValue("term_c")
@@ -185,7 +185,7 @@ func TestLinkSessionOfAnotherSpace(t *testing.T) {
 
 func TestUnlinkSession(t *testing.T) {
 	h := newSessionsModel(t)
-	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA, PrimerHash: "h"})
+	h.set(t, inbox.Session{Space: config.UnsortedID, Handle: "term_a", AgentSession: fixSessionA})
 	h.handles[4242] = "term_a"
 	send(h.m, "s", "u", "y")
 	if ss := h.session(t, config.UnsortedID); ss.Handle != "" {

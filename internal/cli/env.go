@@ -8,7 +8,6 @@ import (
 
 	"github.com/sondt2709/inbox2agent/internal/app"
 	"github.com/sondt2709/inbox2agent/internal/config"
-	"github.com/sondt2709/inbox2agent/internal/render"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
@@ -39,9 +38,6 @@ func (e *env) loadConfig() (*config.Config, error) {
 	}
 	if err != nil {
 		return nil, err
-	}
-	if err := render.CheckAgents(c); err != nil {
-		return nil, fmt.Errorf("%s: %w", e.paths.ConfigFile, err)
 	}
 	return c, nil
 }

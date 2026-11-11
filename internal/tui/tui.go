@@ -92,8 +92,8 @@ type Deps struct {
 	AskDriver func(a config.Agent, space config.Space, s agent.Sessions) (agent.Driver, error)
 	// Inspector reads the sessions of an agent; the default is agent.NewInspector.
 	Inspector func(a config.Agent) *agent.Inspector
-	// CardCommand is the command of the card section in the primer of a new
-	// session; the default is this executable, with I2A_HOME when it is set.
+	// CardCommand is the command in the CLI instruction of an ask; the default
+	// is this executable, with I2A_HOME when it is set.
 	CardCommand string
 
 	// RunNow reads all accounts and sends the spaces now (nil: all spaces):
@@ -241,9 +241,6 @@ func (u *ui) commit(change func(*config.Config) error, tokens map[string]string,
 			return err
 		}
 		if err := c.Validate(); err != nil {
-			return err
-		}
-		if err := render.CheckAgents(c); err != nil {
 			return err
 		}
 		for id, tok := range tokens {

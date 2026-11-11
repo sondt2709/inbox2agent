@@ -829,8 +829,8 @@ func (s *Store) Counts(ctx context.Context) (map[string]int, error) {
 func (s *Store) Session(ctx context.Context, space string) (inbox.Session, error) {
 	out := inbox.Session{Space: space}
 	var created int64
-	err := s.db.QueryRowContext(ctx, `SELECT handle, agent_session, primer_hash, created_at FROM sessions WHERE space = ?`, space).
-		Scan(&out.Handle, &out.AgentSession, &out.PrimerHash, &created)
+	err := s.db.QueryRowContext(ctx, `SELECT handle, agent_session, created_at FROM sessions WHERE space = ?`, space).
+		Scan(&out.Handle, &out.AgentSession, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return inbox.Session{Space: space}, nil
 	}
@@ -838,18 +838,19 @@ func (s *Store) Session(ctx context.Context, space string) (inbox.Session, error
 	return out, err
 }
 
-// SetSession stores the session of a space.
+// SetSession stores the session of a space. The column primer_hash is not
+// used since each prompt has the instruction; it gets ”.
 func (s *Store) SetSession(ctx context.Context, ss inbox.Session) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, agent_session, created_at, primer_hash) VALUES (?, ?, ?, ?, ?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(space, handle, agent_session, created_at, primer_hash) VALUES (?, ?, ?, ?, '')
 	  ON CONFLICT(space) DO UPDATE SET handle = excluded.handle, agent_session = excluded.agent_session,
-	  created_at = excluded.created_at, primer_hash = excluded.primer_hash`,
-		ss.Space, ss.Handle, ss.AgentSession, ss.CreatedAt.UnixMilli(), ss.PrimerHash)
+	  created_at = excluded.created_at, primer_hash = ''`,
+		ss.Space, ss.Handle, ss.AgentSession, ss.CreatedAt.UnixMilli())
 	return err
 }
 
 // Sessions returns the stored sessions of all spaces, by space.
 func (s *Store) Sessions(ctx context.Context) ([]inbox.Session, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT space, handle, agent_session, primer_hash, created_at FROM sessions ORDER BY space`)
+	rows, err := s.db.QueryContext(ctx, `SELECT space, handle, agent_session, created_at FROM sessions ORDER BY space`)
 	if err != nil {
 		return nil, err
 	}
@@ -858,7 +859,7 @@ func (s *Store) Sessions(ctx context.Context) ([]inbox.Session, error) {
 	for rows.Next() {
 		var ss inbox.Session
 		var created int64
-		if err := rows.Scan(&ss.Space, &ss.Handle, &ss.AgentSession, &ss.PrimerHash, &created); err != nil {
+		if err := rows.Scan(&ss.Space, &ss.Handle, &ss.AgentSession, &created); err != nil {
 			return nil, err
 		}
 		ss.CreatedAt = time.UnixMilli(created).UTC()

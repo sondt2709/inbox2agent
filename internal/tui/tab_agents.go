@@ -176,13 +176,6 @@ func (m *model) agentForm(id string) *form {
 		cur, _ := u.cfg.Agent(id)
 		p = *cur
 	}
-	batch := p.Batch
-	if batch == "" {
-		batch = render.DefaultPointerBatch
-		if p.Payload == config.PayloadInline {
-			batch = render.DefaultInlineBatch
-		}
-	}
 	fm := &form{}
 	driver := choiceField("driver", "Driver", "dry-run writes the digest file only. orca sends the batch to an agent in Orca.",
 		[]string{config.DriverDryRun, config.DriverOrca}, nil, p.Driver)
@@ -221,11 +214,8 @@ func (m *model) agentForm(id string) *form {
 			intRange(config.MinInlineBytes, config.MaxInlineBytes)),
 		textField("msgmax", "Message limit", strconv.Itoa(p.MessageMaxChars), "2000", "Characters. i2a truncates longer messages.",
 			intRange(100, 20000)),
-		areaField("primer", "Primer", orStr(p.Primer, render.DefaultPrimer),
-			"standing instructions, sent at the start of a session · fields: .Space .Agent .BatchID .Count .Accounts .DigestPath .Messages", 8,
-			func(s string) error { return render.CheckTemplate("primer", s) }),
-		areaField("batch", "Batch prompt", batch, "sent with each batch", 4,
-			func(s string) error { return render.CheckTemplate("batch", s) }),
+		areaField("primer", "Instruction", orStr(p.Primer, render.DefaultInstruction),
+			"sent with each batch and each ask, before the messages · plain text", 8, validInstruction),
 	}
 	label := "Save changes"
 	if isNew {
@@ -260,8 +250,8 @@ func (m *model) saveAgent(id string, p config.Agent) tea.Cmd {
 	}
 	p.InlineMaxBytes, _ = strconv.Atoi(v("inline"))
 	p.MessageMaxChars, _ = strconv.Atoi(v("msgmax"))
-	p.Primer = keepCustom(v("primer"), render.DefaultPrimer)
-	p.Batch = keepCustom(v("batch"), render.DefaultPointerBatch, render.DefaultInlineBatch)
+	p.Primer = keepCustom(v("primer"), render.DefaultInstruction)
+	p.Batch = ""
 	if p.Driver == config.DriverOrca && p.OrcaBin == "" {
 		bin, err := agent.ResolveBin("")
 		if err != nil {
@@ -295,6 +285,15 @@ func (m *model) saveAgent(id string, p config.Agent) tea.Cmd {
 }
 
 // keepCustom returns "" when the text is a default template, so the file stays short.
+// validInstruction refuses three backticks: the instruction goes into a
+// fenced block of the prompt.
+func validInstruction(s string) error {
+	if strings.Contains(s, "```") {
+		return render.ErrFenceInInstruction
+	}
+	return nil
+}
+
 func keepCustom(s string, defaults ...string) string {
 	for _, d := range defaults {
 		if strings.TrimSpace(s) == strings.TrimSpace(d) {
