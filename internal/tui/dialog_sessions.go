@@ -186,7 +186,7 @@ func (m *model) linkSession(d *sessionsDialog, sp config.Space, input string) (s
 		}
 	}
 	save := func() tea.Cmd {
-		ss := inbox.Session{Space: sp.ID, Handle: p.Handle, AgentSession: p.SessionID, Name: p.Name, CreatedAt: m.now()}
+		ss := inbox.Session{Space: sp.ID, Handle: p.Handle, AgentSession: p.SessionID, Name: p.Name, OrcaAgent: p.OrcaAgent, CreatedAt: m.now()}
 		if err := m.u.d.Store.SetSession(m.ctx, ss); err != nil {
 			d.msg, d.isErr = "Cannot link: "+err.Error(), true
 			return nil
@@ -234,6 +234,9 @@ func (d *sessionsDialog) view(w, _ int) string {
 			}
 			line1 += "  " + st.State
 			line2 = "  " + st.Handle + "  " + claude
+			if st.OrcaAgent == agent.OrcaAgentTeams {
+				line2 += "  agent teams"
+			}
 			// The live name, else the name that the store kept, else the tab title.
 			if name := orStr(st.Name, orStr(st.Session.Name, st.Title)); name != "" {
 				line2 += "  " + name

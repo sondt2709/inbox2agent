@@ -25,6 +25,9 @@ func (m *model) sessionLine(space string) string {
 	if ss.AgentSession != "" {
 		parts = append(parts, "Claude "+shortID(ss.AgentSession))
 	}
+	if ss.OrcaAgent == agent.OrcaAgentTeams {
+		parts = append(parts, "agent teams")
+	}
 	if ss.Name != "" {
 		parts = append(parts, strconv.Quote(ss.Name))
 	}

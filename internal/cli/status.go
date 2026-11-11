@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sondt2709/inbox2agent/internal/agent"
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/daemon"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
@@ -174,8 +175,11 @@ func printSessions(w io.Writer, sessions []inbox.Session) {
 			last = "last send " + s.LastSent.Local().Format("2006-01-02 15:04")
 		}
 		name := ""
+		if s.OrcaAgent == agent.OrcaAgentTeams {
+			name = "  agent teams"
+		}
 		if s.Name != "" {
-			name = "  " + strconv.Quote(s.Name)
+			name += "  " + strconv.Quote(s.Name)
 		}
 		fmt.Fprintf(w, "  %-12s %s  Claude %s%s  %s\n", s.Space, s.Handle, or(s.AgentSession, "unknown"), name, last)
 	}

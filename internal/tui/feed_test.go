@@ -349,3 +349,35 @@ func TestFeedShowsCardNotesInTheTerminal(t *testing.T) {
 		t.Errorf("the done filter gave notes: %q", got)
 	}
 }
+
+func TestCardPanelShowsTheTerminal(t *testing.T) {
+	h := newFeedModel(t)
+	const handle = "term_5e141e6e-a22f-461e-ad39-d8d53b147ad1"
+	c := inbox.Card{Category: inbox.CategoryAction, Urgency: inbox.UrgencyHigh, Title: "From an agent", Key: "term",
+		Handle: handle, AgentSession: "04ebe19c-543e-42ff-8f84-ea13cea7a3ec"}
+	if _, err := h.st.SaveCards(context.Background(), []inbox.Card{c}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	h.m.Update(h.m.load()())
+	for range 4 {
+		if c, ok := h.m.selectedCard(); ok && c.Key == "term" {
+			break
+		}
+		send(h.m, "up")
+	}
+	// The Card panel is 66 columns wide at 140: the Claude session goes to
+	// the next line, and the handle stays whole.
+	if s := screen(h.m); !strings.Contains(s, "terminal "+handle) || !strings.Contains(s, "Claude 04ebe19c") {
+		t.Errorf("the Card panel has no terminal line:\n%s", s)
+	}
+	h.m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	if s := screen(h.m); !strings.Contains(s, "terminal "+handle+" · Claude 04ebe19c") {
+		t.Errorf("a wide Card panel does not show the terminal and the session on one line:\n%s", s)
+	}
+	h.m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	// A card with no terminal has no line.
+	send(h.m, "down")
+	if s := screen(h.m); strings.Contains(s, "terminal term_") {
+		t.Errorf("a card with no terminal shows a terminal line:\n%s", s)
+	}
+}

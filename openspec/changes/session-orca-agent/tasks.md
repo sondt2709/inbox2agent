@@ -13,8 +13,8 @@
 
 ## 3. Screens
 
-- [ ] 3.1 Card panel: the terminal line; test
-- [ ] 3.2 Link stores the Orca agent; Session row, dialog and `i2a status` show `agent teams`; tests
+- [x] 3.1 Card panel: the terminal line; test
+- [x] 3.2 Link stores the Orca agent; Session row, dialog and `i2a status` show `agent teams`; tests
 
 ## 4. Checks and documents
 
