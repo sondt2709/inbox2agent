@@ -66,22 +66,40 @@ func flag(args []string, name string) string {
 	return ""
 }
 
-// memSessions keeps the handle of a space under its ID and the Claude
-// session under "<id>#agent".
+// memSessions keeps the handle of a space under its ID, the Claude session
+// under "<id>#agent", its name under "<id>#name" and the last send under
+// "<id>#sent" (RFC 3339).
 type memSessions map[string]string
 
 func (m memSessions) Session(_ context.Context, p string) (inbox.Session, error) {
-	return inbox.Session{Space: p, Handle: m[p], AgentSession: m[p+"#agent"]}, nil
+	return inbox.Session{Space: p, Handle: m[p], AgentSession: m[p+"#agent"], Name: m[p+"#name"]}, nil
 }
 func (m memSessions) SetSession(_ context.Context, s inbox.Session) error {
-	m[s.Space], m[s.Space+"#agent"] = s.Handle, s.AgentSession
+	m[s.Space], m[s.Space+"#agent"], m[s.Space+"#name"] = s.Handle, s.AgentSession, s.Name
+	if !s.LastSent.IsZero() {
+		m[s.Space+"#sent"] = s.LastSent.Format(time.RFC3339)
+	}
+	return nil
+}
+func (m memSessions) TouchSession(_ context.Context, p, handle, name string, at time.Time) error {
+	if m[p] != handle {
+		return nil
+	}
+	if name != "" {
+		m[p+"#name"] = name
+	}
+	m[p+"#sent"] = at.Format(time.RFC3339)
 	return nil
 }
 func (m memSessions) DeleteSession(_ context.Context, p string) error {
-	delete(m, p)
-	delete(m, p+"#agent")
+	for _, k := range []string{p, p + "#agent", p + "#name", p + "#sent"} {
+		delete(m, k)
+	}
 	return nil
 }
+
+// testNow is the clock of the driver in the tests.
+var testNow = time.Date(2026, 11, 11, 9, 4, 0, 0, time.UTC)
 
 var (
 	spaceTriage   = config.Space{ID: "triage", Name: "Triage"}
@@ -98,6 +116,7 @@ func setup(t *testing.T, session string, answers map[string][]string) (*Orca, *f
 	o := NewOrca(p, spaceTriage, sess)
 	o.Claude = nil // the Orca check; a test sets a fixture finder
 	o.Sleep = func(time.Duration) {}
+	o.Now = func() time.Time { return testNow }
 	f := &fakeOrca{t: t, answers: answers}
 	o.Run = f.run
 	msg := inbox.Message{SourceID: "work", SourceType: "mattermost", ExternalID: "p1", Author: "bob", Text: "hi", CreatedAt: time.Now()}
@@ -114,12 +133,14 @@ const (
 )
 
 // started are the answers for a new agent: launch, the agent runs (Orca
-// reports agentIdentity), ready, prompt submitted. The "terminal show" answers
-// of extra come first; the show of the new terminal follows them.
+// reports agentIdentity), ready, prompt submitted. With a Claude finder, the
+// driver also types /rename and waits again: the second send and wait. The
+// "terminal show" answers of extra come first; the show of the new terminal
+// follows them.
 func started(extra map[string][]string) map[string][]string {
 	a := map[string][]string{
 		"agent launch": {"launch_no_prompt.json"}, "terminal rename": {"rename_ok.json"},
-		"terminal wait": {"wait_after_launch.json"}, "terminal send": {"send_ok.json"},
+		"terminal wait": {"wait_after_launch.json", "wait_idle.json"}, "terminal send": {"send_ok.json", "send_ok.json"},
 	}
 	for k, v := range extra {
 		a[k] = v
@@ -712,8 +733,11 @@ func goneAfterWait(t *testing.T, o *Orca, f *fakeOrca) {
 }
 
 func TestReuseSessionEndsDuringWait(t *testing.T) {
+	// After the wait, session A runs nowhere, so the driver tries /resume in
+	// the new terminal; the new terminal keeps session B.
 	o, f, sess, r := setup(t, config.SessionReuse, started(map[string][]string{
-		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json", "wait_after_launch.json"},
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json", "wait_after_launch.json", "wait_idle.json"},
+		"terminal send": {"send_ok.json", "send_ok.json", "send_ok.json"},
 	}))
 	goneAfterWait(t, o, f)
 	sess["triage"], sess["triage#agent"] = "term_a", sessionA
@@ -724,21 +748,21 @@ func TestReuseSessionEndsDuringWait(t *testing.T) {
 	if got := sentTo(f, "term_a"); len(got) != 0 {
 		t.Errorf("sent to term_a after the session left it: %q", got)
 	}
-	if sess["triage"] != launchedHandle || !strings.Contains(res.Detail, "Claude session ended, started session") {
+	if sess["triage"] != launchedHandle || !strings.Contains(res.Detail, "Claude session ended, could not resume Claude session 04ebe19c; started session") {
 		t.Errorf("session = %v, result = %+v; want a new session", sess, res)
 	}
 }
 
 func TestAskSessionEndsDuringWait(t *testing.T) {
 	o, f, _, _ := setup(t, config.SessionReuse, started(map[string][]string{
-		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json", "wait_after_launch.json"},
+		"terminal show": {"show_claude_live.json"}, "terminal wait": {"wait_idle.json", "wait_after_launch.json", "wait_idle.json"},
 	}))
 	goneAfterWait(t, o, f)
 	if _, err := o.Ask(context.Background(), Terminal{Handle: "term_a", AgentSession: sessionA}, time.Minute, askFor(t, o)); err != nil {
 		t.Fatal(err)
 	}
-	if got := sentTo(f, "term_a"); len(got) != 0 || len(sentTo(f, launchedHandle)) != 1 {
-		t.Errorf("sends = %v; want the ask in a new session only", f.called("terminal send"))
+	if got := sentTo(f, "term_a"); len(got) != 0 || len(sentTo(f, launchedHandle)) != 2 {
+		t.Errorf("sends = %v; want /rename and the ask in a new session only", f.called("terminal send"))
 	}
 }
 

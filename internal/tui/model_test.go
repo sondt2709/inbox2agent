@@ -56,9 +56,10 @@ func (fakeStore) SentReplies(context.Context, []int64) (map[int64][]inbox.Reply,
 func (fakeStore) Session(_ context.Context, space string) (inbox.Session, error) {
 	return inbox.Session{Space: space}, nil
 }
-func (fakeStore) SetSession(context.Context, inbox.Session) error   { return nil }
-func (fakeStore) DeleteSession(context.Context, string) error       { return nil }
-func (fakeStore) Sessions(context.Context) ([]inbox.Session, error) { return nil, nil }
+func (fakeStore) SetSession(context.Context, inbox.Session) error                       { return nil }
+func (fakeStore) TouchSession(context.Context, string, string, string, time.Time) error { return nil }
+func (fakeStore) DeleteSession(context.Context, string) error                           { return nil }
+func (fakeStore) Sessions(context.Context) ([]inbox.Session, error)                     { return nil, nil }
 func (fakeStore) Card(context.Context, int64, string) (inbox.Card, error) {
 	return inbox.Card{}, store.ErrNoCard
 }

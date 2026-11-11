@@ -49,6 +49,10 @@ type Terminal struct {
 type Sessions interface {
 	Session(ctx context.Context, space string) (inbox.Session, error)
 	SetSession(ctx context.Context, s inbox.Session) error
+	// TouchSession records a prompt sent to the stored session of the
+	// space when its handle is handle: the time, and the Claude session
+	// name when name is not "".
+	TouchSession(ctx context.Context, space, handle, name string, at time.Time) error
 	DeleteSession(ctx context.Context, space string) error
 }
 

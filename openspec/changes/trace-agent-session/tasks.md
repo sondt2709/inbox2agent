@@ -6,12 +6,12 @@
 
 ## 2. Driver
 
-- [ ] 2.1 Tests first (fake runner and fake Claude finder): resume after a closed terminal; resume after `/exit`; no resume after `/clear`; no resume when `S` runs in a process without a handle; resume fails, so a named new session; no resume for a non-Claude CLI and in the `new` mode; the name of a new session; `LastSent` and the name after a send
-- [ ] 2.2 `check` returns the reason of a failed check (gone, no Claude, other session, runs elsewhere, unknown)
-- [ ] 2.3 `resume`: launch, wait for the agent and `tui-idle`, type `/resume <S>` (UUID pattern), read the session ID each second for at most 10 seconds
-- [ ] 2.4 `nameSession`: type `/rename i2a · <space name>` (sanitized, at most 80 characters) and wait for `tui-idle`, for each new Claude session in all modes; a failure is a note
-- [ ] 2.5 `reuse` and `startSession` use the resume; the store gets the handle, the session ID and the name; the detail starts with "resumed Claude session" or "could not resume Claude session"
-- [ ] 2.6 After each `sent` result in the stored session (batch and ask), call `TouchSession` with the name of the Claude process
+- [x] 2.1 Tests first (fake runner and fake Claude finder): resume after a closed terminal; resume after `/exit`; no resume after `/clear`; no resume when `S` runs in a process without a handle; resume fails, so a named new session; no resume for a non-Claude CLI and in the `new` mode; the name of a new session; `LastSent` and the name after a send
+- [x] 2.2 `check` returns the reason of a failed check (gone, no Claude, other session, runs elsewhere, unknown)
+- [x] 2.3 `resume`: launch, wait for the agent and `tui-idle`, type `/resume <S>` (UUID pattern), read the session ID each second for at most 10 seconds
+- [x] 2.4 `nameSession`: type `/rename i2a · <space name>` (sanitized, at most 80 characters) and wait for `tui-idle`, for each new Claude session in all modes; a failure is a note
+- [x] 2.5 `reuse` and `startSession` use the resume; the store gets the handle, the session ID and the name; the detail starts with "resumed Claude session" or "could not resume Claude session"
+- [x] 2.6 After each `sent` result in the stored session (batch and ask), call `TouchSession` with the name of the Claude process
 
 ## 3. Screens
 
