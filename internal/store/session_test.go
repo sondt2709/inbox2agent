@@ -29,7 +29,7 @@ func v9Store(t *testing.T, path string) {
 			t.Fatal(err)
 		}
 	}
-	for _, col := range []string{"agent_name", "last_sent_at"} {
+	for _, col := range []string{"agent_name", "last_sent_at", "orca_agent"} {
 		var n int
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = ?`, col).Scan(&n); err != nil {
 			t.Fatal(err)
@@ -59,7 +59,7 @@ func TestMigrateV9AddsTheSessionNameAndLastSend(t *testing.T) {
 		t.Fatalf("version = %d, want 10", v)
 	}
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE agent_name = '' AND last_sent_at = 0`).Scan(&n); err != nil || n != 2 {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE agent_name = '' AND last_sent_at = 0 AND orca_agent = ''`).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("sessions with no name and no last send = %d, %v, want 2", n, err)
 	}
 	ss, err := s.Session(ctx, "triage")
@@ -116,5 +116,44 @@ func TestTouchSessionRecordsTheLastSendAndTheName(t *testing.T) {
 	}
 	if got := all[0]; got.Name != "review" || !got.LastSent.Equal(sent.Add(time.Minute)) || got.AgentSession != "S" {
 		t.Errorf("session = %+v, want the name review and the last send %v", got, sent.Add(time.Minute))
+	}
+}
+
+// A build of PR #24 wrote version 10 without sessions.orca_agent.
+func TestVersion10StoreGetsTheOrcaAgentColumn(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "inbox.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSession(ctx, inbox.Session{Space: "triage", Handle: "term_a", AgentSession: "S", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'orca_agent'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n == 1 {
+		if _, err := s.db.Exec(`ALTER TABLE sessions DROP COLUMN orca_agent`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ss, err := s.Session(ctx, "triage")
+	if err != nil || ss.Handle != "term_a" || ss.OrcaAgent != "" {
+		t.Fatalf("session = %+v, %v; want term_a and no Orca agent", ss, err)
+	}
+	ss.OrcaAgent = "claude-agent-teams"
+	if err := s.SetSession(ctx, ss); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Session(ctx, "triage"); got.OrcaAgent != "claude-agent-teams" {
+		t.Errorf("Orca agent = %q, want claude-agent-teams", got.OrcaAgent)
 	}
 }

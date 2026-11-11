@@ -72,10 +72,10 @@ func flag(args []string, name string) string {
 type memSessions map[string]string
 
 func (m memSessions) Session(_ context.Context, p string) (inbox.Session, error) {
-	return inbox.Session{Space: p, Handle: m[p], AgentSession: m[p+"#agent"], Name: m[p+"#name"]}, nil
+	return inbox.Session{Space: p, Handle: m[p], AgentSession: m[p+"#agent"], Name: m[p+"#name"], OrcaAgent: m[p+"#orca"]}, nil
 }
 func (m memSessions) SetSession(_ context.Context, s inbox.Session) error {
-	m[s.Space], m[s.Space+"#agent"], m[s.Space+"#name"] = s.Handle, s.AgentSession, s.Name
+	m[s.Space], m[s.Space+"#agent"], m[s.Space+"#name"], m[s.Space+"#orca"] = s.Handle, s.AgentSession, s.Name, s.OrcaAgent
 	if !s.LastSent.IsZero() {
 		m[s.Space+"#sent"] = s.LastSent.Format(time.RFC3339)
 	}
@@ -92,7 +92,7 @@ func (m memSessions) TouchSession(_ context.Context, p, handle, name string, at 
 	return nil
 }
 func (m memSessions) DeleteSession(_ context.Context, p string) error {
-	for _, k := range []string{p, p + "#agent", p + "#name", p + "#sent"} {
+	for _, k := range []string{p, p + "#agent", p + "#name", p + "#sent", p + "#orca"} {
 		delete(m, k)
 	}
 	return nil

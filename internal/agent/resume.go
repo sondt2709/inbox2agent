@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -21,11 +20,9 @@ import (
 // "claude --resume" in "orca terminal create --command" loses these
 // arguments.
 
-// sessionIDPattern is the form of a Claude session ID. The driver types only
-// an ID of this form after /resume.
-var sessionIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
-func isSessionID(s string) bool { return sessionIDPattern.MatchString(s) }
+// isSessionID reports whether s has the form of a Claude session ID. The
+// driver types only an ID of this form after /resume.
+func isSessionID(s string) bool { return uuidRe.MatchString(s) }
 
 // maxSessionName is the longest Claude session name that i2a sets, in characters.
 const maxSessionName = 80
@@ -79,11 +76,12 @@ func (o *Orca) resumable(ss inbox.Session) string {
 
 // opened is a new terminal that is ready for its first prompt.
 type opened struct {
-	session string // the Claude session in the terminal; "" when not known
-	name    string // its name
-	resumed bool   // the terminal runs the session that the driver resumed
-	prefix  string // starts the detail: the resume failed
-	note    string // ends the detail: the name was not set
+	session   string // the Claude session in the terminal; "" when not known
+	name      string // its name
+	orcaAgent string // the Orca agent of its process
+	resumed   bool   // the terminal runs the session that the driver resumed
+	prefix    string // starts the detail: the resume failed
+	note      string // ends the detail: the name was not set
 }
 
 // open makes a new terminal ready for the first prompt: the agent runs in it
@@ -108,7 +106,7 @@ func (o *Orca) open(ctx context.Context, handle, resume string) (opened, error) 
 			if err := o.waitIdle(ctx, handle); err != nil {
 				return op, err
 			}
-			return opened{session: p.SessionID, name: p.Name, resumed: true}, nil
+			return opened{session: p.SessionID, name: p.Name, orcaAgent: p.OrcaAgent, resumed: true}, nil
 		}
 		op.prefix = "could not resume Claude session " + shortID(resume) + "; "
 	}
@@ -124,7 +122,7 @@ func (o *Orca) open(ctx context.Context, handle, resume string) (opened, error) 
 		}
 	}
 	p := o.claudeProc(handle)
-	op.session, op.name = p.SessionID, p.Name
+	op.session, op.name, op.orcaAgent = p.SessionID, p.Name, p.OrcaAgent
 	return op, nil
 }
 
@@ -155,8 +153,20 @@ func (o *Orca) command(ctx context.Context, handle, text string) error {
 	if !sr.Send.Accepted {
 		return fmt.Errorf("orca terminal send: the terminal %s did not accept the input", handle)
 	}
-	if sr.Send.Prompt.Observation == "unsupported" {
+	if sr.Send.Prompt.Observation == "unsupported" && !o.claudeRuns(handle) {
 		return fmt.Errorf("%w %s", errNoAgent, handle)
 	}
 	return nil
+}
+
+// claudeRuns reports whether exactly one interactive Claude process runs in
+// the terminal. Orca reports observation "unsupported" for each send to
+// claude-agent-teams, so with the Claude files that observation does not
+// mean a shell.
+func (o *Orca) claudeRuns(handle string) bool {
+	if o.Claude == nil {
+		return false
+	}
+	procs, err := o.Claude.InTerminal(handle)
+	return err == nil && len(procs) == 1
 }

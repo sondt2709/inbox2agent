@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -197,7 +198,7 @@ func ExpandWorkspace(ws string) (string, error) {
 func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) {
 	switch o.p.Session {
 	case config.SessionNew:
-		h, note, err := o.launch(ctx)
+		h, note, err := o.launch(ctx, o.p.CLI)
 		if err != nil {
 			return Result{}, err
 		}
@@ -216,20 +217,25 @@ func (o *Orca) Deliver(ctx context.Context, b *render.Rendered) (Result, error) 
 // launchArgs starts an agent without --prompt. With --prompt, Orca types the
 // prompt while the agent starts, and the prompt can stay in the input box
 // without Enter. The driver submits the prompt itself (see submit).
-func (o *Orca) launchArgs(ws string) []string {
-	args := []string{"agent", "launch", "--agent", o.p.CLI, "--surface", "terminal", "--worktree", "path:" + ws}
-	if o.p.Model != "" {
+func (o *Orca) launchArgs(ws, agent string) []string {
+	args := []string{"agent", "launch", "--agent", agent, "--surface", "terminal", "--worktree", "path:" + ws}
+	if o.p.Model != "" && modelAllowed(agent) {
 		args = append(args, "--model", o.p.Model)
 	}
 	return args
 }
 
+// modelAllowed reports whether Orca accepts --model for the agent. Orca
+// 1.4.253 refuses it for claude-agent-teams: "does not support launch-time
+// model selection".
+func modelAllowed(agent string) bool { return agent != OrcaAgentTeams }
+
 // launch starts a new agent terminal in the workspace, names its tab, and
 // returns its handle and a note for the detail. When Orca does not know the
 // workspace and it is a git repository, launch adds it with "orca repo add"
 // and tries one more time.
-func (o *Orca) launch(ctx context.Context) (string, string, error) {
-	h, err := o.launchTerminal(ctx)
+func (o *Orca) launch(ctx context.Context, agent string) (string, string, error) {
+	h, err := o.launchTerminal(ctx, agent)
 	if err != nil {
 		return "", "", err
 	}
@@ -248,18 +254,18 @@ func (o *Orca) rename(ctx context.Context, handle string) string {
 	return ""
 }
 
-func (o *Orca) launchTerminal(ctx context.Context) (string, error) {
+func (o *Orca) launchTerminal(ctx context.Context, agent string) (string, error) {
 	ws, err := o.workspace()
 	if err != nil {
 		return "", err
 	}
 	var lr launchResult
-	err = o.call(ctx, &lr, o.launchArgs(ws)...)
+	err = o.call(ctx, &lr, o.launchArgs(ws, agent)...)
 	if isCode(err, "selector_not_found") {
 		if addErr := o.call(ctx, nil, "repo", "add", "--path", ws); addErr != nil {
 			return "", fmt.Errorf("orca does not know the folder %s and cannot add it (%v). Add the folder in Orca, then try again", ws, addErr)
 		}
-		err = o.call(ctx, &lr, o.launchArgs(ws)...)
+		err = o.call(ctx, &lr, o.launchArgs(ws, agent)...)
 	}
 	if err != nil {
 		return "", err
@@ -332,6 +338,11 @@ func (o *Orca) send(ctx context.Context, handle, prompt string) (string, error) 
 		return "", fmt.Errorf("orca terminal send: the terminal %s did not accept the input", handle)
 	}
 	if sr.Send.Prompt.Observation == "unsupported" {
+		if o.claudeRuns(handle) {
+			// Orca cannot observe claude-agent-teams; the text went to Claude
+			// with Enter. A second Enter is not necessary.
+			return "Orca cannot observe this agent", nil
+		}
 		// The text is in a shell or another program now. Do not press Enter again.
 		return "", fmt.Errorf("%w %s", errNoAgent, handle)
 	}
@@ -379,7 +390,7 @@ func (o *Orca) check(ctx context.Context, ss inbox.Session) (inbox.Session, bool
 		o.orcaOnly = err != nil
 		if err == nil {
 			if len(procs) == 1 && (ss.AgentSession == "" || procs[0].SessionID == ss.AgentSession) {
-				ss.AgentSession = procs[0].SessionID
+				ss.AgentSession, ss.OrcaAgent = procs[0].SessionID, procs[0].OrcaAgent
 				ok, err := o.orcaLive(ctx, ss.Handle, false)
 				return ss, ok, err
 			}
@@ -394,7 +405,7 @@ func (o *Orca) check(ctx context.Context, ss inbox.Session) (inbox.Session, bool
 			if !ok || err != nil {
 				return ss, false, err
 			}
-			ss.Handle = others[0].Handle
+			ss.Handle, ss.OrcaAgent = others[0].Handle, others[0].OrcaAgent
 			return ss, true, nil
 		}
 	}
@@ -470,11 +481,11 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 		}
 	}
 	if ss.Handle == "" {
-		return o.startSession(ctx, b, "", o.resumable(stored))
+		return o.startSession(ctx, b, "", stored)
 	}
 	res, err := o.sendIdle(ctx, ss.Handle, ss.AgentSession, o.IdleTimeout, b.Prompt)
 	if errors.Is(err, errSessionGone) {
-		return o.startSession(ctx, b, "Claude session ended, ", o.resumable(ss))
+		return o.startSession(ctx, b, "Claude session ended, ", ss)
 	}
 	if err == nil && o.orcaOnly {
 		res.Detail += "; " + ErrClaudeUnknown.Error() + ", Orca check only"
@@ -485,11 +496,16 @@ func (o *Orca) reuse(ctx context.Context, b *render.Rendered) (Result, error) {
 	return res, err
 }
 
-// startSession launches a new terminal, resumes the Claude session resume
-// in it when resume is not "", sends the prompt, and stores the session for
-// the space. why starts the detail.
-func (o *Orca) startSession(ctx context.Context, b *render.Rendered, why, resume string) (Result, error) {
-	h, note, err := o.launch(ctx)
+// startSession launches a new terminal and sends the prompt there, and
+// stores the session for the space. When the session of the stored row can
+// be resumed (resumable), it launches the Orca agent of that session and
+// resumes it; else it launches the cli of the agent. why starts the detail.
+func (o *Orca) startSession(ctx context.Context, b *render.Rendered, why string, stored inbox.Session) (Result, error) {
+	resume, agent := o.resumable(stored), o.p.CLI
+	if resume != "" && stored.OrcaAgent != "" {
+		agent = stored.OrcaAgent
+	}
+	h, note, err := o.launch(ctx, agent)
 	if err != nil {
 		return Result{}, err
 	}
@@ -500,13 +516,17 @@ func (o *Orca) startSession(ctx context.Context, b *render.Rendered, why, resume
 	// Store the handle only after the prompt arrived: a terminal that never
 	// took a prompt is not the session of the space.
 	now := o.Now()
-	ss := inbox.Session{Space: o.space.ID, Handle: h, AgentSession: op.session, Name: op.name, CreatedAt: now, LastSent: now}
+	ss := inbox.Session{Space: o.space.ID, Handle: h, AgentSession: op.session, Name: op.name, OrcaAgent: cmp.Or(op.orcaAgent, agent),
+		CreatedAt: now, LastSent: now}
 	if err := o.sessions.SetSession(ctx, ss); err != nil {
 		return Result{}, err
 	}
 	what := op.prefix + "started session " + h
 	if op.resumed {
 		what = "resumed Claude session " + shortID(op.session) + " in " + h
+	}
+	if agent != o.p.CLI {
+		what += " (" + agent + ")"
 	}
 	return Result{Status: StatusSent, Detail: why + what + ", " + detail + op.note + note, Handle: h}, nil
 }
@@ -573,7 +593,7 @@ func (o *Orca) worktree(ctx context.Context, b *render.Rendered) (Result, error)
 		return Result{}, err
 	}
 	args := []string{"worktree", "create", "--repo", "path:" + ws, "--name", "i2a-" + b.BatchID, "--no-parent", "--agent", o.p.CLI}
-	if o.p.Model != "" {
+	if o.p.Model != "" && modelAllowed(o.p.CLI) {
 		args = append(args, "--model", o.p.Model)
 	}
 	var wr worktreeResult
