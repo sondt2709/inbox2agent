@@ -628,3 +628,82 @@ func (p *person) session(space string) inbox.Session {
 	}
 	return ss
 }
+
+// setSession stores the session of a space, as a link in the dashboard does.
+func (p *person) setSession(ss inbox.Session) {
+	p.t.Helper()
+	st, err := store.Open(filepath.Join(p.home, "inbox.db"))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.SetSession(context.Background(), ss); err != nil {
+		p.t.Fatal(err)
+	}
+}
+
+// S47: Orca has two Claude agents. A claude-agent-teams session gets its
+// batch (Orca reports observation "unsupported" for it), and after its
+// terminal closes, the next batch resumes it under claude-agent-teams, not
+// under the cli of the space (claude).
+func TestS47OrcaAgentTeamsSession(t *testing.T) {
+	bin := needOrca(t)
+	w := mm.NewWorld(t)
+	p := newPerson(t, "S47")
+	p.realClaude()
+	p.addAccount(w, w.Selected)
+	ws := orcaWorkspace(t)
+	p.editConfig(orcaAgent(bin, ws, config.SessionReuse, config.PayloadInline))
+
+	// The user started a claude-agent-teams session in Orca and linked it.
+	launch := exec.Command(bin, "agent", "launch", "--agent", agent.OrcaAgentTeams, "--surface", "terminal", "--worktree", "path:"+ws, "--json")
+	launch.Env = append(os.Environ(), "ORCA_TERMINAL_HANDLE=")
+	out, err := launch.Output()
+	h1 := handleRe.FindString(string(out))
+	if err != nil || h1 == "" {
+		t.Fatalf("orca agent launch: %v %s", err, out)
+	}
+	t.Cleanup(func() { closeTerminal(bin, h1) })
+	finder := agent.NewClaudeFinder()
+	var proc agent.ClaudeProc
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(time.Second) {
+		if procs, err := finder.InTerminal(h1); err == nil && len(procs) == 1 {
+			proc = procs[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no Claude process in %s", h1)
+		}
+	}
+	if proc.OrcaAgent != agent.OrcaAgentTeams {
+		t.Fatalf("Claude in %s = %+v, want the Orca agent %s", h1, proc, agent.OrcaAgentTeams)
+	}
+	p.setSession(inbox.Session{Space: config.UnsortedID, Handle: h1, AgentSession: proc.SessionID, CreatedAt: time.Now()})
+
+	w.Post(t, w.Bob, w.Selected, "S47 first: the vendor call moved to Thursday")
+	s, code := p.run("run --once")
+	if code != 0 || !strings.Contains(unwrap(s), "sent to "+h1+", Orca cannot observe this agent") {
+		t.Fatalf("first batch: exit %d, screen:\n%s", code, s)
+	}
+	readAgent(t, bin, h1, "S47 first", "S47/orca-terminal-1.txt")
+	if ss := p.session(config.UnsortedID); ss.OrcaAgent != agent.OrcaAgentTeams || ss.LastSent.IsZero() {
+		t.Errorf("stored session = %+v, want the Orca agent %s and a last send", ss, agent.OrcaAgentTeams)
+	}
+
+	closeTerminal(bin, h1)
+	w.Post(t, w.Bob, w.Selected, "S47 second: please confirm the room")
+	s, code = p.run("run --once")
+	if code != 0 || !strings.Contains(unwrap(s), "resumed Claude session "+proc.SessionID[:8]+" in term_") ||
+		!strings.Contains(unwrap(s), "("+agent.OrcaAgentTeams+")") {
+		t.Fatalf("after close: exit %d, screen:\n%s", code, s)
+	}
+	h2 := p.session(config.UnsortedID).Handle
+	t.Cleanup(func() { closeTerminal(bin, h2) })
+	readAgent(t, bin, h2, "S47 second", "S47/orca-terminal-2.txt")
+	procs, err := finder.InTerminal(h2)
+	if err != nil || len(procs) != 1 || procs[0].SessionID != proc.SessionID || procs[0].OrcaAgent != agent.OrcaAgentTeams {
+		t.Errorf("Claude in %s = %+v, %v; want %s under %s", h2, procs, err, proc.SessionID, agent.OrcaAgentTeams)
+	}
+	b, _ := json.Marshal(procs)
+	writeEvidence(t, "S47/claude-in-new-terminal.json", string(b))
+}

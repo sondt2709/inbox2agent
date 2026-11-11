@@ -18,6 +18,6 @@
 
 ## 4. Checks and documents
 
-- [ ] 4.1 Orca e2e scenario: a batch to a `claude-agent-teams` session (link its handle), close it, a second batch resumes it under `claude-agent-teams`
-- [ ] 4.2 `CLAUDE.md` facts (agent teams, `--model`, `unsupported`, `agentIdentity`), README `cli` values
+- [x] 4.1 Orca e2e scenario: a batch to a `claude-agent-teams` session (link its handle), close it, a second batch resumes it under `claude-agent-teams`
+- [x] 4.2 `CLAUDE.md` facts (agent teams, `--model`, `unsupported`, `agentIdentity`), README `cli` values
 - [ ] 4.3 lint, unit tests, leakcheck, the Orca e2e scenarios

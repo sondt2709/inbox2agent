@@ -326,7 +326,7 @@ Summarise each topic in one line and suggest a reply in English.
 
 [spaces.agent]            # how i2a sends the batches of this space; only this space uses it
 driver = "orca"           # orca | dry-run
-cli = "claude"
+cli = "claude"              # the Orca agent: claude, claude-agent-teams, codex, …
 folder = "~/notes"        # a git folder, or a folder that you added in Orca
 session = "reuse"         # reuse | new | worktree
 payload = "pointer"       # pointer | inline
@@ -390,7 +390,7 @@ The agent of a space tells `i2a` how to send its batches (`[spaces.agent]`, or t
 
 | Setting | Values | Effect |
 |---|---|---|
-| `session` | `reuse` | One long agent session for each space. Each batch has the full prompt, so a change of the instruction keeps the session. If the terminal is closed (also after a restart of Orca), or Claude Code exited in it, `i2a` opens a new terminal and resumes the same Claude session with `/resume`, so the agent keeps what it knew. If the user ran `/clear`, unlinked the session, or Claude cannot open the old session, `i2a` starts a new session named `i2a · <space>`. If the agent is busy, `i2a` keeps the batch until the next send time. |
+| `session` | `reuse` | One long agent session for each space. Each batch has the full prompt, so a change of the instruction keeps the session. If the terminal is closed (also after a restart of Orca), or Claude Code exited in it, `i2a` opens a new terminal with the same Orca agent (`claude` or `claude-agent-teams`) and resumes the same Claude session with `/resume`, so the agent keeps what it knew. If the user ran `/clear`, unlinked the session, or Claude cannot open the old session, `i2a` starts a new session named `i2a · <space>`. If the agent is busy, `i2a` keeps the batch until the next send time. |
 | | `new` | A new agent session for each batch. |
 | | `worktree` | A new Orca worktree `i2a-<batch-id>` for each batch. The folder must be a git repository. |
 | `payload` | `pointer` | The prompt names the digest file. The agent reads the file. |
