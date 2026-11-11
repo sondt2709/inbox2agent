@@ -51,7 +51,7 @@ The driver resumes only in `reuse` mode, when the CLI is Claude (`isClaude`) and
 
 ### D4. Name of a new session
 
-After a new session starts (not resumed), the driver types `/rename i2a · <space name>` and waits for `tui-idle`. Then it sends the prompt. The name is the tab title (`TabTitle`). The driver removes control characters and line breaks from the name, and cuts it to 80 characters. A failed rename adds a note to the detail, as a failed tab rename does. A resumed session keeps its name, so a name that the user gave stays. The `new` and `worktree` modes also name their session: a name is useful in the `/resume` picker.
+After a new session starts (not resumed), the driver types `/rename i2a · <space name>` and waits for `tui-idle`. Then it sends the prompt. The name is the tab title (`TabTitle`). The driver removes control characters and line breaks from the name, and cuts it to 80 characters. A failed rename adds a note to the detail, as a failed tab rename does. One exception: when Orca reports that the text went to a shell (`observation: unsupported`), the send fails, because the prompt would go to the shell too. A resumed session keeps its name, so a name that the user gave stays. The `new` and `worktree` modes also name their session: a name is useful in the `/resume` picker.
 
 ### D5. Store
 

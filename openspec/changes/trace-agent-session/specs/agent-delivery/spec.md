@@ -61,7 +61,7 @@ In `reuse` mode, when the `cli` of the agent is Claude Code, i2a can read the Cl
 - **THEN** the batch arrives in the new session, the new session has the name `i2a · <space name>`, and the detail starts with "could not resume Claude session"
 
 ### Requirement: Name of a new Claude session
-After the driver starts a new Claude session and before it sends the first prompt, it SHALL type `/rename i2a · <space name>` and wait for `tui-idle`. The name SHALL be one line with no control characters and at most 80 characters. A failed rename SHALL add a note to the detail of the dispatch and SHALL NOT change its status. A resumed session SHALL keep its name.
+After the driver starts a new Claude session and before it sends the first prompt, it SHALL type `/rename i2a · <space name>` and wait for `tui-idle`. The name SHALL be one line with no control characters and at most 80 characters. A failed rename SHALL add a note to the detail of the dispatch and SHALL NOT change its status, except when Orca reports that the text went to a shell: then the send SHALL fail and the driver SHALL send no prompt. A resumed session SHALL keep its name.
 
 #### Scenario: New session of Unsorted
 - **WHEN** the agent of Unsorted starts a new Claude session
