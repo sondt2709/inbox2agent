@@ -1,8 +1,8 @@
 ## 1. Store
 
-- [ ] 1.1 Test first: a version 9 store with 2 sessions opens as version 10 with `inbox.db.v9.bak`, the handles and IDs kept, no name and no last send (fails on the base)
-- [ ] 1.2 Schema version 10: `sessions.agent_name`, `sessions.last_sent_at`, the upgrade step with the backup
-- [ ] 1.3 `inbox.Session` gets `Name` and `LastSent`; `Session`, `Sessions` and `SetSession` read and write them; `TouchSession(space, handle, name, at)` updates the name and the last send of the stored row when the handle is equal
+- [x] 1.1 Test first: a version 9 store with 2 sessions opens as version 10 with `inbox.db.v9.bak`, the handles and IDs kept, no name and no last send (fails on the base)
+- [x] 1.2 Schema version 10: `sessions.agent_name`, `sessions.last_sent_at`, the upgrade step with the backup
+- [x] 1.3 `inbox.Session` gets `Name` and `LastSent`; `Session`, `Sessions` and `SetSession` read and write them; `TouchSession(space, handle, name, at)` updates the name and the last send of the stored row when the handle is equal
 
 ## 2. Driver
 
