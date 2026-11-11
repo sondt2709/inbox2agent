@@ -697,7 +697,7 @@ func (m *model) addSpaceDialog(then func(id string)) {
 			}
 			m.selectSpace(id)
 			m.spcFocus, m.row = true, 0
-			m.saved("Created the space " + name + ". Press a to add conversations. Saved · u undo")
+			m.saved("Created the space " + name + ". Click + Add conversations or press a. Saved · u undo")
 			return "", nil
 		}))
 }
