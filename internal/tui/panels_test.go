@@ -201,7 +201,7 @@ func TestCtrlRRunsAndRDoesNot(t *testing.T) {
 	if len(f.calls) != 1 {
 		t.Errorf("ctrl+r: runs = %v", f.calls)
 	}
-	if !strings.Contains(lines(h.m)[0], "ctrl+r run now") {
+	if !strings.Contains(lines(h.m)[0], "Run now ctrl+r") {
 		t.Errorf("the header has no ctrl+r: %q", lines(h.m)[0])
 	}
 }

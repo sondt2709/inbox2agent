@@ -68,7 +68,7 @@ func TestS41DaemonAPIAndRunNow(t *testing.T) {
 	// ctrl+r in the Spaces area without the daemon: the selected item is Everything else.
 	w.Post(t, w.Bob, w.Selected, "S41 fourth message")
 	tui.Press("Tab", `\+ New space`, 5*time.Second) // Feed → Spaces
-	tui.WaitFor(`ctrl\+r run now`, 10*time.Second)  // after the status line of the last run
+	tui.WaitFor(`Run now ctrl\+r`, 10*time.Second)  // after the status line of the last run
 	tui.Keys("C-r")
 	waitRun(t, tui, p, 4)
 	tui.Keys("q")

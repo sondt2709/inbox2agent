@@ -152,9 +152,10 @@ func TestFeedFooterHasNoCutHint(t *testing.T) {
 	lines := strings.Split(screen(h.m), "\n")
 	footer := strings.TrimSpace(lines[len(lines)-1])
 	var known []string
-	for _, x := range append(h.m.feedHints(), hint{"?", "keys"}, hint{"q", "quit"}) {
+	for _, x := range append(h.m.feedHints(), hint{"/", "find"}, hint{"?", "keys"}, hint{"q", "quit"}) {
 		known = append(known, upperFirst(x.desc)+" "+x.key)
 	}
+	known = append(known, "More…")
 	for _, part := range regexp.MustCompile(`\s+·\s+|\s{3,}`).Split(footer, -1) {
 		if !slices.Contains(known, part) {
 			t.Errorf("the footer has a cut hint %q:\n%s", part, footer)

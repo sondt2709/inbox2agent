@@ -51,7 +51,7 @@ func (m *model) hintsAccounts() []hint {
 	if m.selectedAccount() == nil {
 		return []hint{{"↑↓", "move"}, {"enter", "add an account"}}
 	}
-	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "remove"}, {"4", "its conversations"}}
+	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "remove"}, {"a", "add an account"}}
 }
 
 func (m *model) selectedAccount() *config.Account {

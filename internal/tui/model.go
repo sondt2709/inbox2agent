@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -162,12 +163,14 @@ type model struct {
 	mmUsers   map[string]string          // the Mattermost username of each account, from the last list
 	pending   map[store.Conv]int         // the waiting messages of each conversation
 
-	chs      map[string][]mattermost.ChannelInfo // the conversations that each account lists
-	chsErr   map[string]string
-	chsBusy  map[string]bool
-	tabZones []zone
-	savedAny bool
-	now      func() time.Time
+	chs       map[string][]mattermost.ChannelInfo // the conversations that each account lists
+	chsErr    map[string]string
+	chsBusy   map[string]bool
+	tabZones  []zone
+	barZones  []barZone // the buttons of the header and the footer, from the last render
+	footHints []hint    // all the hints of the footer, from the last render; More… lists them
+	savedAny  bool
+	now       func() time.Time
 }
 
 func newModel(ctx context.Context, u *ui) *model {
@@ -467,6 +470,15 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
+	// A button of the header or the footer sends its key, also to a dialog.
+	if c, ok := msg.(tea.MouseClickMsg); ok && c.Mouse().Button == tea.MouseLeft {
+		for _, z := range m.barZones {
+			if ms := c.Mouse(); ms.Y == z.y && ms.X >= z.x0 && ms.X < z.x1 {
+				return m.press(z.key)
+			}
+		}
+	}
+
 	if d := m.topDialog(); d != nil {
 		return d.update(m, msg)
 	}
@@ -669,7 +681,7 @@ const helpText = `The model   Account → Conversation → Space (its agent) + S
             direct messages). Everything else reads the others.
             A space sends to its own agent on a schedule.
 
-Areas       click Feed, Spaces or Setup · tab next section
+Areas       click an area, a section or a button · tab next section
 Everywhere  ctrl+r run now · / find a conversation · q quit
 Move        ↑ ↓ or j k, the mouse wheel or the trackpad · enter
 Form        tab / shift+tab or ↑ ↓ move between the fields
@@ -716,6 +728,7 @@ func (m *model) render() string {
 		m.buildForm(false)
 	}
 	m.tabZones = m.tabZones[:0]
+	m.barZones = m.barZones[:0]
 	m.rowCache = m.listRows()
 	defer func() { m.rowCache = nil }()
 	header := m.renderHeader()
@@ -790,7 +803,7 @@ func (m *model) renderHeader() string {
 		x += w + 1
 	}
 	left := b.String()
-	run := keyStyle.Render("ctrl+r") + faint.Render(" run now")
+	run := renderHint(hint{"ctrl+r", "run now"})
 	if m.running {
 		run = warnStyle.Render(m.spin.View() + " running")
 	}
@@ -802,6 +815,9 @@ func (m *model) renderHeader() string {
 		m.serviceDot() + " " + run, run} {
 		right += " "
 		if gap := m.w - lipgloss.Width(left) - lipgloss.Width(right); gap >= 1 {
+			if !m.running { // the button ends one column before the edge
+				m.barZones = append(m.barZones, barZone{x0: m.w - 1 - lipgloss.Width(run), x1: m.w - 1, y: 0, key: "ctrl+r"})
+			}
 			return headerStyle.Width(m.w).Render(left + strings.Repeat(" ", gap) + right)
 		}
 	}
@@ -876,32 +892,102 @@ func (m *model) renderSub() string {
 
 func (m *model) renderFooter() string {
 	formActive := m.form != nil && m.form.active
-	right := renderHints([]hint{{"?", "keys"}, {"q", "quit"}})
-	if m.topDialog() != nil || formActive {
-		right = ""
+	y := m.h - 1
+	var global []hint
+	if m.topDialog() == nil && !formActive {
+		global = []hint{{"/", "find"}, {"?", "keys"}, {"q", "quit"}}
 	}
-	var left string
+	right := renderHints(global)
+	var hs []hint
+	w := m.w - 2
+	status := ""
 	switch d := m.topDialog(); {
 	case d != nil:
-		left = fitHints(d.hints(), m.w-2)
+		hs = d.hints()
 	case m.status != "" && m.now().Sub(m.statusAt) < 6*time.Second:
 		st := okStyle
 		if m.statusErr {
 			st = errStyle
 		}
-		left = st.Render(truncate(m.status, m.w-lipgloss.Width(right)-4))
+		status = st.Render(truncate(m.status, m.w-lipgloss.Width(right)-4))
 	case formActive && (m.replyCard != 0 || m.askCard != 0):
-		left = fitHints([]hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}}, m.w-2)
+		hs = []hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}}
 	case formActive:
-		left = fitHints([]hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}}, m.w-2)
+		hs = []hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}}
 	default:
-		left = fitHints(m.tabHints(), m.w-4-lipgloss.Width(right))
+		hs = m.tabHints()
+		w = m.w - 4 - lipgloss.Width(right)
+	}
+	m.footHints = hs
+	left := status
+	if status == "" {
+		var zs []barZone
+		left, zs = layoutHints(fitHints(hs, w), 1, y)
+		m.barZones = append(m.barZones, zs...)
 	}
 	gap := m.w - 1 - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return " " + truncateStyled(left, m.w-1)
 	}
+	if len(global) > 0 {
+		_, zs := layoutHints(global, 1+lipgloss.Width(left)+gap, y)
+		m.barZones = append(m.barZones, zs...)
+	}
 	return " " + left + strings.Repeat(" ", gap) + right
+}
+
+// press runs a key as if the user typed it: the top dialog, the active form
+// or the tab gets it. The buttons of the header and the footer use it.
+func (m *model) press(k string) tea.Cmd {
+	if k == moreKey {
+		m.openActions()
+		return nil
+	}
+	msg, ok := keyPress(k)
+	if !ok {
+		return nil
+	}
+	return m.update(msg)
+}
+
+// keyPress returns the key message of a key name: "enter", "esc", "space",
+// "tab", "shift+tab", an arrow, "pgup", "pgdown", "ctrl+<letter>" or one
+// character.
+func keyPress(k string) (tea.KeyPressMsg, bool) {
+	codes := map[string]rune{
+		"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab, "up": tea.KeyUp, "down": tea.KeyDown,
+		"left": tea.KeyLeft, "right": tea.KeyRight, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
+	}
+	switch {
+	case k == "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, true
+	case k == "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, true
+	case codes[k] != 0:
+		return tea.KeyPressMsg{Code: codes[k]}, true
+	case len(k) == len("ctrl+x") && strings.HasPrefix(k, "ctrl+"):
+		return tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl}, true
+	case utf8.RuneCountInString(k) == 1:
+		return tea.KeyPressMsg{Code: []rune(k)[0], Text: k}, true
+	}
+	return tea.KeyPressMsg{}, false
+}
+
+// openActions opens the list of all the buttons of the footer: the More…
+// button shows when some of them do not fit. A row runs its key on the
+// screen under the list.
+func (m *model) openActions() {
+	var opts []pickOption
+	for _, h := range m.footHints {
+		k, ok := keyName(h.key)
+		if !ok || k == moreKey {
+			continue
+		}
+		opts = append(opts, pickOption{label: upperFirst(h.desc), note: h.key, run: func() tea.Cmd { return m.press(k) }})
+	}
+	if len(opts) > 0 {
+		m.openDialog(&pickDialog{name: "Actions", text: "Click a row or press enter to run it.", options: opts})
+	}
 }
 
 func (m *model) renderTab(w, h int) string {
