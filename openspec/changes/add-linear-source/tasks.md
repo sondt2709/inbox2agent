@@ -31,10 +31,10 @@
 - [x] 5.1 E2E scenario with a fake Linear server that sends the captured responses: `account add linear`, `run --once` with `dry-run`, the comment in the digest
 - [x] 5.2 Break each new test one time and confirm that it fails
 - [x] 5.3 Update `CLAUDE.md` (Linear source, facts of the Linear API) and `README`
-- [ ] 5.4 `task test`, `task lint`, `task leakcheck`, `task e2e`
+- [x] 5.4 `task test`, `task lint`, `task leakcheck`, `task e2e`
 
 ## 6. Evidence on the real workspace
 
-- [ ] 6.1 Real run in a temporary data folder: `account add linear`, `conversations --account`, `run --once` with `dry-run`; the digest and the row count of the store
-- [ ] 6.2 `readAt` of the inbox notifications before and after the run
-- [ ] 6.3 Dashboard screenshots: the Linear add form and the account detail
+- [x] 6.1 Real run in a temporary data folder: `account add linear`, `conversations --account`, `run --once` with `dry-run`; the digest and the row count of the store
+- [x] 6.2 `readAt` of the inbox notifications before and after the run
+- [x] 6.3 Dashboard screenshots: the Linear add form and the account detail
