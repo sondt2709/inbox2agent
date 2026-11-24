@@ -117,7 +117,7 @@ Each change that is merged into `main` makes a new release. The PR title gives t
 
 1. Create a personal access token in Mattermost: **Profile > Security > Personal Access Tokens**. If you do not see this section, ask your administrator to turn on personal access tokens.
 2. Run `i2a config`. Click **Setup** (or press `tab`) to open Accounts, then press `enter`. Type the account ID, a name, the server URL and the token, and press `enter` to connect. The account shows the server and your username. Its conversations are in Everything else.
-3. Click **Spaces**, select "+ New space" and press `enter` to make a space, for example "Company A". Press `a` in the space: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` to add or remove a conversation.
+3. Click **Spaces**, select "+ New space" and press `enter` to make a space, for example "Company A". Press `a` in the space: a search of all conversations of all accounts opens, newest activity first. Type a part of a name, press `enter` to go to the list, and `space` to add or remove a conversation. Then select **OK** (`enter`, `ctrl+s`, or `tab` and a click) to save, or **Cancel** (`esc`) to close with no change.
 4. Select Everything else. It reads each conversation that no space has, at the level "New and other conversations read" (default: only the messages for you), and sends them to its agent, or holds them.
 5. Run `i2a run --once`. The default agent uses the `dry-run` driver, so `i2a` writes a digest file and starts no agent. Read the digest to see what an agent would get.
 6. Run `i2a config` again. Select the space, press `enter`, go to the row **Agent** and press `enter`. Set the driver to `orca` (`→`), the CLI (for example `claude`), the folder and the instruction, and press `ctrl+s`. The next batch also contains the messages that the dry run previewed. The row **When** picks, renames or edits the schedule; the row **Status** pauses the space.
@@ -191,7 +191,7 @@ In Spaces, the list at the left has each space (`●` sends, `○` is paused or 
 | New conversations | `enter` sets its spaces · `k` keeps it in Everything else · `K` keeps all · `i` ignores it |
 | Ignored | `x` reads it again in Everything else |
 
-`a` in a space opens the search of all conversations for that space: `space` adds or removes the row, `←` / `→` changes its read level. `x` on a space in the list deletes it; its conversations that no other space has go to Everything else.
+`a` in a space opens the add dialog of that space, a search of all conversations: `space` adds or removes the row, `←` / `→` changes its read level. A changed row has `*`. **OK** saves all changes in one save; **Cancel** and `esc` forget them. The footer shows each action as its label, then its key, for example `Reply r`. `x` on a space in the list deletes it; its conversations that no other space has go to Everything else.
 
 The spaces dialog of a conversation lists each space with a check mark and the read level in that space ("All messages" or "Only for me"), then "Ignore" and "+ New space". `space` checks a space, `←` / `→` changes its level, `enter` saves. With no space checked, Everything else reads the conversation. When you add a space, the dialog offers to send the messages of the last `lookback` to the new spaces too (off by default); the spaces that have them do not get them again.
 

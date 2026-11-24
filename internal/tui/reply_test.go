@@ -62,7 +62,7 @@ func TestFeedReplyEditAndSend(t *testing.T) {
 	s := screen(h.m)
 	for _, want := range []string{"Reply · card", "Send to    @lena.wong · mattermost · work", "Reply to   #1 lena.wong",
 		"Chat", "A thread reply keeps the read state. A chat post marks it read.", "I checked the code: I was wrong.",
-		"ctrl+s send", "esc cancel"} {
+		"Send ctrl+s", "Cancel esc"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the reply form does not show %q", want)
 		}

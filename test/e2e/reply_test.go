@@ -98,7 +98,7 @@ func TestS26ReplyFromTheFeed(t *testing.T) {
 	tm.WaitFor(`Review PR 57 today`, 30*time.Second)
 	s := tm.Press("r", `Reply · card`, 5*time.Second)
 	for _, want := range []string{"Send to    selected · mattermost · work", "Reply to", "Thread", "A thread reply keeps the read state.",
-		"Thanks, I will review PR 57 this afternoon.", "ctrl+s send"} {
+		"Thanks, I will review PR 57 this afternoon.", "Send ctrl+s"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the reply form does not show %q:\n%s", want, s)
 		}

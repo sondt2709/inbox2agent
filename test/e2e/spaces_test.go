@@ -249,7 +249,7 @@ func TestS45PauseASpace(t *testing.T) {
 	})
 	tm := p.term("config")
 	tm.WaitFor(`Status\s+● Sending`, 30*time.Second) // the panel of Team, the first space
-	tm.Press("Enter", `enter spaces`, 5*time.Second) // the panel; the cursor is on the conversation
+	tm.Press("Enter", `Spaces enter`, 5*time.Second) // the panel; the cursor is on the conversation
 	for range 4 {
 		tm.Keys("Up") // When, Session, Agent, Status
 	}

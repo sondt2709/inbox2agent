@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 )
@@ -104,15 +105,31 @@ func listLabel(name, kind string, w int) string {
 	return name + strings.Repeat(" ", w-len([]rune(name))-len([]rune(kind))) + kind
 }
 
-// hint is one key in the footer.
+// hint is one action in the footer: its key and its label.
 type hint struct{ key, desc string }
 
+var (
+	hintLabel = lipgloss.NewStyle().Foreground(accent).Bold(true) // the primary color
+	hintKey   = lipgloss.NewStyle().Foreground(mutedFg)           // the secondary color
+)
+
+// renderHints writes each hint as the label, then the key: "Reply r".
 func renderHints(hs []hint) string {
 	parts := make([]string, 0, len(hs))
 	for _, h := range hs {
-		parts = append(parts, keyStyle.Render(h.key)+" "+faint.Render(h.desc))
+		parts = append(parts, hintLabel.Render(upperFirst(h.desc))+" "+hintKey.Render(h.key))
 	}
 	return strings.Join(parts, faint.Render("  ·  "))
+}
+
+// upperFirst writes the first letter of s as a capital letter.
+func upperFirst(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }
 
 // fitHints renders the hints that fit in w columns, in their order. It drops

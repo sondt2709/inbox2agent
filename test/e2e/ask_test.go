@@ -130,7 +130,7 @@ func TestS31AskTheAgent(t *testing.T) {
 	tm.WaitFor(`Lena needs an answer`, 30*time.Second)
 	s := tm.Press("t", `Ask the agent · card`, 5*time.Second)
 	for _, want := range []string{"Agent      orca · claude · space Everything else", "Session    terminal term_b9f22da8… (wrote the card)",
-		"The agent answers in this card.", "ctrl+s send"} {
+		"The agent answers in this card.", "Send ctrl+s"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the ask form does not show %q:\n%s", want, s)
 		}
