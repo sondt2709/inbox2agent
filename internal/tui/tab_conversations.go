@@ -66,7 +66,11 @@ func (m *model) listRows() []convRow {
 	var out []convRow
 	for _, a := range cfg.Accounts {
 		seen := map[string]bool{}
-		for _, ch := range m.chs[a.ID] {
+		chs := m.chs[a.ID]
+		if _, listed := m.chs[a.ID]; listed && a.Platform == config.PlatformLinear {
+			chs = feedInfos(a) // the feeds of the file now, after the first check
+		}
+		for _, ch := range chs {
 			cv, space, entry := cfg.Conversation(a.ID, ch.ID)
 			sp, rd := links(cfg, a.ID, ch.ID)
 			out = append(out, convRow{Account: a, ID: ch.ID, Name: orStr(cv.Name, ch.Name), Label: cv.Label, Kind: ch.Kind,

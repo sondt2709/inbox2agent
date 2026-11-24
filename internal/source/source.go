@@ -11,6 +11,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/config"
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
+	"github.com/sondt2709/inbox2agent/internal/source/linear"
 	"github.com/sondt2709/inbox2agent/internal/source/mattermost"
 	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
@@ -56,6 +57,13 @@ func Build(a config.Account, env Env) (Source, error) {
 		}
 		return mattermost.New(mattermost.Settings{ID: a.ID, URL: a.URL, Levels: env.Levels, Default: env.Default, Lookback: env.Lookback},
 			mattermost.NewClient(a.URL, token, env.HTTP)), nil
+	case config.PlatformLinear:
+		key, err := env.Secrets.Get(secrets.TokenKey(a.ID))
+		if err != nil {
+			return nil, fmt.Errorf("account %q: read the API key from %s: %w", a.ID, env.Secrets.Backend(), err)
+		}
+		return linear.New(linear.Settings{ID: a.ID, Feeds: a.Feeds, Levels: env.Levels, Default: env.Default, Lookback: env.Lookback, Log: env.Log},
+			linear.NewClient(a.Endpoint(), key, env.HTTP)), nil
 	case config.PlatformWhatsApp:
 		return whatsapp.New(whatsapp.Settings{ID: a.ID, DataDir: env.DataDir, Levels: env.Levels, Default: env.Default,
 			Lookback: env.Lookback, Retention: env.Retention, Log: env.Log, LockWait: env.LockWait,
@@ -63,6 +71,12 @@ func Build(a config.Account, env Env) (Source, error) {
 	default:
 		return nil, fmt.Errorf("account %q: unknown platform %q", a.ID, a.Platform)
 	}
+}
+
+// NewLinear makes a Linear source with a known key, to check the key. It
+// reads no feed.
+func NewLinear(a config.Account, key string, hc *http.Client) *linear.Source {
+	return linear.New(linear.Settings{ID: a.ID}, linear.NewClient(a.Endpoint(), key, hc))
 }
 
 // NewMattermost makes a Mattermost source with a known token, to check the

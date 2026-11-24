@@ -68,7 +68,8 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		{[]string{"spaces", "items", "conversations", "items", "read"}, []string{"", "all", "mentions", "off"}},
 		{[]string{"unsorted", "conversations", "items", "read"}, []string{"", "all", "mentions", "off"}},
 		{[]string{"unsorted", "read"}, []string{"", "all", "mentions", "off"}},
-		{[]string{"accounts", "items", "platform"}, []string{"mattermost", "whatsapp"}},
+		{[]string{"accounts", "items", "platform"}, []string{"mattermost", "whatsapp", "linear"}},
+		{[]string{"accounts", "items", "feeds", "items", "kind"}, []string{"comments", "inbox"}},
 		{[]string{"spaces", "items", "agent", "driver"}, []string{"", "orca", "dry-run"}},
 		{[]string{"spaces", "items", "agent", "session"}, []string{"", "new", "reuse", "worktree"}},
 		{[]string{"unsorted", "agent", "payload"}, []string{"", "pointer", "inline"}},
@@ -86,6 +87,7 @@ func TestSchemaDescribesTheFile(t *testing.T) {
 		want []string
 	}{
 		{[]string{"accounts", "items"}, []string{"id", "platform"}},
+		{[]string{"accounts", "items", "feeds", "items"}, []string{"id", "kind"}},
 		{[]string{"spaces", "items"}, []string{"id", "schedule"}},
 		{[]string{"spaces", "items", "conversations", "items"}, []string{"account", "id"}},
 		{[]string{"schedules", "items"}, []string{"id"}},

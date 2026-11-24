@@ -1,0 +1,979 @@
+{
+  "status": 200,
+  "body": {
+    "data": {
+      "f0": {
+        "nodes": [
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T09:29:52.467Z",
+            "id": "00000000-0000-4000-8000-000000000349",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "createdAt": "2026-11-23T09:28:17.121Z",
+            "id": "00000000-0000-4000-8000-000000000350",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user95",
+              "email": "user95@example.com",
+              "id": "00000000-0000-4000-8000-000000000285",
+              "isMe": false,
+              "name": "User 95"
+            },
+            "comment": null,
+            "createdAt": "2026-11-23T09:22:09.148Z",
+            "id": "00000000-0000-4000-8000-000000000354",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000353",
+              "identifier": "ENG-205",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 123"
+                  },
+                  {
+                    "name": "Label 124"
+                  },
+                  {
+                    "name": "Label 125"
+                  },
+                  {
+                    "name": "Label 18"
+                  },
+                  {
+                    "name": "Label 79"
+                  },
+                  {
+                    "name": "Label 128"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 69"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 86",
+              "url": "https://linear.app/acme/issue/ENG-205/issue"
+            },
+            "type": "issueAddedToView"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user95",
+              "email": "user95@example.com",
+              "id": "00000000-0000-4000-8000-000000000285",
+              "isMe": false,
+              "name": "User 95"
+            },
+            "comment": null,
+            "createdAt": "2026-11-23T09:21:56.018Z",
+            "id": "00000000-0000-4000-8000-000000000357",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000356",
+              "identifier": "ENG-206",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 125"
+                  },
+                  {
+                    "name": "Label 130"
+                  },
+                  {
+                    "name": "Label 79"
+                  },
+                  {
+                    "name": "Label 128"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 69"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 87",
+              "url": "https://linear.app/acme/issue/ENG-206/issue"
+            },
+            "type": "issueAddedToView"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user95",
+              "email": "user95@example.com",
+              "id": "00000000-0000-4000-8000-000000000285",
+              "isMe": false,
+              "name": "User 95"
+            },
+            "comment": null,
+            "createdAt": "2026-11-23T09:21:53.236Z",
+            "id": "00000000-0000-4000-8000-000000000359",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000358",
+              "identifier": "ENG-207",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 133"
+                  },
+                  {
+                    "name": "Label 125"
+                  },
+                  {
+                    "name": "Label 79"
+                  },
+                  {
+                    "name": "Label 128"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 69"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 88",
+              "url": "https://linear.app/acme/issue/ENG-207/issue"
+            },
+            "type": "issueAddedToView"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user95",
+              "email": "user95@example.com",
+              "id": "00000000-0000-4000-8000-000000000285",
+              "isMe": false,
+              "name": "User 95"
+            },
+            "comment": null,
+            "createdAt": "2026-11-23T09:21:39.197Z",
+            "id": "00000000-0000-4000-8000-000000000363",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000362",
+              "identifier": "ENG-208",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 77"
+                  },
+                  {
+                    "name": "Label 92"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 69"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 89",
+              "url": "https://linear.app/acme/issue/ENG-208/issue"
+            },
+            "type": "issueAddedToView"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "comment": {
+              "body": "Text of comment 59.",
+              "createdAt": "2026-11-23T09:21:09.882Z",
+              "id": "00000000-0000-4000-8000-000000000370",
+              "issue": {
+                "id": "00000000-0000-4000-8000-000000000339",
+                "identifier": "ENG-203",
+                "labels": {
+                  "nodes": [
+                    {
+                      "name": "Label 121"
+                    }
+                  ]
+                },
+                "project": {
+                  "name": "Project 84"
+                },
+                "team": {
+                  "key": "ENG"
+                },
+                "title": "Issue title 84",
+                "url": "https://linear.app/acme/issue/ENG-203/issue"
+              },
+              "parent": {
+                "body": "Text of comment 58.",
+                "id": "00000000-0000-4000-8000-000000000367",
+                "user": {
+                  "displayName": "user110",
+                  "email": "user110@example.com",
+                  "id": "00000000-0000-4000-8000-000000000335",
+                  "isMe": false,
+                  "name": "User 110"
+                }
+              },
+              "updatedAt": "2026-11-23T09:21:24.767Z",
+              "url": "https://linear.app/acme/issue/ENG-203/issue#comment-00000045",
+              "user": {
+                "displayName": "user110",
+                "email": "user110@example.com",
+                "id": "00000000-0000-4000-8000-000000000335",
+                "isMe": false,
+                "name": "User 110"
+              }
+            },
+            "createdAt": "2026-11-23T09:21:10.338Z",
+            "id": "00000000-0000-4000-8000-000000000364",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000339",
+              "identifier": "ENG-203",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 121"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 84"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 84",
+              "url": "https://linear.app/acme/issue/ENG-203/issue"
+            },
+            "type": "issueNewComment"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T09:09:36.823Z",
+            "id": "00000000-0000-4000-8000-000000000372",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T08:48:43.887Z",
+            "id": "00000000-0000-4000-8000-000000000373",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T08:08:54.918Z",
+            "id": "00000000-0000-4000-8000-000000000374",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T07:02:46.260Z",
+            "id": "00000000-0000-4000-8000-000000000375",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T06:55:40.465Z",
+            "id": "00000000-0000-4000-8000-000000000376",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "comment": {
+              "body": "Text of comment 61.",
+              "createdAt": "2026-11-23T06:37:06.947Z",
+              "id": "00000000-0000-4000-8000-000000000383",
+              "issue": {
+                "id": "00000000-0000-4000-8000-000000000339",
+                "identifier": "ENG-203",
+                "labels": {
+                  "nodes": [
+                    {
+                      "name": "Label 121"
+                    }
+                  ]
+                },
+                "project": {
+                  "name": "Project 84"
+                },
+                "team": {
+                  "key": "ENG"
+                },
+                "title": "Issue title 84",
+                "url": "https://linear.app/acme/issue/ENG-203/issue"
+              },
+              "parent": {
+                "body": "Text of comment 60.",
+                "id": "00000000-0000-4000-8000-000000000367",
+                "user": {
+                  "displayName": "user110",
+                  "email": "user110@example.com",
+                  "id": "00000000-0000-4000-8000-000000000335",
+                  "isMe": false,
+                  "name": "User 110"
+                }
+              },
+              "updatedAt": "2026-11-23T06:37:06.877Z",
+              "url": "https://linear.app/acme/issue/ENG-203/issue#comment-00000046",
+              "user": {
+                "displayName": "user110",
+                "email": "user110@example.com",
+                "id": "00000000-0000-4000-8000-000000000335",
+                "isMe": false,
+                "name": "User 110"
+              }
+            },
+            "createdAt": "2026-11-23T06:37:07.209Z",
+            "id": "00000000-0000-4000-8000-000000000384",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000339",
+              "identifier": "ENG-203",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 121"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 84"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 84",
+              "url": "https://linear.app/acme/issue/ENG-203/issue"
+            },
+            "type": "issueNewComment"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "createdAt": "2026-11-23T06:15:29.937Z",
+            "id": "00000000-0000-4000-8000-000000000386",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user59",
+              "email": "user59@example.com",
+              "id": "00000000-0000-4000-8000-000000000172",
+              "isMe": false,
+              "name": "User 59"
+            },
+            "createdAt": "2026-11-23T06:12:43.968Z",
+            "id": "00000000-0000-4000-8000-000000000387",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T06:03:55.627Z",
+            "id": "00000000-0000-4000-8000-000000000389",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T06:02:39.132Z",
+            "id": "00000000-0000-4000-8000-000000000390",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user55",
+              "email": "user55@example.com",
+              "id": "00000000-0000-4000-8000-000000000159",
+              "isMe": false,
+              "name": "User 55"
+            },
+            "comment": {
+              "body": "Text of comment 62.",
+              "createdAt": "2026-11-23T05:55:38.609Z",
+              "id": "00000000-0000-4000-8000-000000000393",
+              "issue": {
+                "id": "00000000-0000-4000-8000-000000000392",
+                "identifier": "ENG-213",
+                "labels": {
+                  "nodes": [
+                    {
+                      "name": "Label 3"
+                    },
+                    {
+                      "name": "Label 144"
+                    },
+                    {
+                      "name": "Label 145"
+                    },
+                    {
+                      "name": "Label 7"
+                    }
+                  ]
+                },
+                "project": {
+                  "name": "Project 30"
+                },
+                "team": {
+                  "key": "ENG"
+                },
+                "title": "Issue title 94",
+                "url": "https://linear.app/acme/issue/ENG-213/issue"
+              },
+              "parent": null,
+              "updatedAt": "2026-11-23T05:55:38.351Z",
+              "url": "https://linear.app/acme/issue/ENG-213/issue#comment-00000047",
+              "user": {
+                "displayName": "user55",
+                "email": "user55@example.com",
+                "id": "00000000-0000-4000-8000-000000000159",
+                "isMe": false,
+                "name": "User 55"
+              }
+            },
+            "createdAt": "2026-11-23T05:55:38.827Z",
+            "id": "00000000-0000-4000-8000-000000000394",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000392",
+              "identifier": "ENG-213",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 3"
+                  },
+                  {
+                    "name": "Label 144"
+                  },
+                  {
+                    "name": "Label 145"
+                  },
+                  {
+                    "name": "Label 7"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 30"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 94",
+              "url": "https://linear.app/acme/issue/ENG-213/issue"
+            },
+            "type": "issueNewComment"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T05:07:17.154Z",
+            "id": "00000000-0000-4000-8000-000000000397",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "createdAt": "2026-11-23T05:01:44.213Z",
+            "id": "00000000-0000-4000-8000-000000000399",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "createdAt": "2026-11-23T05:01:43.168Z",
+            "id": "00000000-0000-4000-8000-000000000400",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "createdAt": "2026-11-23T05:01:37.242Z",
+            "id": "00000000-0000-4000-8000-000000000403",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user110",
+              "email": "user110@example.com",
+              "id": "00000000-0000-4000-8000-000000000335",
+              "isMe": false,
+              "name": "User 110"
+            },
+            "createdAt": "2026-11-23T05:00:56.736Z",
+            "id": "00000000-0000-4000-8000-000000000405",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T04:54:24.013Z",
+            "id": "00000000-0000-4000-8000-000000000406",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T04:48:11.634Z",
+            "id": "00000000-0000-4000-8000-000000000407",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user55",
+              "email": "user55@example.com",
+              "id": "00000000-0000-4000-8000-000000000159",
+              "isMe": false,
+              "name": "User 55"
+            },
+            "comment": {
+              "body": "Text of comment 63.",
+              "createdAt": "2026-11-23T04:18:50.678Z",
+              "id": "00000000-0000-4000-8000-000000000411",
+              "issue": {
+                "id": "00000000-0000-4000-8000-000000000392",
+                "identifier": "ENG-213",
+                "labels": {
+                  "nodes": [
+                    {
+                      "name": "Label 3"
+                    },
+                    {
+                      "name": "Label 144"
+                    },
+                    {
+                      "name": "Label 145"
+                    },
+                    {
+                      "name": "Label 7"
+                    }
+                  ]
+                },
+                "project": {
+                  "name": "Project 30"
+                },
+                "team": {
+                  "key": "ENG"
+                },
+                "title": "Issue title 94",
+                "url": "https://linear.app/acme/issue/ENG-213/issue"
+              },
+              "parent": null,
+              "updatedAt": "2026-11-23T04:18:50.587Z",
+              "url": "https://linear.app/acme/issue/ENG-213/issue#comment-00000048",
+              "user": {
+                "displayName": "user55",
+                "email": "user55@example.com",
+                "id": "00000000-0000-4000-8000-000000000159",
+                "isMe": false,
+                "name": "User 55"
+              }
+            },
+            "createdAt": "2026-11-23T04:18:50.933Z",
+            "id": "00000000-0000-4000-8000-000000000412",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000392",
+              "identifier": "ENG-213",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 3"
+                  },
+                  {
+                    "name": "Label 144"
+                  },
+                  {
+                    "name": "Label 145"
+                  },
+                  {
+                    "name": "Label 7"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 30"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 94",
+              "url": "https://linear.app/acme/issue/ENG-213/issue"
+            },
+            "type": "issueNewComment"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T03:56:00.920Z",
+            "id": "00000000-0000-4000-8000-000000000414",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T03:36:29.718Z",
+            "id": "00000000-0000-4000-8000-000000000415",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T02:57:46.782Z",
+            "id": "00000000-0000-4000-8000-000000000416",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T02:50:21.180Z",
+            "id": "00000000-0000-4000-8000-000000000417",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T02:13:45.110Z",
+            "id": "00000000-0000-4000-8000-000000000418",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-23T02:12:44.057Z",
+            "id": "00000000-0000-4000-8000-000000000419",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user55",
+              "email": "user55@example.com",
+              "id": "00000000-0000-4000-8000-000000000159",
+              "isMe": false,
+              "name": "User 55"
+            },
+            "comment": {
+              "body": "Text of comment 64.",
+              "createdAt": "2026-11-23T00:22:25.142Z",
+              "id": "00000000-0000-4000-8000-000000000423",
+              "issue": {
+                "id": "00000000-0000-4000-8000-000000000392",
+                "identifier": "ENG-213",
+                "labels": {
+                  "nodes": [
+                    {
+                      "name": "Label 3"
+                    },
+                    {
+                      "name": "Label 144"
+                    },
+                    {
+                      "name": "Label 145"
+                    },
+                    {
+                      "name": "Label 7"
+                    }
+                  ]
+                },
+                "project": {
+                  "name": "Project 30"
+                },
+                "team": {
+                  "key": "ENG"
+                },
+                "title": "Issue title 94",
+                "url": "https://linear.app/acme/issue/ENG-213/issue"
+              },
+              "parent": null,
+              "updatedAt": "2026-11-23T00:22:34.421Z",
+              "url": "https://linear.app/acme/issue/ENG-213/issue#comment-00000049",
+              "user": {
+                "displayName": "user55",
+                "email": "user55@example.com",
+                "id": "00000000-0000-4000-8000-000000000159",
+                "isMe": false,
+                "name": "User 55"
+              }
+            },
+            "createdAt": "2026-11-23T00:22:25.427Z",
+            "id": "00000000-0000-4000-8000-000000000424",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000392",
+              "identifier": "ENG-213",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "Label 3"
+                  },
+                  {
+                    "name": "Label 144"
+                  },
+                  {
+                    "name": "Label 145"
+                  },
+                  {
+                    "name": "Label 7"
+                  }
+                ]
+              },
+              "project": {
+                "name": "Project 30"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 94",
+              "url": "https://linear.app/acme/issue/ENG-213/issue"
+            },
+            "type": "issueNewComment"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:18:53.470Z",
+            "id": "00000000-0000-4000-8000-000000000426",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:17:29.997Z",
+            "id": "00000000-0000-4000-8000-000000000427",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:16:47.499Z",
+            "id": "00000000-0000-4000-8000-000000000428",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:16:26.468Z",
+            "id": "00000000-0000-4000-8000-000000000429",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:14:44.067Z",
+            "id": "00000000-0000-4000-8000-000000000430",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:09:10.072Z",
+            "id": "00000000-0000-4000-8000-000000000431",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T22:07:56.599Z",
+            "id": "00000000-0000-4000-8000-000000000432",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T15:29:35.559Z",
+            "id": "00000000-0000-4000-8000-000000000433",
+            "type": "pullRequestCommented"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-22T06:42:54.592Z",
+            "id": "00000000-0000-4000-8000-000000000434",
+            "type": "pullRequestReviewRerequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-21T04:08:46.296Z",
+            "id": "00000000-0000-4000-8000-000000000435",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-20T16:10:29.954Z",
+            "id": "00000000-0000-4000-8000-000000000436",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user59",
+              "email": "user59@example.com",
+              "id": "00000000-0000-4000-8000-000000000172",
+              "isMe": false,
+              "name": "User 59"
+            },
+            "createdAt": "2026-11-20T15:50:42.281Z",
+            "id": "00000000-0000-4000-8000-000000000437",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-20T14:13:03.743Z",
+            "id": "00000000-0000-4000-8000-000000000439",
+            "type": "pullRequestApproved"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-20T14:07:30.017Z",
+            "id": "00000000-0000-4000-8000-000000000440",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": {
+              "displayName": "user59",
+              "email": "user59@example.com",
+              "id": "00000000-0000-4000-8000-000000000172",
+              "isMe": false,
+              "name": "User 59"
+            },
+            "createdAt": "2026-11-20T14:01:52.194Z",
+            "id": "00000000-0000-4000-8000-000000000442",
+            "type": "pullRequestReviewRequested"
+          },
+          {
+            "__typename": "IssueNotification",
+            "actor": {
+              "displayName": "user139",
+              "email": "User 139",
+              "id": "00000000-0000-4000-8000-000000000443",
+              "isMe": false,
+              "name": "User 139"
+            },
+            "comment": {
+              "body": "Text of comment 65.",
+              "createdAt": "2026-11-20T12:05:45.953Z",
+              "id": "00000000-0000-4000-8000-000000000447",
+              "issue": {
+                "id": "00000000-0000-4000-8000-000000000444",
+                "identifier": "ENG-219",
+                "labels": {
+                  "nodes": []
+                },
+                "project": {
+                  "name": "Project 1"
+                },
+                "team": {
+                  "key": "ENG"
+                },
+                "title": "Issue title 100",
+                "url": "https://linear.app/acme/issue/ENG-219/issue"
+              },
+              "parent": null,
+              "updatedAt": "2026-11-21T04:11:55.140Z",
+              "url": "https://linear.app/acme/issue/ENG-219/issue#comment-0000004a",
+              "user": {
+                "displayName": "user139",
+                "email": "User 139",
+                "id": "00000000-0000-4000-8000-000000000443",
+                "isMe": false,
+                "name": "User 139"
+              }
+            },
+            "createdAt": "2026-11-20T12:05:46.283Z",
+            "id": "00000000-0000-4000-8000-000000000448",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000444",
+              "identifier": "ENG-219",
+              "labels": {
+                "nodes": []
+              },
+              "project": {
+                "name": "Project 1"
+              },
+              "team": {
+                "key": "ENG"
+              },
+              "title": "Issue title 100",
+              "url": "https://linear.app/acme/issue/ENG-219/issue"
+            },
+            "type": "issueNewComment"
+          },
+          {
+            "__typename": "PullRequestNotification",
+            "actor": null,
+            "createdAt": "2026-11-20T11:10:43.319Z",
+            "id": "00000000-0000-4000-8000-000000000449",
+            "type": "pullRequestReviewRequested"
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "00000000-0000-4000-8000-000000000449",
+          "hasNextPage": true
+        }
+      }
+    }
+  }
+}

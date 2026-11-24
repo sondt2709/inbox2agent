@@ -31,6 +31,9 @@ Tombi. "i2a config schema" prints the schema.
 The items:
   [[accounts]]               one login. Add it with "i2a account add": the
                              token goes to the secret store, not to the file.
+  [[accounts.feeds]]         Linear only: each feed is one conversation
+                             (kind comments or inbox, from, prefix,
+                             projects, labels, teams).
   [[schedules]]              when a space sends (every, days, hours).
   [unsorted]                 the space of each conversation that no space
                              lists; paused = true holds its messages.
@@ -176,7 +179,7 @@ func runDashboard(cmd *cobra.Command, tab tui.TabID) error {
 	}
 	d := tui.Deps{
 		Paths: e.paths, Config: cfg, Secrets: e.secrets, Tab: tab,
-		Check: CheckMattermost, Out: cmd.OutOrStdout(),
+		Check: CheckAccount, Out: cmd.OutOrStdout(),
 		RunNow: func(ctx context.Context, spaces []string) (daemon.RunResult, error) { return runNow(ctx, e, spaces) },
 		Events: daemon.NewClient(e.paths.DataDir).Events,
 		InstallService: func() (string, error) {

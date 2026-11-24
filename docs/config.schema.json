@@ -4,10 +4,73 @@
   "description": "The configuration of i2a. An account connects; each conversation is in one space; a space sends its conversations to one agent on one schedule. Check a file with `i2a config check`.",
   "properties": {
     "accounts": {
-      "description": "The logins to chat tools. An account only connects. Add one with i2a account add, which keeps the token in the secret store.",
+      "description": "The logins to chat and work tools (Mattermost, WhatsApp, Linear). An account only connects. Add one with i2a account add, which keeps the token in the secret store.",
       "items": {
         "additionalProperties": false,
         "properties": {
+          "feeds": {
+            "description": "Linear only: the feeds of the account. Each feed is one conversation.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "description": "The authors (comments) or actors (inbox): me, a display name or an email. Empty: [\"me\"] for comments, anyone for inbox. A comments feed with other people reads more comments on each poll.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "id": {
+                  "description": "The conversation ID of the feed: 1-32 lowercase letters, digits, - or _.",
+                  "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "comments: the issue comments that match. inbox: the Linear notifications of the user that match.",
+                  "enum": [
+                    "comments",
+                    "inbox"
+                  ],
+                  "type": "string"
+                },
+                "labels": {
+                  "description": "The label names of the issue: one of them. Empty: all.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "name": {
+                  "description": "The name that i2a shows. Empty: the ID.",
+                  "type": "string"
+                },
+                "prefix": {
+                  "description": "The text after the leading spaces and @mentions must start with it, for example /agent. Case-sensitive. Empty: no prefix rule. Markdown can change a > or # at the start of a line.",
+                  "type": "string"
+                },
+                "projects": {
+                  "description": "The project names of the issue. Empty: all.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "teams": {
+                  "description": "The team keys of the issue, for example ENG. Empty: all.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "id",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "id": {
             "description": "The stable ID: 1-32 lowercase letters, digits, - or _. The token in the secret store uses it.",
             "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
@@ -18,10 +81,11 @@
             "type": "string"
           },
           "platform": {
-            "description": "The chat tool of the account.",
+            "description": "The chat or work tool of the account.",
             "enum": [
               "mattermost",
-              "whatsapp"
+              "whatsapp",
+              "linear"
             ],
             "type": "string"
           },
@@ -31,11 +95,11 @@
             "type": "string"
           },
           "url": {
-            "description": "The server URL of a Mattermost account, with https:// or http://.",
+            "description": "Mattermost: the server URL, with https:// or http://. Linear: the GraphQL endpoint; empty: https://api.linear.app/graphql.",
             "type": "string"
           },
           "user": {
-            "description": "The Mattermost username. i2a writes it after the connection check.",
+            "description": "Mattermost: the username. Linear: <display name>@<workspace key>. i2a writes it after the connection check.",
             "type": "string"
           }
         },
