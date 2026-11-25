@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,14 @@ func TestValidationErrors(t *testing.T) {
 		{"bad unsorted driver", v3Base + "[unsorted.agent]\ndriver = \"shell\"\n", `unsorted.agent.driver: "shell" is not dry-run or orca`},
 		{"unknown platform", v3Base + "[[accounts]]\nid = \"chat\"\nplatform = \"slack\"\n", `account "chat".platform: "slack" is not supported`},
 		{"mattermost needs url", v3Base + "[[accounts]]\nid = \"w2\"\nplatform = \"mattermost\"\n", `account "w2".url: "" must start with https://`},
+		{"linear with no feed", v3Base + "[[accounts]]\nid = \"lin\"\nplatform = \"linear\"\n", `account "lin".feeds: a Linear account needs one feed or more`},
+		{"linear bad kind", v3Base + linearAccount("[[accounts.feeds]]\nid = \"agent\"\nkind = \"issues\"\n"), `account "lin".feeds "agent".kind: "issues" is not comments or inbox`},
+		{"linear same feed", v3Base + linearAccount("[[accounts.feeds]]\nid = \"agent\"\nkind = \"inbox\"\n[[accounts.feeds]]\nid = \"agent\"\nkind = \"inbox\"\n"), `account "lin".feeds "agent": the ID is used two times`},
+		{"linear bad feed id", v3Base + linearAccount("[[accounts.feeds]]\nid = \"Agent X\"\nkind = \"inbox\"\n"), `account "lin".feeds[0].id: "Agent X" must be 1-32`},
+		{"linear prefix two lines", v3Base + linearAccount("[[accounts.feeds]]\nid = \"agent\"\nkind = \"comments\"\nprefix = \"/a\\nb\"\n"), `account "lin".feeds "agent".prefix: the prefix must be one line`},
+		{"linear empty label", v3Base + linearAccount("[[accounts.feeds]]\nid = \"agent\"\nkind = \"comments\"\nlabels = [\"\"]\n"), `account "lin".feeds "agent": a list has an empty value`},
+		{"linear bad url", v3Base + "[[accounts]]\nid = \"lin\"\nplatform = \"linear\"\nurl = \"api.linear.app\"\n[[accounts.feeds]]\nid = \"inbox\"\nkind = \"inbox\"\n", `account "lin".url: "api.linear.app" must be empty or start with https://`},
+		{"feed on mattermost", strings.Replace(v3Base, "[[accounts]]\nid = \"phone\"", "[[accounts.feeds]]\nid = \"inbox\"\nkind = \"inbox\"\n[[accounts]]\nid = \"phone\"", 1), `account "work".feeds: only a Linear account has feeds`},
 		{"bad min urgency", v3Base + "[notify]\nmin_urgency = \"urgent\"\n", `notify.min_urgency: "urgent" is not high, normal or low`},
 		{"bad notifier", v3Base + "[notify]\nvia = \"growl\"\n", `notify.via: "growl" is not auto, orca, terminal-notifier or osascript`},
 		{"bad terminal", v3Base + "[notify]\nterminal = \"kitty\"\n", `notify.terminal: "kitty" is not iterm2 or off`},
@@ -122,6 +131,41 @@ func TestValidationErrors(t *testing.T) {
 	}
 	if _, err := Parse([]byte(v3Base)); err != nil {
 		t.Errorf("the base file is not valid: %v", err)
+	}
+}
+
+// linearAccount returns a Linear account entry with the given feeds.
+func linearAccount(feeds string) string {
+	return "[[accounts]]\nid = \"lin\"\nplatform = \"linear\"\n" + feeds
+}
+
+func TestLinearAccountRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	c := Default()
+	c.Accounts = append(c.Accounts, NewLinearAccount("lin"), NewLinearAccount("lin-b"))
+	c.Accounts[0].Feeds[0].Projects = []string{"Bridge"}
+	c.Spaces = []Space{{ID: "triage", Name: "Triage", Agent: NewAgent("triage"), Schedule: "always", Conversations: []Conversation{
+		{Account: "lin", ID: "agent", Read: ReadAll},
+	}}}
+	if err := Save(path, c); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := got.Account("lin")
+	if !ok || len(a.Feeds) != 2 {
+		t.Fatalf("account lin = %+v, want two feeds", a)
+	}
+	if f := a.Feeds[0]; f.ID != "agent" || f.Kind != FeedComments || f.Prefix != "/agent" || !slices.Equal(f.From, []string{FromMe}) || !slices.Equal(f.Projects, []string{"Bridge"}) {
+		t.Errorf("feed agent = %+v", f)
+	}
+	if a.Endpoint() != LinearEndpoint {
+		t.Errorf("Endpoint() = %q, want %q", a.Endpoint(), LinearEndpoint)
+	}
+	if b, _ := got.Account("lin-b"); len(b.Feeds) != 2 || b.Feeds[1].Kind != FeedInbox {
+		t.Errorf("account lin-b = %+v, want its own feeds", b)
 	}
 }
 

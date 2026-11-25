@@ -49,7 +49,20 @@ const (
 const (
 	PlatformMattermost = "mattermost"
 	PlatformWhatsApp   = "whatsapp"
+	PlatformLinear     = "linear"
 )
+
+// Kinds of a Linear feed.
+const (
+	FeedComments = "comments" // the issue comments that match the filter
+	FeedInbox    = "inbox"    // the Linear notifications of the user
+)
+
+// LinearEndpoint is the GraphQL endpoint of a Linear account with no url.
+const LinearEndpoint = "https://api.linear.app/graphql"
+
+// FromMe is the value of Feed.From for the user of the key.
+const FromMe = "me"
 
 // Read levels of a conversation.
 const (
@@ -78,7 +91,7 @@ type Config struct {
 	Version   int        `toml:"version" doc:"The version of the file format. i2a writes 3 and converts 1 and 2." enum:"1,2,3"`
 	Settings  Settings   `toml:"settings" doc:"The message limits of the store."`
 	Notify    Notify     `toml:"notify" doc:"The desktop notifications."`
-	Accounts  []Account  `toml:"accounts" doc:"The logins to chat tools. An account only connects. Add one with i2a account add, which keeps the token in the secret store."`
+	Accounts  []Account  `toml:"accounts" doc:"The logins to chat and work tools (Mattermost, WhatsApp, Linear). An account only connects. Add one with i2a account add, which keeps the token in the secret store."`
 	Schedules []Schedule `toml:"schedules" doc:"When a space sends. A space names one schedule."`
 	Unsorted  Unsorted   `toml:"unsorted" doc:"The built-in space of each conversation that no space lists."`
 	Spaces    []Space    `toml:"spaces" doc:"The groups of conversations that you name. Each space sends its conversations to its own agent on one schedule."`
@@ -112,10 +125,41 @@ const (
 type Account struct {
 	ID        string   `toml:"id" doc:"The stable ID: 1-32 lowercase letters, digits, - or _. The token in the secret store uses it." schema:"required,id"`
 	Name      string   `toml:"name" doc:"The name that i2a shows. Empty: the ID."`
-	Platform  string   `toml:"platform" doc:"The chat tool of the account." enum:"mattermost,whatsapp" schema:"required"`
-	URL       string   `toml:"url,omitempty" doc:"The server URL of a Mattermost account, with https:// or http://."`
-	User      string   `toml:"user,omitempty" doc:"The Mattermost username. i2a writes it after the connection check."`
+	Platform  string   `toml:"platform" doc:"The chat or work tool of the account." enum:"mattermost,whatsapp,linear" schema:"required"`
+	URL       string   `toml:"url,omitempty" doc:"Mattermost: the server URL, with https:// or http://. Linear: the GraphQL endpoint; empty: https://api.linear.app/graphql."`
+	User      string   `toml:"user,omitempty" doc:"Mattermost: the username. Linear: <display name>@<workspace key>. i2a writes it after the connection check."`
 	ReadEvery Duration `toml:"read_every" doc:"The time between two reads of the account. At least 5s. Default: 1m, or 10s for WhatsApp."`
+	Feeds     []Feed   `toml:"feeds,omitempty" doc:"Linear only: the feeds of the account. Each feed is one conversation."`
+}
+
+// Feed is one conversation of a Linear account: the comments or the
+// notifications that match its filter. Its ID is the conversation ID in
+// [[spaces.conversations]].
+type Feed struct {
+	ID       string   `toml:"id" doc:"The conversation ID of the feed: 1-32 lowercase letters, digits, - or _." schema:"required,id"`
+	Name     string   `toml:"name,omitempty" doc:"The name that i2a shows. Empty: the ID."`
+	Kind     string   `toml:"kind" doc:"comments: the issue comments that match. inbox: the Linear notifications of the user that match." enum:"comments,inbox" schema:"required"`
+	From     []string `toml:"from,omitempty" doc:"The authors (comments) or actors (inbox): me, a display name or an email. Empty: [\"me\"] for comments, anyone for inbox. A comments feed with other people reads more comments on each poll."`
+	Prefix   string   `toml:"prefix,omitempty" doc:"The text after the leading spaces and @mentions must start with it, for example /agent. Case-sensitive. Empty: no prefix rule. Markdown can change a > or # at the start of a line."`
+	Projects []string `toml:"projects,omitempty" doc:"The project names of the issue. Empty: all."`
+	Labels   []string `toml:"labels,omitempty" doc:"The label names of the issue: one of them. Empty: all."`
+	Teams    []string `toml:"teams,omitempty" doc:"The team keys of the issue, for example ENG. Empty: all."`
+}
+
+// Title returns the name of the feed, else its ID.
+func (f Feed) Title() string {
+	if f.Name != "" {
+		return f.Name
+	}
+	return f.ID
+}
+
+// Endpoint returns the GraphQL endpoint of a Linear account.
+func (a Account) Endpoint() string {
+	if a.URL != "" {
+		return a.URL
+	}
+	return LinearEndpoint
 }
 
 // Agent tells i2a how to send the batches of one space to an AI agent. Each
@@ -246,6 +290,16 @@ func NewMattermostAccount(id, url string) Account {
 // It reads a local file on each poll, so it reads more often than Mattermost.
 func NewWhatsAppAccount(id string) Account {
 	return Account{ID: id, Name: id, Platform: PlatformWhatsApp, ReadEvery: Duration(10 * time.Second)}
+}
+
+// NewLinearAccount returns a Linear account with the default values and two
+// feeds: agent (the comments of the user that start with /agent) and inbox
+// (the Linear notifications of the user).
+func NewLinearAccount(id string) Account {
+	return Account{ID: id, Name: id, Platform: PlatformLinear, ReadEvery: Duration(time.Minute), Feeds: []Feed{
+		{ID: "agent", Name: "Agent requests", Kind: FeedComments, From: []string{FromMe}, Prefix: "/agent"},
+		{ID: "inbox", Name: "Inbox", Kind: FeedInbox},
+	}}
 }
 
 // ErrNotFound is returned by Load when the file does not exist.
@@ -951,8 +1005,43 @@ func (c *Config) Validate() error {
 				add("%s.url: %q must start with https:// or http://", at, a.URL)
 			}
 		case PlatformWhatsApp:
+		case PlatformLinear:
+			if a.URL != "" && !strings.HasPrefix(a.URL, "https://") && !strings.HasPrefix(a.URL, "http://") {
+				add("%s.url: %q must be empty or start with https:// or http://", at, a.URL)
+			}
+			if len(a.Feeds) == 0 {
+				add("%s.feeds: a Linear account needs one feed or more", at)
+			}
 		default:
-			add("%s.platform: %q is not supported (use mattermost or whatsapp)", at, a.Platform)
+			add("%s.platform: %q is not supported (use mattermost, whatsapp or linear)", at, a.Platform)
+		}
+		if a.Platform != PlatformLinear && len(a.Feeds) > 0 {
+			add("%s.feeds: only a Linear account has feeds", at)
+		}
+		feeds := map[string]bool{}
+		for j, f := range a.Feeds {
+			fat := fmt.Sprintf("%s.feeds[%d]", at, j)
+			if !nameRe.MatchString(f.ID) {
+				add("%s.id: %q must be 1-32 lowercase letters, digits, - or _", fat, f.ID)
+			} else {
+				fat = fmt.Sprintf("%s.feeds %q", at, f.ID)
+			}
+			if feeds[f.ID] {
+				add("%s: the ID is used two times", fat)
+			}
+			feeds[f.ID] = true
+			if f.Kind != FeedComments && f.Kind != FeedInbox {
+				add("%s.kind: %q is not comments or inbox", fat, f.Kind)
+			}
+			if strings.ContainsAny(f.Prefix, "\r\n") {
+				add("%s.prefix: the prefix must be one line", fat)
+			}
+			for _, list := range [][]string{f.From, f.Projects, f.Labels, f.Teams} {
+				if slices.Contains(list, "") {
+					add("%s: a list has an empty value", fat)
+					break
+				}
+			}
 		}
 		if a.ReadEvery < Duration(5*time.Second) {
 			add("%s.read_every: %q is shorter than 5s", at, a.ReadEvery)

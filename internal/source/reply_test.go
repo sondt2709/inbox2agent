@@ -71,3 +71,19 @@ func TestCanReply(t *testing.T) {
 		t.Errorf("gone: %v", err)
 	}
 }
+
+func TestBuildLinear(t *testing.T) {
+	a := config.NewLinearAccount("lin")
+	cfg := &config.Config{Accounts: []config.Account{a}}
+	sec := memSecrets{secrets.TokenKey("lin"): "lin_api_test"}
+	src, err := Build(a, Env{Secrets: sec})
+	if err != nil || src.ID() != "lin" {
+		t.Fatalf("Build = %v, %v, want a Linear source", src, err)
+	}
+	if _, err := Build(a, Env{Secrets: memSecrets{}}); err == nil || !strings.Contains(err.Error(), "read the API key") {
+		t.Errorf("no key: %v", err)
+	}
+	if _, err := BuildReplier(cfg, "lin", Env{Secrets: sec}); !errors.Is(err, ErrCannotReply) {
+		t.Errorf("BuildReplier: %v, want ErrCannotReply", err)
+	}
+}

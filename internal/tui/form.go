@@ -20,7 +20,8 @@ const (
 	kindSecret
 	kindChoice // a segmented control; an on/off switch is a choice of "on" and "off"
 	kindArea
-	kindNote // text only; it does not take the focus
+	kindNote   // text only; it does not take the focus
+	kindButton // a button between the fields; enter, space or a click runs it
 )
 
 const labelWidth = 16
@@ -53,6 +54,12 @@ type formField struct {
 	validate         func(string) error
 	err              string
 	initial          string
+	// pick opens a list for a text field: enter in the field or a click on
+	// its Choose button runs it.
+	pick func() tea.Cmd
+	// run is the action of a button field; danger draws it in red.
+	run    func() tea.Cmd
+	danger bool
 }
 
 func textField(key, label, value, placeholder, help string, validate func(string) error) *formField {
@@ -106,6 +113,14 @@ func areaField(key, label, value, help string, lines int, validate func(string) 
 	return &formField{key: key, label: label, help: help, kind: kindArea, area: a, validate: validate, initial: value}
 }
 
+// buttonField is a button between the fields, for example "+ Add feed".
+func buttonField(key, label string, danger bool, run func() tea.Cmd) *formField {
+	return &formField{key: key, label: label, kind: kindButton, run: run, danger: danger}
+}
+
+// chooseLabel is the button after a text field that opens a list.
+const chooseLabel = "Choose ▾"
+
 func noteField(text string, st lipgloss.Style) *formField {
 	return &formField{kind: kindNote, note: text, noteStyle: st}
 }
@@ -156,12 +171,16 @@ type form struct {
 	kind, id  string
 	base      any
 	overwrite bool // the user chose Overwrite after a conflict
+	changed   bool // a button changed the form (for example a new section)
+
+	feeds []*feedSection // the feed sections of a Linear account form
 }
 
 // item is one focusable part of a form: a field or a button.
 type item struct {
 	field  *formField
 	button int
+	choose bool // the Choose button of the field, after the field
 }
 
 func (fm *form) items() []item {
@@ -169,6 +188,9 @@ func (fm *form) items() []item {
 	for _, f := range fm.fields {
 		if f.focusable() {
 			out = append(out, item{field: f, button: -1})
+			if f.pick != nil {
+				out = append(out, item{field: f, button: -1, choose: true})
+			}
 		}
 	}
 	for i := range fm.buttons {
@@ -192,10 +214,14 @@ func (fm *form) current() item {
 	return its[fm.focus]
 }
 
-// dirty reports whether a field differs from its first value.
+// dirty reports whether a field differs from its first value, or a button
+// changed the form.
 func (fm *form) dirty() bool {
+	if fm.changed {
+		return true
+	}
 	for _, f := range fm.fields {
-		if f.kind != kindNote && f.value() != f.initial {
+		if f.kind != kindNote && f.kind != kindButton && f.value() != f.initial {
 			return true
 		}
 	}
@@ -219,7 +245,7 @@ func (fm *form) setFocus(i int) tea.Cmd {
 		return nil
 	}
 	f := its[fm.focus].field
-	if f == nil {
+	if f == nil || its[fm.focus].choose {
 		return nil
 	}
 	switch f.kind {
@@ -255,7 +281,7 @@ func (fm *form) validate() bool {
 	first := -1
 	for i, it := range fm.items() {
 		f := it.field
-		if f == nil {
+		if f == nil || it.choose {
 			continue
 		}
 		f.err = ""
@@ -308,6 +334,17 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		return func() tea.Msg { return formEsc{} }
 	}
+	if it.choose { // the Choose button of a field: a button
+		switch k {
+		case "enter", "space":
+			return f.pick()
+		case "left", "up":
+			return fm.prev()
+		case "right", "down":
+			return fm.next()
+		}
+		return nil
+	}
 	if f == nil { // a button
 		switch k {
 		case "enter", "space":
@@ -320,6 +357,16 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	switch f.kind {
+	case kindButton:
+		switch k {
+		case "enter", "space":
+			return f.run()
+		case "up", "left":
+			return fm.prev()
+		case "down", "right":
+			return fm.next()
+		}
+		return nil
 	case kindText, kindSecret:
 		switch k {
 		case "enter":
@@ -378,6 +425,10 @@ func (fm *form) click(x, y int) tea.Cmd {
 		switch {
 		case it.field == nil:
 			return tea.Batch(cmd, fm.buttons[it.button].run())
+		case it.field.kind == kindButton:
+			return tea.Batch(cmd, it.field.run())
+		case it.choose:
+			return tea.Batch(cmd, it.field.pick())
 		case z.opt >= 0:
 			it.field.sel = z.opt
 		}
@@ -406,7 +457,8 @@ func (fm *form) render(w, h int) string {
 			lines = append(lines, "")
 			continue
 		}
-		focused := fm.active && cur.field == f
+		focused := fm.active && cur.field == f && !cur.choose
+		chooseFocused := fm.active && cur.field == f && cur.choose
 		top := len(lines)
 		mark, lab := "  ", labelNormal
 		if focused {
@@ -439,8 +491,19 @@ func (fm *form) render(w, h int) string {
 			} else {
 				f.input.SetWidth(0)
 			}
-			lines = append(lines, label+st.Width(ctlW).Render(view))
+			line := label + st.Width(ctlW).Render(view)
 			fm.zones = append(fm.zones, formZone{y: top, x0: 0, x1: labelWidth + ctlW, item: idx, opt: -1})
+			if f.pick != nil {
+				text, st := chooseLabel, btnNormal
+				if chooseFocused {
+					text, st = "▸ "+text, st.Underline(true)
+				}
+				chip := st.Render(text)
+				x := labelWidth + ctlW + 1
+				fm.zones = append(fm.zones, formZone{y: top, x0: x, x1: x + lipgloss.Width(chip), item: idx + 1, opt: -1})
+				line += " " + chip
+			}
+			lines = append(lines, line)
 		case kindChoice:
 			x := labelWidth
 			var segs []string
@@ -459,6 +522,19 @@ func (fm *form) render(w, h int) string {
 				line += faint.Render("  ←/→")
 			}
 			lines = append(lines, line)
+		case kindButton:
+			st := btnNormal
+			if f.danger {
+				st = btnDanger
+			}
+			text := f.label
+			if focused {
+				text = "▸ " + text
+				st = st.Underline(true)
+			}
+			b := st.Render(text)
+			lines = append(lines, strings.Repeat(" ", labelWidth)+b)
+			fm.zones = append(fm.zones, formZone{y: top, x0: labelWidth, x1: labelWidth + lipgloss.Width(b), item: idx, opt: -1})
 		case kindArea:
 			lines = append(lines, label+faint.Render(f.help))
 			f.area.SetWidth(max(20, w-4))
@@ -476,16 +552,19 @@ func (fm *form) render(w, h int) string {
 		switch {
 		case f.err != "":
 			lines = append(lines, strings.Repeat(" ", labelWidth)+errStyle.Render("✗ "+f.err))
-		case focused && f.help != "" && f.kind != kindArea:
+		case (focused || chooseFocused) && f.help != "" && f.kind != kindArea:
 			for _, l := range strings.Split(faint.Width(max(10, w-labelWidth)).Render(f.help), "\n") {
 				lines = append(lines, strings.Repeat(" ", labelWidth)+l)
 			}
 		}
-		if focused {
+		if focused || chooseFocused {
 			focusTop, focusBottom = top, len(lines)
 		}
 		lines = append(lines, "")
 		idx++
+		if f.pick != nil {
+			idx++ // its Choose button
+		}
 	}
 
 	// Buttons

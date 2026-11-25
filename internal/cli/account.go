@@ -16,15 +16,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sondt2709/inbox2agent/internal/config"
+	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/source/linear"
 	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
 func contextBackground() context.Context { return context.Background() }
 
 func newAccountCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "account", Short: "Add, list and remove accounts (logins to chat tools)"}
+	cmd := &cobra.Command{Use: "account", Short: "Add, list and remove accounts (logins to chat and work tools)"}
 	cmd.AddCommand(newAccountAddCmd(), newAccountListCmd(), newAccountRemoveCmd())
 	return cmd
 }
@@ -92,7 +94,77 @@ Example:
 	mm.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read the token from standard input")
 	_ = mm.MarkFlagRequired("id")
 	_ = mm.MarkFlagRequired("url")
-	cmd.AddCommand(mm, newAccountAddWhatsAppCmd())
+	cmd.AddCommand(mm, newAccountAddWhatsAppCmd(), newAccountAddLinearCmd())
+	return cmd
+}
+
+func newAccountAddLinearCmd() *cobra.Command {
+	var id, name, url string
+	var tokenStdin bool
+	cmd := &cobra.Command{
+		Use:   "linear --id <id> --token-stdin",
+		Short: "Add a Linear account with a personal API key",
+		Long: `Add a Linear account. Pipe a personal API key (Linear: Settings > Security &
+access > Personal API keys) to standard input. i2a checks the key with Linear
+before it saves anything. i2a only reads: it never marks a notification as
+read and never writes to Linear.
+
+The account gets two feeds, and each feed is one conversation in Unsorted:
+  agent   your comments that start with /agent, also after a mention of you
+  inbox   your Linear notifications
+Change the feeds in [[accounts.feeds]] of config.toml (see "i2a config schema").
+Add more Linear accounts with other IDs and keys.
+
+Example:
+  printf '%s' "$LINEAR_KEY" | i2a account add linear --id work-linear --token-stdin`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !tokenStdin {
+				return errors.New("pipe the API key to standard input and use --token-stdin")
+			}
+			key, err := readToken(cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
+			e, err := newEnv()
+			if err != nil {
+				return err
+			}
+			cfg, err := e.loadOrDefault()
+			if err != nil {
+				return err
+			}
+			if _, ok := cfg.Account(id); ok {
+				return fmt.Errorf("an account with the ID %q exists. Remove it first with `i2a account remove %s`", id, id)
+			}
+			a := config.NewLinearAccount(id)
+			a.Name, a.URL = or(name, id), url
+			next := *cfg
+			next.Accounts = append(append([]config.Account(nil), cfg.Accounts...), a)
+			if err := next.Validate(); err != nil {
+				return err
+			}
+			user, err := CheckAccount(cmd.Context(), a, key)
+			if err != nil {
+				return err
+			}
+			a.User = user
+			fmt.Fprintf(cmd.OutOrStdout(), "Connected as %s\n", user)
+			if err := e.secrets.Set(secrets.TokenKey(id), key); err != nil {
+				return fmt.Errorf("save the API key in %s: %w", e.secrets.Backend(), err)
+			}
+			if err := addAccount(e.paths.ConfigFile, a); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added account %s to %s with the feeds agent and inbox. They are in Unsorted.\n", id, e.paths.ConfigFile)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "account ID, for example work-linear (required)")
+	cmd.Flags().StringVar(&name, "name", "", "the name that i2a shows (default: the ID)")
+	cmd.Flags().StringVar(&url, "url", "", "the GraphQL endpoint, for a proxy or a test server (default: "+config.LinearEndpoint+")")
+	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read the API key from standard input")
+	_ = cmd.MarkFlagRequired("id")
 	return cmd
 }
 
@@ -120,9 +192,41 @@ func CheckMattermost(ctx context.Context, a config.Account, token string) (strin
 	return user, nil
 }
 
+// CheckAccount checks the token or the API key of an account with its server
+// and returns the value of config.Account.User: the Mattermost username, or
+// <display name>@<workspace key> of Linear.
+func CheckAccount(ctx context.Context, a config.Account, token string) (string, error) {
+	if a.Platform != config.PlatformLinear {
+		return CheckMattermost(ctx, a, token)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	v, err := source.NewLinear(a, token, &http.Client{Timeout: 15 * time.Second}).Check(ctx)
+	if err != nil {
+		return "", fmt.Errorf("cannot connect to Linear: %w", err)
+	}
+	return v.User(), nil
+}
+
+// LinearCatalog reads the names of the workspace of a Linear account for
+// the feed form of the dashboard.
+func LinearCatalog(ctx context.Context, a config.Account, token string) (linear.Catalog, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	c, err := source.NewLinear(a, token, &http.Client{Timeout: 20 * time.Second}).Catalog(ctx)
+	if err != nil {
+		return linear.Catalog{}, fmt.Errorf("cannot read the names from Linear: %w", err)
+	}
+	return c, nil
+}
+
 // accountInfo identifies an account: the server and the username of
-// Mattermost, the phone number and the state of WhatsApp.
+// Mattermost, the user and workspace of Linear, the phone number and the
+// state of WhatsApp.
 func accountInfo(a config.Account, dataDir string) string {
+	if a.Platform == config.PlatformLinear {
+		return a.User
+	}
 	if a.Platform != config.PlatformWhatsApp {
 		if a.User != "" {
 			return a.URL + " as @" + a.User
@@ -225,6 +329,13 @@ type listed struct{ id, kind, name string }
 // the network, WhatsApp from its file.
 func (e *env) listConversations(ctx context.Context, cfg *config.Config, a config.Account) ([]listed, error) {
 	var out []listed
+	if a.Platform == config.PlatformLinear {
+		// The feeds are the conversations; they are in the configuration.
+		for _, f := range a.Feeds {
+			out = append(out, listed{f.ID, inbox.KindChannel, f.Title()})
+		}
+		return out, nil
+	}
 	if a.Platform == config.PlatformWhatsApp {
 		chats, err := whatsapp.ReadChats(ctx, e.paths.DataDir, a.ID)
 		if err != nil {

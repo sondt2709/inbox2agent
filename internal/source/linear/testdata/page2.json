@@ -1,0 +1,99 @@
+{
+  "status": 200,
+  "body": {
+    "data": {
+      "f0": {
+        "nodes": [
+          {
+            "body": "\u003eagent check the status",
+            "createdAt": "2026-11-24T18:56:58.107Z",
+            "id": "00000000-0000-4000-8000-000000000013",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "identifier": "ENG-101",
+              "labels": {
+                "nodes": []
+              },
+              "project": null,
+              "team": {
+                "key": "ENG"
+              },
+              "title": "i2a test: Linear source fixtures",
+              "url": "https://linear.app/acme/issue/ENG-101/issue"
+            },
+            "parent": null,
+            "updatedAt": "2026-11-24T18:56:58.090Z",
+            "url": "https://linear.app/acme/issue/ENG-101/issue#comment-00000004",
+            "user": {
+              "displayName": "me.user",
+              "email": "me.user@example.com",
+              "id": "00000000-0000-4000-8000-000000000001",
+              "isMe": true,
+              "name": "Me User"
+            }
+          },
+          {
+            "body": "https://linear.app/acme/profiles/me.user /agent please check the mention link",
+            "createdAt": "2026-11-24T18:56:57.503Z",
+            "id": "00000000-0000-4000-8000-000000000017",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "identifier": "ENG-101",
+              "labels": {
+                "nodes": []
+              },
+              "project": null,
+              "team": {
+                "key": "ENG"
+              },
+              "title": "i2a test: Linear source fixtures",
+              "url": "https://linear.app/acme/issue/ENG-101/issue"
+            },
+            "parent": null,
+            "updatedAt": "2026-11-24T18:56:57.464Z",
+            "url": "https://linear.app/acme/issue/ENG-101/issue#comment-00000005",
+            "user": {
+              "displayName": "me.user",
+              "email": "me.user@example.com",
+              "id": "00000000-0000-4000-8000-000000000001",
+              "isMe": true,
+              "name": "Me User"
+            }
+          },
+          {
+            "body": "@me.user /agent please check this",
+            "createdAt": "2026-11-24T18:56:56.967Z",
+            "id": "00000000-0000-4000-8000-000000000018",
+            "issue": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "identifier": "ENG-101",
+              "labels": {
+                "nodes": []
+              },
+              "project": null,
+              "team": {
+                "key": "ENG"
+              },
+              "title": "i2a test: Linear source fixtures",
+              "url": "https://linear.app/acme/issue/ENG-101/issue"
+            },
+            "parent": null,
+            "updatedAt": "2026-11-24T18:56:56.925Z",
+            "url": "https://linear.app/acme/issue/ENG-101/issue#comment-00000006",
+            "user": {
+              "displayName": "me.user",
+              "email": "me.user@example.com",
+              "id": "00000000-0000-4000-8000-000000000001",
+              "isMe": true,
+              "name": "Me User"
+            }
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "00000000-0000-4000-8000-000000000018",
+          "hasNextPage": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "status": 401,
+  "body": {
+    "errors": [
+      {
+        "extensions": {
+          "code": "AUTHENTICATION_ERROR",
+          "http": {
+            "status": 401
+          },
+          "meta": {},
+          "statusCode": 401,
+          "type": "authentication error",
+          "userError": true,
+          "userPresentableMessage": "You need to authenticate to access this operation."
+        },
+        "message": "Authentication required, not authenticated"
+      }
+    ]
+  }
+}

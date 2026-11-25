@@ -101,6 +101,8 @@ func platformName(p string) string {
 		return "Mattermost"
 	case config.PlatformWhatsApp:
 		return "WhatsApp"
+	case config.PlatformLinear:
+		return "Linear"
 	}
 	return p
 }
@@ -121,6 +123,13 @@ func (m *model) accountInfo(a config.Account) []string {
 			user = "@" + user
 		}
 		return []string{"Server      " + a.URL, "User        " + orStr(user, "… (checked when i2a lists the conversations)")}
+	case config.PlatformLinear:
+		name, ws := linearUser(orStr(m.mmUsers[a.ID], a.User))
+		lines := []string{"User        " + orStr(name, "… (checked when i2a lists the conversations)")}
+		if ws != "" {
+			lines = append(lines, "Workspace   "+ws)
+		}
+		return lines
 	}
 	return nil
 }
@@ -151,13 +160,14 @@ func (m *model) accountSpaces(id string) string {
 // accountForm edits a saved account.
 func (m *model) accountForm(id string) *form {
 	a, _ := m.u.cfg.Account(id)
-	mm := a.Platform == config.PlatformMattermost
-	mmOnly := func(f *formField) *formField {
-		if !mm {
+	mm, lin := a.Platform == config.PlatformMattermost, a.Platform == config.PlatformLinear
+	only := func(show bool, f *formField) *formField {
+		if !show {
 			f.hidden = func() bool { return true }
 		}
 		return f
 	}
+	mmOnly := func(f *formField) *formField { return only(mm, f) }
 	fm := &form{}
 	for _, l := range m.accountInfo(*a) {
 		st := faint
@@ -173,10 +183,15 @@ func (m *model) accountForm(id string) *form {
 		mmOnly(textField("url", "Server URL", a.URL, "https://chat.example.com", "The address of the Mattermost server.", validURL)),
 		mmOnly(secretField("token", "Token", "stored in the "+m.u.d.Secrets.Backend()+" · type a new token to replace it",
 			"A personal access token. Leave it empty to keep the saved token.", nil)),
+		only(lin, secretField("key", "API key", "stored in the "+m.u.d.Secrets.Backend()+" · type a new key to replace it",
+			"A Linear personal API key. Leave it empty to keep the saved key.", nil)),
 		textField("read", "Read every", a.ReadEvery.String(), "1m",
 			"Advanced. Time between two reads of this account. This is not when the agent gets messages: that is the schedule of each space.",
 			minDuration(5*time.Second)),
 	)
+	if lin {
+		fm.fields = append(fm.fields, m.feedFields(fm, *a)...)
+	}
 	fm.buttons = []button{
 		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveAccount(id) }},
 		{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
@@ -203,6 +218,15 @@ func (m *model) saveAccount(id string) tea.Cmd {
 		a.URL = strings.TrimRight(fm.field("url").value(), "/")
 	}
 	newToken := fm.field("token").value()
+	var removed []string
+	if a.Platform == config.PlatformLinear {
+		newToken = fm.field("key").value()
+		a.Feeds, removed = formFeeds(fm)
+		if len(a.Feeds) == 0 {
+			fm.err = "A Linear account needs one feed or more. Keep a feed or add one."
+			return nil
+		}
+	}
 	commit := func(user string) tea.Cmd {
 		var tokens map[string]string
 		if newToken != "" {
@@ -217,6 +241,7 @@ func (m *model) saveAccount(id string) tea.Cmd {
 				return config.MissingError{Kind: config.KindAccount, ID: id}
 			}
 			*x = *a
+			dropConversations(c, id, removed)
 			return nil
 		}, tokens); err != nil {
 			saveError(fm, err)
@@ -228,7 +253,10 @@ func (m *model) saveAccount(id string) tea.Cmd {
 		m.saved("Saved account " + a.Title() + ".")
 		return m.loadConversations()
 	}
-	if a.Platform != config.PlatformMattermost || newToken == "" && a.URL == cur.URL {
+	switch {
+	case a.Platform == config.PlatformMattermost && (newToken != "" || a.URL != cur.URL):
+	case a.Platform == config.PlatformLinear && newToken != "":
+	default:
 		return commit("")
 	}
 	// A new token or a new server: check the connection before the save.
@@ -242,7 +270,7 @@ func (m *model) saveAccount(id string) tea.Cmd {
 		token = saved
 	}
 	check := *a
-	fm.busy = "Checking the connection to " + a.URL + " ..."
+	fm.busy = "Checking the connection to " + orStr(a.URL, platformName(a.Platform)) + " ..."
 	return m.background(func(ctx context.Context) func() tea.Cmd {
 		user, err := m.u.d.Check(ctx, check, token)
 		return func() tea.Cmd {
@@ -300,10 +328,12 @@ func (m *model) removeAccount(id string) tea.Cmd {
 func (m *model) newAccountForm() *form {
 	u := m.u
 	fm := &form{}
-	kind := choiceField("platform", "Platform", "Mattermost: a server and a personal access token. WhatsApp: i2a becomes a linked device of your phone.",
-		[]string{config.PlatformMattermost, config.PlatformWhatsApp}, []string{"Mattermost", "WhatsApp"}, config.PlatformMattermost)
+	kind := choiceField("platform", "Platform", "Mattermost: a server and a personal access token. WhatsApp: i2a becomes a linked device of your phone. Linear: a personal API key; i2a only reads.",
+		[]string{config.PlatformMattermost, config.PlatformWhatsApp, config.PlatformLinear}, []string{"Mattermost", "WhatsApp", "Linear"}, config.PlatformMattermost)
 	isWA := func() bool { return kind.value() == config.PlatformWhatsApp }
-	mmOnly := func(f *formField) *formField { f.hidden = isWA; return f }
+	isLin := func() bool { return kind.value() == config.PlatformLinear }
+	mmOnly := func(f *formField) *formField { f.hidden = func() bool { return isWA() || isLin() }; return f }
+	linOnly := func(f *formField) *formField { f.hidden = func() bool { return !isLin() }; return f }
 	phone := textField("phone", "Phone number", "", "optional, for example +15551234567",
 		"Empty: scan a QR code. A number in international format: type a pairing code on the phone instead.", validPhone)
 	phone.hidden = func() bool { return !isWA() }
@@ -311,7 +341,7 @@ func (m *model) newAccountForm() *form {
 	warn.hidden = phone.hidden
 	used := func(s string) bool { _, ok := u.cfg.Account(s); return ok }
 	fm.fields = []*formField{
-		noteField("An account only connects. After the connection, its conversations are in Everything else; add them to spaces in Spaces. GitHub and Linear come later.", faint),
+		noteField("An account only connects. After the connection, its conversations are in Everything else; add them to spaces in Spaces. GitHub comes later.", faint),
 		kind,
 		textField("id", "Account ID", newID("work", used), "work", "A short ID that does not change, for example work or phone.", func(s string) error {
 			if used(s) {
@@ -328,6 +358,14 @@ func (m *model) newAccountForm() *form {
 			}
 			return nil
 		})),
+		linOnly(secretField("key", "API key", "personal API key", "Linear: Settings › Security & access › Personal API keys. i2a keeps it in the "+
+			u.d.Secrets.Backend()+", not in config.toml.", func(s string) error {
+			if s == "" {
+				return errors.New("the API key is necessary")
+			}
+			return nil
+		})),
+		linOnly(noteField("The account gets two feeds, each one a conversation: agent (your comments that start with /agent) and inbox (your Linear notifications). After the connection, the account panel shows the feeds and their filters.", faint)),
 		phone,
 		warn,
 	}
@@ -337,6 +375,9 @@ func (m *model) newAccountForm() *form {
 		}
 		if isWA() {
 			return m.startPairing(fm.field("id").value(), fm.field("name").value(), fm.field("phone").value())
+		}
+		if isLin() {
+			return m.connectLinear()
 		}
 		return m.connectAccount()
 	}}}
@@ -360,6 +401,27 @@ func (m *model) connectAccount() tea.Cmd {
 			}
 			a.User = user
 			return m.addAccount(a, tok, "Connected as "+user+". Its conversations are in Everything else: add them to spaces in Spaces.")
+		}
+	})
+}
+
+// connectLinear checks a new Linear account and saves it with its two feeds.
+func (m *model) connectLinear() tea.Cmd {
+	fm := m.form
+	a := config.NewLinearAccount(fm.field("id").value())
+	a.Name = orStr(fm.field("name").value(), a.ID)
+	key := fm.field("key").value()
+	fm.busy = "Connecting to Linear ..."
+	return m.background(func(ctx context.Context) func() tea.Cmd {
+		user, err := m.u.d.Check(ctx, a, key)
+		return func() tea.Cmd {
+			fm.busy = ""
+			if err != nil {
+				fm.err = "Connection failed. Nothing was saved.\n" + err.Error()
+				return nil
+			}
+			a.User = user
+			return m.addAccount(a, key, "Connected as "+user+". Its feeds agent and inbox are in Everything else: add them to spaces in Spaces.")
 		}
 	})
 }
@@ -411,6 +473,14 @@ func (m *model) loadConversations() tea.Cmd {
 			continue
 		}
 		m.chsBusy[a.ID] = true
+		if a.Platform == config.PlatformLinear {
+			// The feeds come from the configuration; the check gives the user.
+			cmds = append(cmds, func() tea.Msg {
+				user, err := m.u.d.Check(m.ctx, a, token)
+				return channelsMsg{account: a.ID, user: user, chs: feedInfos(a), err: err}
+			})
+			continue
+		}
 		cmds = append(cmds, func() tea.Msg {
 			user, err := m.u.d.Check(m.ctx, a, token)
 			if err != nil {

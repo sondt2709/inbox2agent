@@ -7,8 +7,8 @@
 ```
  Mattermost ──┐                                         ┌─► Orca: new session, reused session or new worktree
  WhatsApp   ──┤   i2a daemon ─► inbox.db ─► sanitizer ─►│     (Claude Code, Codex, OpenCode and more)
- (GitHub,     ├─  reads each account,     instruction,   └─► dry-run: writes the digest file only
-  Linear:     │   sends each space on     YAML content,            │
+ Linear     ──┤   reads each account,     instruction,   └─► dry-run: writes the digest file only
+ (GitHub:     │   sends each space on     YAML content,            │
   planned)  ──┘   its schedule            i2a commands             │ the agent runs "i2a card add"
                                                                    ▼
                     you ◄── macOS notification ◄── cards in inbox.db ──► Feed tab of "i2a"
@@ -34,8 +34,8 @@
 
 | Item | What it is |
 |---|---|
-| Account | One login to a chat tool: a Mattermost server and token, or a WhatsApp linked device. It only connects. |
-| Conversation | One direct conversation, group or channel of an account. `i2a` finds them. Each conversation is in one space or more, with a read level in each. |
+| Account | One login to a chat or work tool: a Mattermost server and token, a WhatsApp linked device, or a Linear API key. It only connects. |
+| Conversation | One direct conversation, group or channel of an account, or one feed of a Linear account. `i2a` finds them; you write the Linear feeds. Each conversation is in one space or more, with a read level in each. |
 | Space | Your own group of conversations, for example a company, a project or personal. It can hold conversations from many accounts. It has its own agent: how `i2a` sends its batches (the driver, the agent CLI, the folder, the session mode), and its instruction to the agent. It sends on one schedule. A paused space does not send; its messages wait. Each space has its own session. |
 | Schedule | When a space sends: every 15 minutes, on some days, between some hours. |
 
@@ -67,7 +67,8 @@ A card goes to the space of the agent that wrote it (the space of its terminal),
 | WhatsApp account (linked device) and `i2a download` for its files | Available |
 | Release binaries for macOS and Linux (amd64, arm64) | Available |
 | Homebrew package | Planned |
-| GitHub and Linear accounts | Planned |
+| Linear account (personal API key): your comments that start with a prefix such as `/agent`, and your Linear inbox | Available |
+| GitHub accounts, replies to Linear | Planned |
 | OAuth sign-in, direct `claude` / `codex` / `opencode` drivers | Planned |
 
 `i2a` runs on macOS. The binary also builds for Linux, but the background service is macOS only.
@@ -238,6 +239,53 @@ How it works:
 - The phone removes a linked device that is offline for about 14 days. Then the account shows "not paired", the daemon shows one notification, and you remove the account and add it again.
 - `i2a` sends delivery receipts (two grey ticks), as each linked device does. It never sends read receipts (blue ticks), so the chats stay unread on the phone.
 
+## Linear
+
+A Linear account reads Linear with a personal API key. It needs no public server: `i2a` asks the Linear GraphQL API for new items at each `read_every` (default `1m`, at least `5s`). Linear webhooks need a public HTTPS URL, so `i2a` does not use them.
+
+The main use: you write a Linear comment such as `@you /agent please check this`, and the agent of a space gets it. Linear sends you no notification for your own comment, so `i2a` reads the comments directly.
+
+To add a Linear account:
+
+1. In Linear, open Settings › Security & access › Personal API keys, and make a key.
+2. Run `i2a config`. Click **Setup**, press `enter`, set Platform to Linear (`→` two times), type an account ID and the key, and press `ctrl+s`. Or pipe the key to `i2a account add linear --id work-linear --token-stdin`.
+3. The account gets two feeds, each one a conversation in Everything else: `agent` (your comments that start with `/agent`) and `inbox` (your Linear notifications). Add them to spaces in Spaces.
+
+To change the filters of a feed, or to add a feed:
+
+1. In Setup › Accounts, select the Linear account. The panel shows each feed under the account fields: Name, Kind, From, Prefix, Projects, Labels, Teams, and **Remove feed**. **+ Add feed** is under the last feed.
+2. In From, Projects, Labels or Teams, click **Choose ▾** (or move to it with `tab` and press `enter`) to see the names of your workspace. Type to search, press `enter` to go to the list, press `space` to check a name, then click **OK** (or press `enter`). **Cancel** (`esc`) closes the list with no change. You can also type names separated by commas.
+3. Click **Save changes** (`ctrl+s`). A new feed is a new conversation in Everything else; a removed feed leaves all spaces.
+
+Add more Linear accounts with other IDs and keys, for example one for each workspace. The feeds are in `config.toml`:
+
+```toml
+[[accounts]]
+id = "work-linear"
+platform = "linear"
+read_every = "30s"
+
+[[accounts.feeds]]
+id = "agent"            # the conversation ID in [[spaces.conversations]]
+name = "Agent requests"
+kind = "comments"       # comments: the issue comments that match; inbox: your notifications
+from = ["me"]           # "me", a display name or an email; empty: me for comments, anyone for inbox
+prefix = "/agent"       # the text after the leading spaces and @mentions starts with it
+projects = ["Bridge"]   # project names; empty: all
+labels = []             # label names of the issue (one of them); empty: all
+teams = []              # team keys, for example ENG; empty: all
+
+[[accounts.feeds]]
+id = "inbox"
+kind = "inbox"
+```
+
+- Names compare without case; the prefix compares with case. Markdown can change a `>` or a `#` at the start of a line, so `/agent` is a safe prefix.
+- A message has the feed as its conversation, the issue (for example `ENG-12`) as its thread, and the text `ENG-12 <issue title>`, a blank line, then the comment. A reply to a comment has `reply_to`.
+- Each comment of a `comments` feed is for you. In an `inbox` feed, an assignment, a mention and a review request are for you, so the level `mentions` gives them and `all` gives the whole inbox.
+- When you edit a comment and add the prefix, the next poll finds it. A comment is sent only once.
+- `i2a` sends only queries: it never marks a notification as read and never writes to Linear. The Feed cannot send a reply to a Linear message yet.
+
 ## How it works
 
 1. The daemon reads each account on its `read_every` interval. It collects the messages of each conversation at its read level, and saves them in `inbox.db`.
@@ -265,7 +313,7 @@ The route is chosen when a space sends. If you move a conversation to another sp
 
 A `dry-run` batch is a preview. Its messages become `previewed`, not `sent`. When you change the agent to a real driver, the next batch contains them (if they are newer than `lookback`).
 
-`i2a` uses only read requests to collect messages. It does not mark Mattermost messages as read, and it sends no read receipts to WhatsApp. It writes to Mattermost or WhatsApp only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
+`i2a` uses only read requests to collect messages. It does not mark Mattermost messages or Linear notifications as read, and it sends no read receipts to WhatsApp. It never writes to Linear. It writes to Mattermost or WhatsApp only when you send a reply, or when the agent runs `i2a reply` (see [Replies](#replies)).
 
 ## Configuration
 
@@ -604,6 +652,7 @@ These steps reduce the risk. They do not remove it: an agent can still obey text
 | `i2a status` | Show the paths, accounts, spaces (agent or paused, schedule, next send, waiting messages), schedules, messages and service state |
 | `i2a account add mattermost --id <id> [--name <name>] --url <url> --token-stdin` | Add a Mattermost account from a script |
 | `i2a account add whatsapp --id <id> [--name <name>] [--phone <number>]` | Pair a WhatsApp account in the terminal and add it |
+| `i2a account add linear --id <id> [--name <name>] [--url <endpoint>] --token-stdin` | Add a Linear account with a personal API key and the feeds `agent` and `inbox` |
 | `i2a account list` / `remove <id>` | List the accounts, remove an account |
 | `i2a conversations [--account <id>] [--unsorted] [--json]` | List the conversations with their IDs, spaces and read levels |
 | `i2a service install` / `uninstall` / `status` | Manage the macOS LaunchAgent |
