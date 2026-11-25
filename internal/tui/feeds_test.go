@@ -158,8 +158,20 @@ func TestAddFeedInPanel(t *testing.T) {
 	if !m.form.dirty() || !strings.Contains(screen(m), "New feed · a new conversation in Everything else") {
 		t.Fatalf("+ Add feed did not add a section:\n%s", screen(m))
 	}
-	if it := m.form.current(); it.field == nil || it.field.key != "f2.id" {
-		t.Fatalf("the keyboard is not in the new Feed ID: %+v", it.field)
+	if it := m.form.current(); it.field == nil || it.field.key != "f2.id" || it.field.value() != "" {
+		key, value := "", ""
+		if it.field != nil {
+			key, value = it.field.key, it.field.value()
+		}
+		t.Fatalf("the keyboard is not in an empty new Feed ID: field %q, value %q", key, value)
+	}
+	send(m, "ctrl+s")
+	if f := m.form.field("f2.id"); !strings.Contains(f.err, "type a feed ID") || len(linFeeds(t, m)) != 2 {
+		t.Fatalf("an empty feed ID was saved: %q", f.err)
+	}
+	typeText(m, "bri")
+	if got := m.form.field("f2.id").value(); got != "bri" {
+		t.Fatalf("typing in the new Feed ID gives %q", got)
 	}
 	m.form.field("f2.id").input.SetValue("agent")
 	send(m, "ctrl+s")

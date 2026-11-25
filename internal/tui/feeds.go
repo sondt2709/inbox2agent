@@ -69,10 +69,7 @@ func (m *model) feedFields(fm *form, a config.Account) []*formField {
 	}
 	var add *formField
 	add = buttonField("addfeed", "+ Add feed", false, func() tea.Cmd {
-		used := func(s string) bool {
-			return slices.ContainsFunc(a.Feeds, func(x config.Feed) bool { return x.ID == s })
-		}
-		f := config.Feed{ID: newID("feed", used), Kind: config.FeedComments, From: []string{config.FromMe}}
+		f := config.Feed{Kind: config.FeedComments, From: []string{config.FromMe}}
 		fields := m.feedSection(fm, a, f, true)
 		i := slices.Index(fm.fields, add)
 		fm.fields = slices.Insert(fm.fields, i, fields...)
@@ -105,7 +102,10 @@ func (m *model) feedSection(fm *form, a config.Account, f config.Feed, isNew boo
 	var out []*formField
 	out = append(out, header)
 	if isNew {
-		id := textField(key("id"), "Feed ID", f.ID, "bridge", "A short ID that does not change: the ID of the conversation.", func(s string) error {
+		id := textField(key("id"), "Feed ID", "", "for example bridge", "A short ID that does not change: the ID of the conversation.", func(s string) error {
+			if s == "" {
+				return fmt.Errorf("type a feed ID, for example bridge")
+			}
 			for _, o := range fm.feeds {
 				if o != sec && !o.removed && (o.id == s || o.isNew() && o.field(fm, "id").value() == s) {
 					return fmt.Errorf("the feed %q exists", s)
@@ -113,7 +113,6 @@ func (m *model) feedSection(fm *form, a config.Account, f config.Feed, isNew boo
 			}
 			return validName(s)
 		})
-		id.initial = "" // a new section makes the form dirty
 		out = append(out, id)
 	}
 	namePlaceholder := "empty: " + f.ID
