@@ -175,13 +175,17 @@ func TestS50LinearFeedForm(t *testing.T) {
 		}
 		tm.WaitFor(pattern, time.Second)
 	}
-	tabTo(`▌ Labels`) // the first Labels is the one of the feed agent
+	tabTo(`▌ Labels`)                            // the first Labels is the one of the feed agent
+	tm.Press("Tab", `▸ Choose ▾`, 5*time.Second) // its Choose button is the next stop
 	tm.Press("Enter", `Search ›`, 5*time.Second)
 	tm.WaitFor(`\[ \] Label 1\b`, 10*time.Second) // the names came from the catalog query
+	if s := tm.Screen(); !strings.Contains(s, "OK") || !strings.Contains(s, "Cancel") {
+		t.Fatalf("the names dialog has no OK and Cancel:\n%s", s)
+	}
 	tm.Type("Label 17")
-	tm.WaitFor(`▌ \[ \] Label 17`, 5*time.Second)
-	tm.Press("Enter", `\[x\] Label 17`, 5*time.Second)
-	tm.Press("C-s", `▌ Labels\s+Label 17`, 5*time.Second)
+	tm.Press("Enter", `▌ \[ \] Label 17`, 5*time.Second) // enter goes to the list
+	tm.Press("Space", `\[x\] Label 17`, 5*time.Second)
+	tm.Press("Enter", `Labels\s+Label 17`, 5*time.Second) // enter is OK
 
 	// A new feed with a typed project, with a click on the button.
 	tabTo(`\+ Add feed`)

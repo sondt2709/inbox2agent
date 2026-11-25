@@ -149,9 +149,6 @@ type button struct {
 	run     func() tea.Cmd
 }
 
-// optChoose is the zone option of the Choose button of a text field.
-const optChoose = -2
-
 // formZone is a clickable area of a rendered form, relative to the form origin.
 type formZone struct {
 	y, x0, x1 int
@@ -183,6 +180,7 @@ type form struct {
 type item struct {
 	field  *formField
 	button int
+	choose bool // the Choose button of the field, after the field
 }
 
 func (fm *form) items() []item {
@@ -190,6 +188,9 @@ func (fm *form) items() []item {
 	for _, f := range fm.fields {
 		if f.focusable() {
 			out = append(out, item{field: f, button: -1})
+			if f.pick != nil {
+				out = append(out, item{field: f, button: -1, choose: true})
+			}
 		}
 	}
 	for i := range fm.buttons {
@@ -244,7 +245,7 @@ func (fm *form) setFocus(i int) tea.Cmd {
 		return nil
 	}
 	f := its[fm.focus].field
-	if f == nil {
+	if f == nil || its[fm.focus].choose {
 		return nil
 	}
 	switch f.kind {
@@ -280,7 +281,7 @@ func (fm *form) validate() bool {
 	first := -1
 	for i, it := range fm.items() {
 		f := it.field
-		if f == nil {
+		if f == nil || it.choose {
 			continue
 		}
 		f.err = ""
@@ -333,6 +334,17 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		return func() tea.Msg { return formEsc{} }
 	}
+	if it.choose { // the Choose button of a field: a button
+		switch k {
+		case "enter", "space":
+			return f.pick()
+		case "left", "up":
+			return fm.prev()
+		case "right", "down":
+			return fm.next()
+		}
+		return nil
+	}
 	if f == nil { // a button
 		switch k {
 		case "enter", "space":
@@ -358,9 +370,6 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 	case kindText, kindSecret:
 		switch k {
 		case "enter":
-			if f.pick != nil {
-				return f.pick()
-			}
 			// Enter in the last field before the buttons submits, as in a web form.
 			if nx := fm.items()[(fm.focus+1)%len(fm.items())]; nx.field == nil {
 				return fm.submit()
@@ -418,7 +427,7 @@ func (fm *form) click(x, y int) tea.Cmd {
 			return tea.Batch(cmd, fm.buttons[it.button].run())
 		case it.field.kind == kindButton:
 			return tea.Batch(cmd, it.field.run())
-		case z.opt == optChoose && it.field.pick != nil:
+		case it.choose:
 			return tea.Batch(cmd, it.field.pick())
 		case z.opt >= 0:
 			it.field.sel = z.opt
@@ -448,7 +457,8 @@ func (fm *form) render(w, h int) string {
 			lines = append(lines, "")
 			continue
 		}
-		focused := fm.active && cur.field == f
+		focused := fm.active && cur.field == f && !cur.choose
+		chooseFocused := fm.active && cur.field == f && cur.choose
 		top := len(lines)
 		mark, lab := "  ", labelNormal
 		if focused {
@@ -484,9 +494,13 @@ func (fm *form) render(w, h int) string {
 			line := label + st.Width(ctlW).Render(view)
 			fm.zones = append(fm.zones, formZone{y: top, x0: 0, x1: labelWidth + ctlW, item: idx, opt: -1})
 			if f.pick != nil {
-				chip := btnNormal.Render(chooseLabel)
+				text, st := chooseLabel, btnNormal
+				if chooseFocused {
+					text, st = "▸ "+text, st.Underline(true)
+				}
+				chip := st.Render(text)
 				x := labelWidth + ctlW + 1
-				fm.zones = append(fm.zones, formZone{y: top, x0: x, x1: x + lipgloss.Width(chip), item: idx, opt: optChoose})
+				fm.zones = append(fm.zones, formZone{y: top, x0: x, x1: x + lipgloss.Width(chip), item: idx + 1, opt: -1})
 				line += " " + chip
 			}
 			lines = append(lines, line)
@@ -538,16 +552,19 @@ func (fm *form) render(w, h int) string {
 		switch {
 		case f.err != "":
 			lines = append(lines, strings.Repeat(" ", labelWidth)+errStyle.Render("✗ "+f.err))
-		case focused && f.help != "" && f.kind != kindArea:
+		case (focused || chooseFocused) && f.help != "" && f.kind != kindArea:
 			for _, l := range strings.Split(faint.Width(max(10, w-labelWidth)).Render(f.help), "\n") {
 				lines = append(lines, strings.Repeat(" ", labelWidth)+l)
 			}
 		}
-		if focused {
+		if focused || chooseFocused {
 			focusTop, focusBottom = top, len(lines)
 		}
 		lines = append(lines, "")
 		idx++
+		if f.pick != nil {
+			idx++ // its Choose button
+		}
 	}
 
 	// Buttons

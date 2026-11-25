@@ -254,7 +254,7 @@ To add a Linear account:
 To change the filters of a feed, or to add a feed:
 
 1. In Setup › Accounts, select the Linear account. The panel shows each feed under the account fields: Name, Kind, From, Prefix, Projects, Labels, Teams, and **Remove feed**. **+ Add feed** is under the last feed.
-2. In From, Projects, Labels or Teams, click **Choose ▾** (or press `enter` in the field) to see the names of your workspace. Type to search, press `enter` to check a name, and `ctrl+s` to apply. You can also type names separated by commas.
+2. In From, Projects, Labels or Teams, click **Choose ▾** (or move to it with `tab` and press `enter`) to see the names of your workspace. Type to search, press `enter` to go to the list, press `space` to check a name, then click **OK** (or press `enter`). **Cancel** (`esc`) closes the list with no change. You can also type names separated by commas.
 3. Click **Save changes** (`ctrl+s`). A new feed is a new conversation in Everything else; a removed feed leaves all spaces.
 
 Add more Linear accounts with other IDs and keys, for example one for each workspace. The feeds are in `config.toml`:

@@ -121,7 +121,7 @@ func (m *model) feedSection(fm *form, a config.Account, f config.Feed, isNew boo
 	}
 	list := func(k, label, placeholder, help string, values []string) *formField {
 		fd := textField(key(k), label, strings.Join(values, ", "), placeholder,
-			help+" Names separated by commas, or Choose (enter) for the names of the workspace.", nil)
+			help+" Names separated by commas, or Choose for the names of the workspace.", nil)
 		fd.pick = func() tea.Cmd { return m.openNames(a.ID, fd, k) }
 		return fd
 	}
@@ -297,14 +297,16 @@ func (m *model) openNames(acc string, fd *formField, key string) tea.Cmd {
 	in.Placeholder = "type to filter or to add a name"
 	in.CharLimit = 200
 	values := splitNames(fd.value())
-	d := &namesDialog{name: fd.label, field: fd, values: values, first: slices.Clone(values),
+	d := &namesDialog{name: fd.label, field: fd, values: values, first: slices.Clone(values), typing: true, btnY: -1,
 		items: func() ([]nameItem, string) { return m.catalogItems(acc, key) }, input: in}
 	m.openDialog(d)
 	return tea.Batch(d.input.Focus(), m.loadCatalog(acc))
 }
 
-// namesDialog chooses names with check marks. Typing filters the rows,
-// enter switches the check mark, ctrl+s applies the names to the field.
+// namesDialog chooses names with check marks. It has the keys and the
+// buttons of the add dialog (searchDialog): the search line has the keyboard
+// first; enter, ↓ or tab go to the list; space or a click checks a row; enter
+// or OK applies the names to the field; esc or Cancel closes it.
 type namesDialog struct {
 	name   string
 	field  *formField
@@ -312,10 +314,14 @@ type namesDialog struct {
 	first  []string // the checked names when the dialog opened: their rows come first
 	items  func() ([]nameItem, string)
 	input  textinput.Model
+	typing bool // the search line has the keyboard
+	button int  // the button that has the keyboard: btnNone, btnOK or btnCancel
 	cursor int
 	rowY   int // the body line of the first visible row, from the last view
 	off    int
 	end    int
+	btnY   int       // the body line of the buttons
+	btnX   [2][2]int // the columns of OK and Cancel on that line
 }
 
 // row is one visible row: a name, or the row that adds the typed text.
@@ -395,53 +401,136 @@ func (d *namesDialog) toggle(i int) {
 	}
 }
 
+// apply writes the checked names to the field and closes the dialog.
+func (d *namesDialog) apply(m *model) tea.Cmd {
+	d.field.input.SetValue(strings.Join(d.values, ", "))
+	if d.field.err != "" && d.field.validate != nil && d.field.validate(d.field.value()) == nil {
+		d.field.err = ""
+	}
+	m.closeDialog()
+	return nil
+}
+
 func (d *namesDialog) update(m *model, msg tea.Msg) tea.Cmd {
 	if c, ok := msg.(tea.MouseClickMsg); ok {
-		_, y := m.dialogPoint(d, c.Mouse())
-		if i := d.off + y - d.rowY; c.Mouse().Button == tea.MouseLeft && y >= d.rowY && i < d.end {
-			d.cursor = i
-			d.toggle(i)
-		}
-		return nil
+		return d.click(m, c.Mouse())
 	}
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
 	}
+	if k.String() == "ctrl+s" {
+		return d.apply(m)
+	}
+	if d.button != btnNone {
+		return d.keyButton(m, k.String())
+	}
 	n := len(d.rows())
+	if d.typing {
+		switch k.String() {
+		case "esc":
+			if d.input.Value() != "" {
+				d.input.SetValue("")
+				d.cursor = 0
+				return nil
+			}
+			m.closeDialog()
+			return nil
+		case "enter", "down", "tab":
+			d.typing = false
+			d.input.Blur()
+			d.cursor = 0
+			return nil
+		}
+		before := d.input.Value()
+		var cmd tea.Cmd
+		d.input, cmd = d.input.Update(msg)
+		if d.input.Value() != before {
+			d.cursor = 0
+		}
+		return cmd
+	}
 	switch k.String() {
 	case "esc":
 		m.closeDialog()
-		return nil
-	case "ctrl+s":
-		d.field.input.SetValue(strings.Join(d.values, ", "))
-		if d.field.err != "" && d.field.validate != nil && d.field.validate(d.field.value()) == nil {
-			d.field.err = ""
+	case "/":
+		d.typing = true
+		return d.input.Focus()
+	case "tab":
+		d.button = btnOK
+	case "up", "k":
+		if d.cursor == 0 {
+			d.typing = true
+			return d.input.Focus()
+		}
+		d.cursor--
+	case "down", "j":
+		d.cursor = min(max(0, n-1), d.cursor+1)
+	case "enter":
+		return d.apply(m)
+	case "space", "x":
+		d.toggle(d.cursor)
+	}
+	return nil
+}
+
+// keyButton handles a key while OK or Cancel has the keyboard, as in the add dialog.
+func (d *namesDialog) keyButton(m *model, k string) tea.Cmd {
+	switch k {
+	case "esc":
+		m.closeDialog()
+	case "enter", "space":
+		if d.button == btnOK {
+			return d.apply(m)
 		}
 		m.closeDialog()
-		return nil
-	case "up":
-		d.cursor = max(0, d.cursor-1)
-		return nil
-	case "down":
-		d.cursor = min(max(0, n-1), d.cursor+1)
-		return nil
-	case "enter":
-		d.toggle(d.cursor)
+	case "left", "right", "h", "l":
+		d.button = btnOK + btnCancel - d.button
+	case "tab":
+		if d.button == btnOK {
+			d.button = btnCancel
+			return nil
+		}
+		d.button, d.typing = btnNone, true
+		return d.input.Focus()
+	case "shift+tab":
+		if d.button == btnCancel {
+			d.button = btnOK
+			return nil
+		}
+		d.button = btnNone
+	case "up", "k":
+		d.button = btnNone
+	}
+	return nil
+}
+
+// click runs the button under the mouse, or checks the row, as space does.
+func (d *namesDialog) click(m *model, ms tea.Mouse) tea.Cmd {
+	if ms.Button != tea.MouseLeft {
 		return nil
 	}
-	before := d.input.Value()
-	var cmd tea.Cmd
-	d.input, cmd = d.input.Update(msg)
-	if d.input.Value() != before {
-		d.cursor = 0
+	x, y := m.dialogPoint(d, ms)
+	if y == d.btnY {
+		switch {
+		case x >= d.btnX[0][0] && x < d.btnX[0][1]:
+			return d.apply(m)
+		case x >= d.btnX[1][0] && x < d.btnX[1][1]:
+			m.closeDialog()
+		}
+		return nil
 	}
-	return cmd
+	if i := d.off + y - d.rowY; y >= d.rowY && i < d.end {
+		d.typing, d.button, d.cursor = false, btnNone, i
+		d.input.Blur()
+		d.toggle(i)
+	}
+	return nil
 }
 
 func (d *namesDialog) view(w, h int) string {
 	_, note := d.items()
-	head := []string{faint.Width(w).Render(fmt.Sprintf("%d checked. Enter checks or unchecks a row; ctrl+s applies.", len(d.values)))}
+	head := []string{faint.Width(w).Render(plural(len(d.values), "name", "names") + " checked.")}
 	if note != "" {
 		st := faint
 		if strings.HasPrefix(note, "Cannot") {
@@ -458,13 +547,13 @@ func (d *namesDialog) view(w, h int) string {
 	for i, r := range rows {
 		mark := "[ ] "
 		if d.checked(r.value) {
-			mark = "[x] "
+			mark = okStyle.Render("[x]") + " "
 		}
 		label := mark + r.value
 		if r.add {
 			label = "+ Add \"" + r.value + "\""
 		}
-		if i == d.cursor {
+		if i == d.cursor && !d.typing && d.button == btnNone {
 			lines = append(lines, selectedRow.Width(w).Render(truncate("▌ "+ansi.Strip(label+"  "+r.note), w)))
 			continue
 		}
@@ -473,13 +562,36 @@ func (d *namesDialog) view(w, h int) string {
 	if len(rows) == 0 {
 		lines = append(lines, faint.Render("  No name."))
 	}
-	vis := max(1, h-lipgloss.Height(text))
+	vis := max(1, h-lipgloss.Height(text)-2) // a blank line and the buttons
 	off := scrollTo(d.cursor, 0, vis)
 	end := min(len(lines), off+vis)
 	d.rowY, d.off, d.end = lipgloss.Height(text), off, min(end, len(rows))
-	return text + "\n" + strings.Join(lines[off:end], "\n")
+	body := text + "\n" + strings.Join(lines[off:end], "\n") + "\n"
+	d.btnY = lipgloss.Height(body)
+	var bs []string
+	x := 0
+	for i, b := range []struct {
+		label string
+		st    lipgloss.Style
+	}{{"OK", btnPrimary}, {"Cancel", btnNormal}} {
+		t, st := b.label, b.st
+		if d.button == btnOK+i {
+			t, st = "▸ "+t, st.Underline(true)
+		}
+		r := st.Render(t)
+		d.btnX[i] = [2]int{x, x + lipgloss.Width(r)}
+		bs = append(bs, r)
+		x += lipgloss.Width(r) + 2
+	}
+	return body + "\n" + strings.Join(bs, "  ")
 }
 
 func (d *namesDialog) hints() []hint {
-	return []hint{{"↑↓", "move"}, {"enter", "check"}, {"ctrl+s", "apply"}, {"esc", "cancel"}}
+	switch {
+	case d.button != btnNone:
+		return []hint{{"enter", "choose"}, {"←→", "OK or Cancel"}, {"esc", "cancel"}}
+	case d.typing:
+		return []hint{{"type", "search"}, {"enter ↓", "to the list"}, {"ctrl+s", "OK"}, {"esc", "clear or cancel"}}
+	}
+	return []hint{{"space", "check"}, {"enter", "OK"}, {"esc", "cancel"}, {"tab", "buttons"}, {"/", "search"}}
 }
