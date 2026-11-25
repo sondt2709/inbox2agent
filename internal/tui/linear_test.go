@@ -61,7 +61,7 @@ func TestAddLinearAccount(t *testing.T) {
 	m.buildForm(true)
 	s = screen(m)
 	for _, want := range []string{"User        me.user", "Workspace   acme", "Feed        agent · comments · from me · prefix /agent",
-		"Feed        inbox · inbox", "Edit [[accounts.feeds]] in config.toml", "API key", "2 conversations: Unsorted 2"} {
+		"Feed        inbox · inbox", "Edit feeds (key f)", "API key", "2 conversations: Unsorted 2"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Linear account panel has no %q:\n%s", want, s)
 		}

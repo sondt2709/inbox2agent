@@ -251,7 +251,14 @@ To add a Linear account:
 2. Run `i2a config`. Click **Setup**, press `enter`, set Platform to Linear (`→` two times), type an account ID and the key, and press `ctrl+s`. Or pipe the key to `i2a account add linear --id work-linear --token-stdin`.
 3. The account gets two feeds, each one a conversation in Everything else: `agent` (your comments that start with `/agent`) and `inbox` (your Linear notifications). Add them to spaces in Spaces.
 
-Add more Linear accounts with other IDs and keys, for example one for each workspace. Write the feeds in `config.toml`:
+To change the filters of a feed, or to add a feed:
+
+1. In Setup › Accounts, select the Linear account and press `f` (or **Edit feeds**).
+2. Choose a feed, or **+ New feed**. The form has Name, Kind, From, Prefix, Projects, Labels and Teams.
+3. In From, Projects, Labels or Teams, press `enter` to see the names of your workspace. Type to search, press `enter` to check a name, and `ctrl+s` to apply. You can also type names separated by commas.
+4. Press `ctrl+s` to save the feed. A new feed is a new conversation in Everything else.
+
+Add more Linear accounts with other IDs and keys, for example one for each workspace. The feeds are in `config.toml`:
 
 ```toml
 [[accounts]]

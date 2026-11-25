@@ -19,6 +19,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/inbox"
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/source/linear"
 	"github.com/sondt2709/inbox2agent/internal/source/whatsapp"
 )
 
@@ -205,6 +206,18 @@ func CheckAccount(ctx context.Context, a config.Account, token string) (string, 
 		return "", fmt.Errorf("cannot connect to Linear: %w", err)
 	}
 	return v.User(), nil
+}
+
+// LinearCatalog reads the names of the workspace of a Linear account for
+// the feed form of the dashboard.
+func LinearCatalog(ctx context.Context, a config.Account, token string) (linear.Catalog, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	c, err := source.NewLinear(a, token, &http.Client{Timeout: 20 * time.Second}).Catalog(ctx)
+	if err != nil {
+		return linear.Catalog{}, fmt.Errorf("cannot read the names from Linear: %w", err)
+	}
+	return c, nil
 }
 
 // accountInfo identifies an account: the server and the username of

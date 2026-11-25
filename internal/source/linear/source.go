@@ -38,9 +38,11 @@ type Settings struct {
 	Levels   map[string]string // the read level of each feed that has an entry
 	Default  string            // the read level of the other feeds (unsorted.read)
 	Lookback time.Duration
-	PageSize int          // 0 means pageSize
-	MaxPages int          // 0 means maxPages
-	Log      *slog.Logger // nil means no log
+	PageSize int // 0 means pageSize
+	MaxPages int // 0 means maxPages
+	// CatalogPage is the number of names on one page of Catalog; 0 means catalogPage.
+	CatalogPage int
+	Log         *slog.Logger // nil means no log
 }
 
 // Source collects the comments and the notifications of the feeds of one
@@ -57,6 +59,9 @@ func New(s Settings, client *Client) *Source {
 	}
 	if s.MaxPages <= 0 {
 		s.MaxPages = maxPages
+	}
+	if s.CatalogPage <= 0 {
+		s.CatalogPage = catalogPage
 	}
 	return &Source{s: s, client: client}
 }

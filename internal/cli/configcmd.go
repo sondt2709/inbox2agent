@@ -179,7 +179,7 @@ func runDashboard(cmd *cobra.Command, tab tui.TabID) error {
 	}
 	d := tui.Deps{
 		Paths: e.paths, Config: cfg, Secrets: e.secrets, Tab: tab,
-		Check: CheckAccount, Out: cmd.OutOrStdout(),
+		Check: CheckAccount, Catalog: LinearCatalog, Out: cmd.OutOrStdout(),
 		RunNow: func(ctx context.Context, spaces []string) (daemon.RunResult, error) { return runNow(ctx, e, spaces) },
 		Events: daemon.NewClient(e.paths.DataDir).Events,
 		InstallService: func() (string, error) {

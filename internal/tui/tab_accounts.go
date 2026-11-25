@@ -48,8 +48,12 @@ func validURL(s string) error {
 }
 
 func (m *model) hintsAccounts() []hint {
-	if m.selectedAccount() == nil {
+	a := m.selectedAccount()
+	if a == nil {
 		return []hint{{"↑↓", "move"}, {"enter", "add an account"}}
+	}
+	if a.Platform == config.PlatformLinear {
+		return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"f", "feeds"}, {"x", "remove"}, {"a", "add an account"}}
 	}
 	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "remove"}, {"a", "add an account"}}
 }
@@ -76,6 +80,10 @@ func (m *model) keyAccounts(k string) tea.Cmd {
 		if a := m.selectedAccount(); a != nil {
 			return m.removeAccount(a.ID)
 		}
+	case "f":
+		if a := m.selectedAccount(); a != nil {
+			return m.openFeedList(a.ID)
+		}
 	}
 	return nil
 }
@@ -91,6 +99,12 @@ func (m *model) viewAccounts(w, h int) string {
 	title := "New account"
 	if a := m.selectedAccount(); a != nil {
 		title = a.Title() + " · " + platformName(a.Platform) + " · ID " + a.ID
+		if _, feed, ok := strings.Cut(m.feedForm, "/"); ok && strings.HasPrefix(m.formFor, "feed:") {
+			title = a.Title() + " · new feed"
+			if feed != "+" {
+				title = a.Title() + " · feed " + feed
+			}
+		}
 	}
 	return m.masterDetail("Accounts", items, m.acc, &m.accOff, title, w, h)
 }
@@ -132,7 +146,7 @@ func (m *model) accountInfo(a config.Account) []string {
 		for _, f := range a.Feeds {
 			lines = append(lines, "Feed        "+feedLine(f))
 		}
-		return append(lines, "Edit [[accounts.feeds]] in config.toml to change the feeds.")
+		return append(lines, "Edit feeds (key f) adds a feed or changes its filters: from, prefix, projects, labels, teams.")
 	}
 	return nil
 }
@@ -194,9 +208,14 @@ func (m *model) accountForm(id string) *form {
 	)
 	fm.buttons = []button{
 		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveAccount(id) }},
-		{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
-		{label: "Remove account", danger: true, run: func() tea.Cmd { m.form.deactivate(); return m.removeAccount(id) }},
 	}
+	if lin {
+		fm.buttons = append(fm.buttons, button{label: "Edit feeds", run: func() tea.Cmd { return m.openFeedList(id) }})
+	}
+	fm.buttons = append(fm.buttons,
+		button{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
+		button{label: "Remove account", danger: true, run: func() tea.Cmd { m.form.deactivate(); return m.removeAccount(id) }},
+	)
 	return fm
 }
 
@@ -358,7 +377,7 @@ func (m *model) newAccountForm() *form {
 			}
 			return nil
 		})),
-		linOnly(noteField("The account gets two feeds, each one a conversation: agent (your comments that start with /agent) and inbox (your Linear notifications). Change them in [[accounts.feeds]] of config.toml.", faint)),
+		linOnly(noteField("The account gets two feeds, each one a conversation: agent (your comments that start with /agent) and inbox (your Linear notifications). After the connection, Edit feeds changes them.", faint)),
 		phone,
 		warn,
 	}

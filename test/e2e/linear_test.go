@@ -22,7 +22,8 @@ import (
 
 // linearServer is a fake Linear GraphQL endpoint. It answers with the real
 // responses that internal/source/linear/testdata/capture saved: viewer.json
-// for the key check and poll.json for a poll. It records each query.
+// for the key check, catalog.json for the names of the workspace and
+// poll.json for a poll. It records each query.
 type linearServer struct {
 	*httptest.Server
 	mu      sync.Mutex
@@ -55,8 +56,11 @@ func newLinearServer(t *testing.T) *linearServer {
 		s.queries = append(s.queries, req.Query)
 		s.mu.Unlock()
 		name := "poll.json"
-		if strings.HasPrefix(req.Query, "query Viewer") {
+		switch {
+		case strings.HasPrefix(req.Query, "query Viewer"):
 			name = "viewer.json"
+		case strings.HasPrefix(req.Query, "query Catalog"):
+			name = "catalog.json"
 		}
 		st, body := read(name)
 		w.Header().Set("Content-Type", "application/json")
@@ -140,6 +144,73 @@ func TestS49LinearAgentComments(t *testing.T) {
 		}
 		if strings.Contains(q, "notifications(") {
 			t.Errorf("request %d reads the inbox feed with the level off", i)
+		}
+	}
+}
+
+// TestS50LinearFeedForm: the dashboard changes the filters of a Linear feed
+// and adds a feed. The label comes from the names of the workspace.
+func TestS50LinearFeedForm(t *testing.T) {
+	srv := newLinearServer(t)
+	p := newPerson(t, "S50")
+	add := harness.Start(t, filepath.Join(outRoot, p.id), `printf %s "$KEY" | `+bin+" account add linear --id lin --url "+srv.URL+" --token-stdin",
+		merge(p.env, map[string]string{"KEY": "lin_api_e2e"}))
+	add.WaitFor(`\[exit 0\]`, 30*time.Second)
+
+	tm := p.term("config")
+	tm.WaitFor(`\+ New space`, 30*time.Second)
+	tm.Press("Tab", `Edit feeds \(key f\)`, 5*time.Second) // Spaces → Accounts; the account lin is selected
+	tm.Press("f", `Feeds of lin`, 5*time.Second)
+	tm.Press("Enter", `lin · feed agent`, 5*time.Second)
+	for _, f := range []string{"Kind", "From", "Prefix", "Projects", "Labels"} {
+		tm.Press("Tab", `▌ `+f, 5*time.Second)
+	}
+	tm.Press("Enter", `Search ›`, 5*time.Second)
+	tm.WaitFor(`\[ \] Label 1\b`, 10*time.Second) // the names came from the catalog query
+	tm.Type("Label 17")
+	tm.WaitFor(`▌ \[ \] Label 17`, 5*time.Second)
+	tm.Press("Enter", `\[x\] Label 17`, 5*time.Second)
+	tm.Press("C-s", `▌ Labels\s+Label 17`, 5*time.Second)
+	tm.Press("C-s", `Saved the feed Agent requests`, 10*time.Second)
+	if s := tm.WaitFor(`Feed\s+agent · comments · from me · prefix /agent · labels Label 17`, 5*time.Second); strings.Contains(s, "Search ›") {
+		t.Fatalf("the names dialog is still open:\n%s", s)
+	}
+
+	// A new feed with a typed project.
+	tm.Press("f", `Feeds of lin`, 5*time.Second)
+	tm.Keys("Down", "Down")
+	tm.Press("Enter", `lin · new feed`, 5*time.Second)
+	tm.Replace("bridge")
+	for _, f := range []string{"Name", "Kind", "From", "Prefix"} {
+		tm.Press("Tab", `▌ `+f, 5*time.Second)
+	}
+	tm.Replace(">agent")
+	tm.Press("Tab", `▌ Projects`, 5*time.Second)
+	tm.Type("Project 3, Project 9")
+	tm.Press("C-s", `Added the feed bridge`, 10*time.Second)
+	tm.Keys("q")
+
+	c := p.config()
+	a, ok := c.Account("lin")
+	if !ok || len(a.Feeds) != 3 {
+		t.Fatalf("account lin = %+v", a)
+	}
+	if f := a.Feeds[0]; !slices.Equal(f.Labels, []string{"Label 17"}) || f.Prefix != "/agent" {
+		t.Errorf("feed agent = %+v", f)
+	}
+	if f := a.Feeds[2]; f.ID != "bridge" || f.Kind != config.FeedComments || f.Prefix != ">agent" ||
+		!slices.Equal(f.Projects, []string{"Project 3", "Project 9"}) || !slices.Equal(f.From, []string{"me"}) {
+		t.Errorf("feed bridge = %+v", f)
+	}
+	s, code := p.run("conversations --account lin")
+	if code != 0 || !regexp.MustCompile(`lin\s+bridge\s+channel\s+bridge`).MatchString(s) {
+		t.Errorf("conversations: exit %d:\n%s", code, s)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for i, q := range srv.queries {
+		if !strings.HasPrefix(q, "query ") || strings.Contains(q, "mutation") {
+			t.Errorf("request %d is not only a query:\n%s", i, q)
 		}
 	}
 }

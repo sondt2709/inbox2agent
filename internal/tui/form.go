@@ -53,6 +53,8 @@ type formField struct {
 	validate         func(string) error
 	err              string
 	initial          string
+	// pick opens a list for a text field: enter in the field runs it.
+	pick func() tea.Cmd
 }
 
 func textField(key, label, value, placeholder, help string, validate func(string) error) *formField {
@@ -323,6 +325,9 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 	case kindText, kindSecret:
 		switch k {
 		case "enter":
+			if f.pick != nil {
+				return f.pick()
+			}
 			// Enter in the last field before the buttons submits, as in a web form.
 			if nx := fm.items()[(fm.focus+1)%len(fm.items())]; nx.field == nil {
 				return fm.submit()

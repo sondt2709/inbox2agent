@@ -28,6 +28,10 @@ func formItem(key string) (kind, id string) {
 	switch pre {
 	case "acc":
 		return config.KindAccount, id
+	case "feed":
+		// The feed form checks the whole account: "feed:<account>/<feed>".
+		acc, _, _ := strings.Cut(id, "/")
+		return config.KindAccount, acc
 	case "sch":
 		return config.KindSchedule, id
 	case "spc":

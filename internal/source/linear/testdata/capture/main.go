@@ -6,13 +6,16 @@
 //
 //	go run ./internal/source/linear/testdata/capture -key-file <file> -issue ENG-123
 //
-// It sends the queries of the source (linear.ViewerQuery and
-// linear.PollQuery) and writes one file for each case in
+// It sends the queries of the source (linear.ViewerQuery, linear.PollQuery
+// and linear.CatalogQuery) and writes one file for each case in
 // internal/source/linear/testdata: {"status": <HTTP status>, "body": <JSON>}.
 // The tool replaces each ID, cursor, name, email, team key, project, label,
 // workspace key and URL with a fake value. It keeps the comment bodies of the
 // test issue (with the names replaced) and replaces each other body and title
 // with a neutral text. Read the output before you commit it.
+//
+// -only catalog writes only the names of the workspace (catalog*.json) and
+// needs no -issue.
 package main
 
 import (
@@ -26,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -46,8 +50,9 @@ func main() {
 	since := flag.Duration("since", 7*24*time.Hour, "read the items of this time before now")
 	out := flag.String("out", "internal/source/linear/testdata", "the output folder")
 	endpoint := flag.String("endpoint", config.LinearEndpoint, "the GraphQL endpoint")
+	only := flag.String("only", "", "write only this file, for example catalog.json")
 	flag.Parse()
-	if *keyFile == "" || *issue == "" {
+	if *keyFile == "" || *issue == "" && !strings.HasPrefix(*only, "catalog") {
 		log.Fatal("give -key-file and -issue")
 	}
 	raw, err := os.ReadFile(*keyFile)
@@ -57,6 +62,7 @@ func main() {
 	key := strings.TrimSpace(string(raw))
 	from := time.Now().Add(-*since)
 	var inboxAfter string
+	var catalogNext map[string]any
 
 	cases := map[string]func() (int, []byte){
 		"viewer.json":     func() (int, []byte) { return post(*endpoint, key, linear.ViewerQuery, nil) },
@@ -77,6 +83,22 @@ func main() {
 			return post(*endpoint, key, doc, vars)
 		},
 		// The comments of the user with no prefix rule: replies and other bodies.
+		// The names of the workspace for the feed form, first page of each list.
+		"catalog.json": func() (int, []byte) {
+			return post(*endpoint, key, linear.CatalogQuery, map[string]any{
+				"first": 250, "teams": true, "projects": true, "labels": true, "users": true})
+		},
+		// Two pages of the names, two on each page: the second request reads
+		// only the lists with more pages.
+		"catalog_page1.json": func() (int, []byte) {
+			st, b := post(*endpoint, key, linear.CatalogQuery, map[string]any{
+				"first": 2, "teams": true, "projects": true, "labels": true, "users": true})
+			catalogNext = nextNames(b)
+			return st, b
+		},
+		"catalog_page2.json": func() (int, []byte) {
+			return post(*endpoint, key, linear.CatalogQuery, catalogNext)
+		},
 		"mine.json": func() (int, []byte) {
 			doc, vars := linear.PollQuery([]linear.Part{{Kind: config.FeedComments, Since: from, MeOnly: true}}, 50)
 			return post(*endpoint, key, doc, vars)
@@ -100,6 +122,12 @@ func main() {
 		names = append(names, n)
 	}
 	sort.Strings(names) // page1 before page2
+	if *only != "" {
+		names = slices.DeleteFunc(names, func(n string) bool { return !strings.HasPrefix(n, *only) })
+		if len(names) == 0 {
+			log.Fatalf("no case %s", *only)
+		}
+	}
 	got := map[string]Fixture{}
 	s := newScrubber(*issue)
 	for _, n := range names {
@@ -125,6 +153,25 @@ func main() {
 		}
 		fmt.Printf("%s: HTTP %d, %d bytes\n", n, got[n].Status, len(f))
 	}
+}
+
+// nextNames returns the variables of the next page of a catalog response:
+// each list with more pages gets its end cursor.
+func nextNames(b []byte) map[string]any {
+	var r struct {
+		Data map[string]*linear.Page `json:"data"`
+	}
+	_ = json.Unmarshal(b, &r)
+	vars := map[string]any{"first": 2}
+	for l, field := range map[string]string{"teams": "teams", "projects": "projects", "labels": "issueLabels", "users": "users"} {
+		p := r.Data[field]
+		more := p != nil && p.PageInfo.HasNextPage
+		vars[l] = more
+		if more {
+			vars[l+"After"] = p.PageInfo.EndCursor
+		}
+	}
+	return vars
 }
 
 // endCursor returns the end cursor of part i of a poll response.
@@ -229,9 +276,13 @@ func (s *scrubber) learn(v any, path []string) {
 			}
 		case k == "key" && parent == "team":
 			s.set(t, "ENG")
-		case k == "name" && parent == "project":
+		case k == "key" && hasKey(path, "teams"):
+			s.set(t, fmt.Sprintf("T%d", s.next("teamkey")))
+		case k == "name" && hasKey(path, "teams"):
+			s.set(t, fmt.Sprintf("Team %d", s.next("team")))
+		case k == "name" && (parent == "project" || hasKey(path, "projects")):
 			s.set(t, fmt.Sprintf("Project %d", s.next("project")))
-		case k == "name" && parent == "nodes" && hasKey(path, "labels"):
+		case k == "name" && parent == "nodes" && (hasKey(path, "labels") || hasKey(path, "issueLabels")):
 			s.set(t, fmt.Sprintf("Label %d", s.next("label")))
 		}
 	}

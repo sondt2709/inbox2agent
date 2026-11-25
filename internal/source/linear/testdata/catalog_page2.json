@@ -1,0 +1,53 @@
+{
+  "status": 200,
+  "body": {
+    "data": {
+      "issueLabels": {
+        "nodes": [
+          {
+            "isGroup": false,
+            "name": "Label 3"
+          },
+          {
+            "isGroup": false,
+            "name": "Label 4"
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "00000000-0000-4000-8000-000000000010",
+          "hasNextPage": true
+        }
+      },
+      "projects": {
+        "nodes": [
+          {
+            "name": "Project 3"
+          },
+          {
+            "name": "Project 4"
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "00000000-0000-4000-8000-000000000009",
+          "hasNextPage": true
+        }
+      },
+      "users": {
+        "nodes": [
+          {
+            "active": true,
+            "displayName": "user3"
+          },
+          {
+            "active": true,
+            "displayName": "user4"
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "00000000-0000-4000-8000-000000000011",
+          "hasNextPage": true
+        }
+      }
+    }
+  }
+}

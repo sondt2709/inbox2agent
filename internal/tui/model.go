@@ -117,10 +117,12 @@ type model struct {
 	svcErr     error
 	loaded     bool
 
-	acc, spc, sch, act                int    // cursors of the lists
-	accOff, spcOff, schOff, actOffset int    // first visible rows
-	setupTab                          tabID  // the last section of Setup
-	spaceForm                         string // the space whose agent form the Spaces panel shows; "" for none
+	acc, spc, sch, act                int                      // cursors of the lists
+	accOff, spcOff, schOff, actOffset int                      // first visible rows
+	setupTab                          tabID                    // the last section of Setup
+	spaceForm                         string                   // the space whose agent form the Spaces panel shows; "" for none
+	feedForm                          string                   // "<account>/<feed>" of the feed form in Accounts, "<account>/+" for a new feed; "" for none
+	catalogs                          map[string]*catalogState // the names of each Linear workspace, by account ID
 
 	spcFocus    bool                // the panel of the Spaces area has the keyboard
 	row, rowOff int                 // the cursor and the first visible row of that panel
@@ -178,7 +180,7 @@ func newModel(ctx context.Context, u *ui) *model {
 		ctx: ctx, u: u, now: time.Now, tab: u.d.Tab, feedSort: sortUrgency, feedFocus: focusCards, refs: map[int64]inbox.Message{},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		chs:  map[string][]mattermost.ChannelInfo{}, chsErr: map[string]string{}, chsBusy: map[string]bool{},
-		convSel: map[string]bool{}, mmUsers: map[string]string{}, seen: readSeen(u.d.Paths.DataDir), setupTab: tabAccounts,
+		convSel: map[string]bool{}, mmUsers: map[string]string{}, catalogs: map[string]*catalogState{}, seen: readSeen(u.d.Paths.DataDir), setupTab: tabAccounts,
 	}
 }
 
@@ -302,6 +304,9 @@ func (m *model) formTarget() (string, func() *form) {
 	case tabAccounts:
 		if a := m.selectedAccount(); a != nil {
 			id := a.ID
+			if key, build := m.feedTarget(*a); build != nil {
+				return key, build
+			}
 			return "acc:" + id, func() *form { return m.accountForm(id) }
 		}
 		if m.pair != nil {
@@ -410,6 +415,9 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case channelsMsg:
 		return m.gotChannels(msg)
+	case catalogMsg:
+		m.gotCatalog(msg)
+		return nil
 	case asyncMsg:
 		if msg.id != m.busyID {
 			return nil // cancelled
@@ -424,6 +432,10 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.spin, cmd = m.spin.Update(msg)
 		return cmd
 	case formEsc:
+		if m.feedForm != "" {
+			m.cancelFeedForm()
+			return nil
+		}
 		if m.spaceForm != "" {
 			m.cancelSpaceForm()
 			return nil
@@ -578,6 +590,9 @@ func (m *model) setTab(t tabID) tea.Cmd {
 	m.tab = t
 	if t != tabSpaces {
 		m.spaceForm = "" // the agent form of a space closes when the user leaves the Spaces area
+	}
+	if t != tabAccounts {
+		m.feedForm = ""
 	}
 	clear(m.convSel)
 	if areaOf(t) == areaSetup {

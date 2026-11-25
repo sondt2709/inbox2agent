@@ -31,6 +31,7 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/secrets"
 	"github.com/sondt2709/inbox2agent/internal/service"
 	"github.com/sondt2709/inbox2agent/internal/source"
+	"github.com/sondt2709/inbox2agent/internal/source/linear"
 	"github.com/sondt2709/inbox2agent/internal/store"
 )
 
@@ -82,7 +83,10 @@ type Deps struct {
 	Tab       tabID // the first tab: TabFeed or TabSpaces
 	// Check checks a Mattermost URL and token and returns the username.
 	Check func(ctx context.Context, a config.Account, token string) (string, error)
-	Out   io.Writer
+	// Catalog reads the names of a Linear workspace for the feed form; nil: the
+	// user types the names.
+	Catalog func(ctx context.Context, a config.Account, token string) (linear.Catalog, error)
+	Out     io.Writer
 
 	Copy func(text string) error // copies a card reply; the default runs pbcopy
 	Open func(url string) error  // opens a message link; the default runs open or xdg-open
