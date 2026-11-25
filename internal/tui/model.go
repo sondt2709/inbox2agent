@@ -916,6 +916,8 @@ func (m *model) renderFooter() string {
 		status = st.Render(truncate(m.status, m.w-lipgloss.Width(right)-4))
 	case formActive && (m.replyCard != 0 || m.askCard != 0):
 		hs = []hint{{"tab", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "send"}, {"esc", "cancel"}}
+	case formActive && m.form.current().choose:
+		hs = []hint{{"tab ↑↓", "fields"}, {"enter", "open the list"}, {"ctrl+s", "save"}, {"esc", "back to the list"}}
 	case formActive:
 		hs = []hint{{"tab ↑↓", "fields"}, {"←/→ space", "choose"}, {"ctrl+s", "save"}, {"esc", "back to the list"}}
 	default:

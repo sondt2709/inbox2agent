@@ -347,8 +347,8 @@ func TestChooseIsAKeyboardStop(t *testing.T) {
 	if it := m.form.current(); !it.choose || it.field.key != "f0.labels" || m.topDialog() != nil {
 		t.Fatalf("enter in Labels: choose %v, dialog %v", it.choose, m.topDialog() != nil)
 	}
-	if !strings.Contains(screen(m), "▸ Choose ▾") {
-		t.Errorf("the focused Choose button has no mark:\n%s", screen(m))
+	if s := screen(m); !strings.Contains(s, "▸ Choose ▾") || !strings.Contains(s, "Open the list enter") {
+		t.Errorf("the focused Choose button has no mark or no hint:\n%s", s)
 	}
 	// ↓ and tab go on to the next field; ↑ comes back.
 	send(m, "down")
