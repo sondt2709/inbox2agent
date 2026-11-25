@@ -14,8 +14,10 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/source/linear"
 )
 
-// The feed form edits one feed of a Linear account in the detail panel of
-// Setup › Accounts. It replaces the account form while it is open.
+// The account form of a Linear account shows each feed as a section under
+// the account fields: a header, the fields of the feed and the button
+// "Remove feed <id>". "+ Add feed" adds a section. "Save changes" saves the
+// account and all its feeds.
 
 // catalogState holds the names of one Linear workspace.
 type catalogState struct {
@@ -31,64 +33,174 @@ type catalogMsg struct {
 	err     error
 }
 
-// feedTarget returns the key and the builder of the feed form when it is
-// open for the account a.
-func (m *model) feedTarget(a config.Account) (string, func() *form) {
-	acc, feed, ok := strings.Cut(m.feedForm, "/")
-	if !ok || acc != a.ID {
-		m.feedForm = "" // the selection moved to another account
-		return "", nil
-	}
-	if feed != "+" && !slices.ContainsFunc(a.Feeds, func(f config.Feed) bool { return f.ID == feed }) {
-		m.feedForm = "" // another process removed the feed
-		return "", nil
-	}
-	return "feed:" + m.feedForm, func() *form { return m.feedEditForm(a.ID, feed) }
+// feedSection is the part of the account form for one feed.
+type feedSection struct {
+	id      string // the saved feed ID; "" for a new feed (the field "id" gives it)
+	pre     string // the key prefix of its fields, for example "f0."
+	removed bool
 }
 
-// openFeedList shows the feeds of a Linear account and "+ New feed".
-func (m *model) openFeedList(id string) tea.Cmd {
-	a, ok := m.u.cfg.Account(id)
-	if !ok || a.Platform != config.PlatformLinear {
-		return nil
+func (sec *feedSection) isNew() bool { return sec.id == "" }
+
+func (sec *feedSection) field(fm *form, key string) *formField { return fm.field(sec.pre + key) }
+
+// feedPlace names the spaces that list the feed, else Everything else.
+func (m *model) feedPlace(acc, feed string) string {
+	var names []string
+	for _, s := range m.u.cfg.Spaces {
+		if slices.ContainsFunc(s.Conversations, func(cv config.Conversation) bool { return cv.Account == acc && cv.ID == feed }) {
+			names = append(names, s.Title())
+		}
 	}
-	opts := make([]pickOption, 0, len(a.Feeds)+1)
+	if len(names) == 0 {
+		return "Everything else"
+	}
+	return strings.Join(names, ", ")
+}
+
+// feedFields returns the fields of the feed sections of a Linear account and
+// the button "+ Add feed". The sections go to fm.feeds.
+func (m *model) feedFields(fm *form, a config.Account) []*formField {
+	out := []*formField{
+		noteField("Feeds. Each feed is one conversation. An item goes to a feed when it passes each filter that is not empty; names compare without case.", faint),
+	}
 	for _, f := range a.Feeds {
-		feed := f.ID
-		opts = append(opts, pickOption{label: f.Title(), note: feedLine(f), run: func() tea.Cmd { return m.openFeedForm(id, feed) }})
+		out = append(out, m.feedSection(fm, a, f, false)...)
 	}
-	opts = append(opts, pickOption{label: "+ New feed", note: "a new conversation of this account", run: func() tea.Cmd { return m.openFeedForm(id, "+") }})
-	m.openDialog(&pickDialog{name: "Feeds of " + a.Title(),
-		text: "Each feed is one conversation. Choose a feed to change its filters.", options: opts})
-	return nil
+	var add *formField
+	add = buttonField("addfeed", "+ Add feed", false, func() tea.Cmd {
+		used := func(s string) bool {
+			return slices.ContainsFunc(a.Feeds, func(x config.Feed) bool { return x.ID == s })
+		}
+		f := config.Feed{ID: newID("feed", used), Kind: config.FeedComments, From: []string{config.FromMe}}
+		fields := m.feedSection(fm, a, f, true)
+		i := slices.Index(fm.fields, add)
+		fm.fields = slices.Insert(fm.fields, i, fields...)
+		fm.changed = true
+		// The keyboard goes to the Feed ID of the new section.
+		for j, it := range fm.items() {
+			if it.field == fields[1] {
+				return fm.setFocus(j)
+			}
+		}
+		return nil
+	})
+	return append(out, add)
 }
 
-// openFeedForm shows the form of a feed ("+" for a new feed) and reads the
-// names of the workspace.
-func (m *model) openFeedForm(acc, feed string) tea.Cmd {
-	m.feedForm = acc + "/" + feed
-	m.buildForm(true)
-	return tea.Batch(m.focusForm(), m.loadCatalog(acc))
-}
-
-// closeFeedForm shows the account form again.
-func (m *model) closeFeedForm() {
-	m.feedForm = ""
-	m.buildForm(true)
-}
-
-// cancelFeedForm closes the feed form. When the user changed it, it asks first.
-func (m *model) cancelFeedForm() {
-	if m.form == nil || !m.form.dirty() {
-		m.closeFeedForm()
-		return
+// feedSection returns the fields of one feed. A new feed has the field Feed ID.
+func (m *model) feedSection(fm *form, a config.Account, f config.Feed, isNew bool) []*formField {
+	sec := &feedSection{id: f.ID, pre: fmt.Sprintf("f%d.", len(fm.feeds))}
+	if isNew {
+		sec.id = ""
 	}
-	m.openDialog(&confirmDialog{name: "Unsaved changes", text: "Discard the changes to the feed?",
-		choices: []choice{{"d", "Discard", func() tea.Cmd {
-			m.closeFeedForm()
-			m.setStatus("Changes discarded.", false)
-			return nil
-		}}}})
+	fm.feeds = append(fm.feeds, sec)
+	hidden := func() bool { return sec.removed }
+	key := func(k string) string { return sec.pre + k }
+	head := "Feed " + f.ID + " · its conversation is in " + m.feedPlace(a.ID, f.ID)
+	if isNew {
+		head = "New feed · a new conversation in Everything else"
+	}
+	header := noteField(head, panelTitle)
+	var out []*formField
+	out = append(out, header)
+	if isNew {
+		id := textField(key("id"), "Feed ID", f.ID, "bridge", "A short ID that does not change: the ID of the conversation.", func(s string) error {
+			for _, o := range fm.feeds {
+				if o != sec && !o.removed && (o.id == s || o.isNew() && o.field(fm, "id").value() == s) {
+					return fmt.Errorf("the feed %q exists", s)
+				}
+			}
+			return validName(s)
+		})
+		id.initial = "" // a new section makes the form dirty
+		out = append(out, id)
+	}
+	namePlaceholder := "empty: " + f.ID
+	if isNew {
+		namePlaceholder = "empty: the Feed ID"
+	}
+	list := func(k, label, placeholder, help string, values []string) *formField {
+		fd := textField(key(k), label, strings.Join(values, ", "), placeholder,
+			help+" Names separated by commas, or Choose (enter) for the names of the workspace.", nil)
+		fd.pick = func() tea.Cmd { return m.openNames(a.ID, fd, k) }
+		return fd
+	}
+	out = append(out,
+		textField(key("name"), "Name", f.Name, namePlaceholder, "The name that i2a shows. Empty: the ID.", nil),
+		choiceField(key("kind"), "Kind", "Comments: the comments on issues. Inbox: your Linear notifications.",
+			[]string{config.FeedComments, config.FeedInbox}, []string{"Comments", "Inbox"}, f.Kind),
+		list("from", "From", "me (comments) · anyone (inbox)", "The author of the comment or the person of the notification. me is you.", f.From),
+		textField(key("prefix"), "Prefix", f.Prefix, "empty: any text",
+			"The text after the leading mentions starts with it, with case, for example /agent or >agent.", nil),
+		list("projects", "Projects", "any project", "The project of the issue.", f.Projects),
+		list("labels", "Labels", "any label", "A label of the issue.", f.Labels),
+		list("teams", "Teams", "any team", "The team key of the issue, for example ENG.", f.Teams),
+	)
+	for _, fd := range out {
+		fd.hidden = hidden
+	}
+	var remove *formField
+	label := "Remove feed " + f.ID
+	if isNew {
+		label = "Remove this new feed"
+	}
+	remove = buttonField(key("remove"), label, true, func() tea.Cmd {
+		sec.removed = !sec.removed
+		fm.changed = true
+		if isNew {
+			remove.hidden = hidden // a new section goes away
+			return fm.setFocus(fm.focus)
+		}
+		remove.label, remove.danger = "Remove feed "+f.ID, true
+		header.note, header.noteStyle = head, panelTitle
+		if sec.removed {
+			remove.label, remove.danger = "Keep feed "+f.ID, false
+			header.note, header.noteStyle = "Feed "+f.ID+" · removed when you save, with its entries in all spaces", warnStyle
+		}
+		return nil
+	})
+	header.hidden = nil
+	if isNew {
+		header.hidden = hidden
+	}
+	return append(out, remove)
+}
+
+// formFeeds reads the feeds of the sections that are not removed, and the IDs
+// of the removed feeds.
+func formFeeds(fm *form) (feeds []config.Feed, removed []string) {
+	for _, sec := range fm.feeds {
+		if sec.removed {
+			if !sec.isNew() {
+				removed = append(removed, sec.id)
+			}
+			continue
+		}
+		id := sec.id
+		if sec.isNew() {
+			id = sec.field(fm, "id").value()
+		}
+		feeds = append(feeds, config.Feed{
+			ID: id, Name: sec.field(fm, "name").value(), Kind: sec.field(fm, "kind").value(),
+			From: splitNames(sec.field(fm, "from").value()), Prefix: sec.field(fm, "prefix").value(),
+			Projects: splitNames(sec.field(fm, "projects").value()), Labels: splitNames(sec.field(fm, "labels").value()),
+			Teams: splitNames(sec.field(fm, "teams").value()),
+		})
+	}
+	return feeds, removed
+}
+
+// dropConversations removes the entries of the conversations of the account
+// in all spaces.
+func dropConversations(c *config.Config, acc string, ids []string) {
+	drop := func(list []config.Conversation) []config.Conversation {
+		return slices.DeleteFunc(list, func(cv config.Conversation) bool { return cv.Account == acc && slices.Contains(ids, cv.ID) })
+	}
+	c.Unsorted.Conversations = drop(c.Unsorted.Conversations)
+	for i := range c.Spaces {
+		c.Spaces[i].Conversations = drop(c.Spaces[i].Conversations)
+	}
 }
 
 // loadCatalog reads the names of the workspace of the account one time.
@@ -126,68 +238,6 @@ func (m *model) gotCatalog(msg catalogMsg) {
 	m.catalogs[msg.account] = st
 }
 
-// feedEditForm edits the feed of the account; feed "+" adds a new feed.
-func (m *model) feedEditForm(acc, feed string) *form {
-	a, _ := m.u.cfg.Account(acc)
-	f := config.Feed{Kind: config.FeedComments, From: []string{config.FromMe}}
-	isNew := feed == "+"
-	if !isNew {
-		for _, x := range a.Feeds {
-			if x.ID == feed {
-				f = x
-			}
-		}
-	}
-	used := func(s string) bool {
-		return slices.ContainsFunc(a.Feeds, func(x config.Feed) bool { return x.ID == s })
-	}
-	fm := &form{}
-	what := "Feed " + f.ID + " of " + a.Title() + ". It is one conversation; its ID does not change."
-	if isNew {
-		what = "A new feed of " + a.Title() + ". It is a new conversation in Everything else."
-	}
-	fm.fields = []*formField{
-		noteField(what, faint),
-		noteField("An item goes to the feed when it passes each filter that is not empty. Names compare without case.", faint),
-	}
-	if isNew {
-		fm.fields = append(fm.fields, textField("id", "Feed ID", newID("feed", used), "bridge",
-			"A short ID that does not change: the ID of the conversation.", func(s string) error {
-				if used(s) {
-					return fmt.Errorf("the feed %q exists", s)
-				}
-				return validName(s)
-			}))
-	}
-	kind := choiceField("kind", "Kind", "Comments: the comments on issues. Inbox: your Linear notifications.",
-		[]string{config.FeedComments, config.FeedInbox}, []string{"Comments", "Inbox"}, f.Kind)
-	list := func(key, label, placeholder, help string, values []string) *formField {
-		fd := textField(key, label, strings.Join(values, ", "), placeholder,
-			help+" Names separated by commas. Press enter to choose from the workspace.", nil)
-		fd.pick = func() tea.Cmd { return m.openNames(acc, fm, key) }
-		return fd
-	}
-	fm.fields = append(fm.fields,
-		textField("name", "Name", f.Name, orStr(f.ID, "for example Bridge requests"), "The name that i2a shows. Empty: the ID.", nil),
-		kind,
-		list("from", "From", "me (comments) · anyone (inbox)",
-			"The author of the comment or the person of the notification. me is you.", f.From),
-		textField("prefix", "Prefix", f.Prefix, "empty: any text",
-			"The text after the leading mentions starts with it, with case, for example /agent or >agent.", nil),
-		list("projects", "Projects", "any project", "The project of the issue.", f.Projects),
-		list("labels", "Labels", "any label", "A label of the issue.", f.Labels),
-		list("teams", "Teams", "any team", "The team key of the issue, for example ENG.", f.Teams),
-	)
-	fm.buttons = []button{
-		{label: "Save feed", primary: true, run: func() tea.Cmd { return m.saveFeed(acc, feed) }},
-		{label: "Cancel", run: func() tea.Cmd { return func() tea.Msg { return formEsc{} } }},
-	}
-	if !isNew {
-		fm.buttons = append(fm.buttons, button{label: "Remove feed", danger: true, run: func() tea.Cmd { return m.removeFeed(acc, feed) }})
-	}
-	return fm
-}
-
 // splitNames reads a list field: names separated by commas, each one time.
 func splitNames(s string) []string {
 	var out []string
@@ -198,97 +248,6 @@ func splitNames(s string) []string {
 		}
 	}
 	return out
-}
-
-func (m *model) saveFeed(acc, feed string) tea.Cmd {
-	fm := m.form
-	if !fm.validate() {
-		return nil
-	}
-	isNew := feed == "+"
-	if isNew {
-		feed = fm.field("id").value()
-	}
-	f := config.Feed{
-		ID: feed, Name: fm.field("name").value(), Kind: fm.field("kind").value(),
-		From: splitNames(fm.field("from").value()), Prefix: fm.field("prefix").value(),
-		Projects: splitNames(fm.field("projects").value()), Labels: splitNames(fm.field("labels").value()),
-		Teams: splitNames(fm.field("teams").value()),
-	}
-	if err := m.commitForm(fm, func(c *config.Config) error {
-		a, ok := c.Account(acc)
-		if !ok {
-			return config.MissingError{Kind: config.KindAccount, ID: acc}
-		}
-		i := slices.IndexFunc(a.Feeds, func(x config.Feed) bool { return x.ID == feed })
-		switch {
-		case isNew && i >= 0:
-			return fmt.Errorf("the feed %q exists", feed)
-		case isNew:
-			a.Feeds = append(a.Feeds, f)
-		case i < 0:
-			return fmt.Errorf("the feed %q does not exist", feed)
-		default:
-			a.Feeds[i] = f
-		}
-		return nil
-	}, nil); err != nil {
-		saveError(fm, err)
-		return nil
-	}
-	m.closeFeedForm()
-	if isNew {
-		m.saved("Added the feed " + f.Title() + ". It is in Everything else: add it to a space in Spaces.")
-	} else {
-		m.saved("Saved the feed " + f.Title() + ": " + feedLine(f) + ".")
-	}
-	return nil
-}
-
-// removeFeed asks, then removes the feed and its entries in all spaces.
-func (m *model) removeFeed(acc, feed string) tea.Cmd {
-	a, ok := m.u.cfg.Account(acc)
-	if !ok {
-		return nil
-	}
-	if len(a.Feeds) <= 1 {
-		m.form.err = "A Linear account needs one feed or more. Add another feed before you remove this one."
-		return nil
-	}
-	title := feed
-	for _, f := range a.Feeds {
-		if f.ID == feed {
-			title = f.Title()
-		}
-	}
-	m.openDialog(&confirmDialog{name: "Remove feed " + title,
-		text: "Remove the feed " + title + " of " + a.Title() + " and its entries in all spaces? Its messages that wait are not sent.",
-		choices: []choice{{"y", "Remove", func() tea.Cmd {
-			if err := m.commitForm(m.form, func(c *config.Config) error {
-				x, ok := c.Account(acc)
-				if !ok {
-					return config.MissingError{Kind: config.KindAccount, ID: acc}
-				}
-				x.Feeds = slices.DeleteFunc(x.Feeds, func(f config.Feed) bool { return f.ID == feed })
-				drop := func(list []config.Conversation) []config.Conversation {
-					return slices.DeleteFunc(list, func(cv config.Conversation) bool { return cv.Account == acc && cv.ID == feed })
-				}
-				c.Unsorted.Conversations = drop(c.Unsorted.Conversations)
-				for i := range c.Spaces {
-					c.Spaces[i].Conversations = drop(c.Spaces[i].Conversations)
-				}
-				return nil
-			}, nil); err != nil {
-				if m.form != nil {
-					saveError(m.form, err)
-				}
-				return nil
-			}
-			m.closeFeedForm()
-			m.saved("Removed the feed " + title + ".")
-			return nil
-		}}}})
-	return nil
 }
 
 // ---- the list of names ----
@@ -331,12 +290,9 @@ func (m *model) catalogItems(acc, key string) ([]nameItem, string) {
 	return out, ""
 }
 
-// openNames opens the names dialog of the list field key of the form fm.
-func (m *model) openNames(acc string, fm *form, key string) tea.Cmd {
-	fd := fm.field(key)
-	if fd == nil {
-		return nil
-	}
+// openNames opens the names dialog of the list field fd (key: from,
+// projects, labels or teams).
+func (m *model) openNames(acc string, fd *formField, key string) tea.Cmd {
 	in := textinput.New()
 	in.Prompt = "Search › "
 	in.Placeholder = "type to filter or to add a name"

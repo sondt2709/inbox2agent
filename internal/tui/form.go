@@ -20,7 +20,8 @@ const (
 	kindSecret
 	kindChoice // a segmented control; an on/off switch is a choice of "on" and "off"
 	kindArea
-	kindNote // text only; it does not take the focus
+	kindNote   // text only; it does not take the focus
+	kindButton // a button between the fields; enter, space or a click runs it
 )
 
 const labelWidth = 16
@@ -53,8 +54,12 @@ type formField struct {
 	validate         func(string) error
 	err              string
 	initial          string
-	// pick opens a list for a text field: enter in the field runs it.
+	// pick opens a list for a text field: enter in the field or a click on
+	// its Choose button runs it.
 	pick func() tea.Cmd
+	// run is the action of a button field; danger draws it in red.
+	run    func() tea.Cmd
+	danger bool
 }
 
 func textField(key, label, value, placeholder, help string, validate func(string) error) *formField {
@@ -108,6 +113,14 @@ func areaField(key, label, value, help string, lines int, validate func(string) 
 	return &formField{key: key, label: label, help: help, kind: kindArea, area: a, validate: validate, initial: value}
 }
 
+// buttonField is a button between the fields, for example "+ Add feed".
+func buttonField(key, label string, danger bool, run func() tea.Cmd) *formField {
+	return &formField{key: key, label: label, kind: kindButton, run: run, danger: danger}
+}
+
+// chooseLabel is the button after a text field that opens a list.
+const chooseLabel = "Choose ▾"
+
 func noteField(text string, st lipgloss.Style) *formField {
 	return &formField{kind: kindNote, note: text, noteStyle: st}
 }
@@ -136,6 +149,9 @@ type button struct {
 	run     func() tea.Cmd
 }
 
+// optChoose is the zone option of the Choose button of a text field.
+const optChoose = -2
+
 // formZone is a clickable area of a rendered form, relative to the form origin.
 type formZone struct {
 	y, x0, x1 int
@@ -158,6 +174,9 @@ type form struct {
 	kind, id  string
 	base      any
 	overwrite bool // the user chose Overwrite after a conflict
+	changed   bool // a button changed the form (for example a new section)
+
+	feeds []*feedSection // the feed sections of a Linear account form
 }
 
 // item is one focusable part of a form: a field or a button.
@@ -194,10 +213,14 @@ func (fm *form) current() item {
 	return its[fm.focus]
 }
 
-// dirty reports whether a field differs from its first value.
+// dirty reports whether a field differs from its first value, or a button
+// changed the form.
 func (fm *form) dirty() bool {
+	if fm.changed {
+		return true
+	}
 	for _, f := range fm.fields {
-		if f.kind != kindNote && f.value() != f.initial {
+		if f.kind != kindNote && f.kind != kindButton && f.value() != f.initial {
 			return true
 		}
 	}
@@ -322,6 +345,16 @@ func (fm *form) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	switch f.kind {
+	case kindButton:
+		switch k {
+		case "enter", "space":
+			return f.run()
+		case "up", "left":
+			return fm.prev()
+		case "down", "right":
+			return fm.next()
+		}
+		return nil
 	case kindText, kindSecret:
 		switch k {
 		case "enter":
@@ -383,6 +416,10 @@ func (fm *form) click(x, y int) tea.Cmd {
 		switch {
 		case it.field == nil:
 			return tea.Batch(cmd, fm.buttons[it.button].run())
+		case it.field.kind == kindButton:
+			return tea.Batch(cmd, it.field.run())
+		case z.opt == optChoose && it.field.pick != nil:
+			return tea.Batch(cmd, it.field.pick())
 		case z.opt >= 0:
 			it.field.sel = z.opt
 		}
@@ -444,8 +481,15 @@ func (fm *form) render(w, h int) string {
 			} else {
 				f.input.SetWidth(0)
 			}
-			lines = append(lines, label+st.Width(ctlW).Render(view))
+			line := label + st.Width(ctlW).Render(view)
 			fm.zones = append(fm.zones, formZone{y: top, x0: 0, x1: labelWidth + ctlW, item: idx, opt: -1})
+			if f.pick != nil {
+				chip := btnNormal.Render(chooseLabel)
+				x := labelWidth + ctlW + 1
+				fm.zones = append(fm.zones, formZone{y: top, x0: x, x1: x + lipgloss.Width(chip), item: idx, opt: optChoose})
+				line += " " + chip
+			}
+			lines = append(lines, line)
 		case kindChoice:
 			x := labelWidth
 			var segs []string
@@ -464,6 +508,19 @@ func (fm *form) render(w, h int) string {
 				line += faint.Render("  ←/→")
 			}
 			lines = append(lines, line)
+		case kindButton:
+			st := btnNormal
+			if f.danger {
+				st = btnDanger
+			}
+			text := f.label
+			if focused {
+				text = "▸ " + text
+				st = st.Underline(true)
+			}
+			b := st.Render(text)
+			lines = append(lines, strings.Repeat(" ", labelWidth)+b)
+			fm.zones = append(fm.zones, formZone{y: top, x0: labelWidth, x1: labelWidth + lipgloss.Width(b), item: idx, opt: -1})
 		case kindArea:
 			lines = append(lines, label+faint.Render(f.help))
 			f.area.SetWidth(max(20, w-4))

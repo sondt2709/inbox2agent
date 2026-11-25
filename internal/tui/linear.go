@@ -19,31 +19,6 @@ func feedInfos(a config.Account) []mattermost.ChannelInfo {
 	return out
 }
 
-// feedLine describes a feed in one line, for example
-// "agent · comments · from me · prefix /agent".
-func feedLine(f config.Feed) string {
-	parts := []string{f.ID, f.Kind}
-	from := f.From
-	if len(from) == 0 && f.Kind == config.FeedComments {
-		from = []string{config.FromMe}
-	}
-	if len(from) > 0 {
-		parts = append(parts, "from "+strings.Join(from, ", "))
-	}
-	if f.Prefix != "" {
-		parts = append(parts, "prefix "+f.Prefix)
-	}
-	for _, l := range []struct {
-		name string
-		list []string
-	}{{"projects", f.Projects}, {"labels", f.Labels}, {"teams", f.Teams}} {
-		if len(l.list) > 0 {
-			parts = append(parts, l.name+" "+strings.Join(l.list, ", "))
-		}
-	}
-	return strings.Join(parts, " · ")
-}
-
 // linearUser splits config.Account.User of Linear (<display name>@<workspace key>).
 func linearUser(user string) (name, workspace string) {
 	if i := strings.LastIndex(user, "@"); i > 0 {

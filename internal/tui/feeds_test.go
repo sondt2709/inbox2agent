@@ -13,8 +13,9 @@ import (
 	"github.com/sondt2709/inbox2agent/internal/source/linear"
 )
 
-// newLinearModel adds the Linear account lin with the feeds agent and inbox;
-// the space acme lists the feed inbox. catErr makes the name query fail.
+// newLinearModel adds the Linear account lin with the feeds agent and inbox
+// and selects it in Setup › Accounts; the space acme lists the feed inbox.
+// catErr makes the name query fail.
 func newLinearModel(t *testing.T, catErr error) *model {
 	t.Helper()
 	m := newTestModel(t)
@@ -39,14 +40,14 @@ func newLinearModel(t *testing.T, catErr error) *model {
 		t.Fatal(err)
 	}
 	m.chs["lin"] = feedInfos(a)
-	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 120})
 	at(m, tabAccounts)
 	m.acc = 1
 	m.buildForm(true)
 	return m
 }
 
-// focusField gives the keyboard to the field key of the open form.
+// focusField gives the keyboard to the field key of the form.
 func focusField(t *testing.T, m *model, key string) {
 	t.Helper()
 	m.form.active = true
@@ -56,18 +57,14 @@ func focusField(t *testing.T, m *model, key string) {
 			return
 		}
 	}
-	t.Fatalf("the form has no field %q", key)
+	t.Fatalf("the form has no visible field %q", key)
 }
 
-func pressButton(t *testing.T, m *model, label string) {
+// press runs the button field key, as enter on it does.
+func press(t *testing.T, m *model, key string) {
 	t.Helper()
-	for _, b := range m.form.buttons {
-		if b.label == label {
-			run(m, b.run(), 0)
-			return
-		}
-	}
-	t.Fatalf("the form has no button %q", label)
+	focusField(t, m, key)
+	send(m, "enter")
 }
 
 func linFeeds(t *testing.T, m *model) []config.Feed {
@@ -79,24 +76,26 @@ func linFeeds(t *testing.T, m *model) []config.Feed {
 	return a.Feeds
 }
 
-func TestFeedLabelFromList(t *testing.T) {
+func TestFeedSectionsInPanel(t *testing.T) {
 	m := newLinearModel(t, nil)
 	s := screen(m)
-	for _, want := range []string{"Edit feeds", "Edit feeds (key f) adds a feed or changes its filters"} {
+	for _, want := range []string{"Feed agent · its conversation is in Everything else", "Feed inbox · its conversation is in Acme",
+		"Remove feed agent", "Remove feed inbox", "+ Add feed", "Choose ▾", "Prefix", "/agent", "Save changes"} {
 		if !strings.Contains(s, want) {
-			t.Errorf("the Linear account panel has no %q:\n%s", want, s)
+			t.Errorf("the account panel has no %q:\n%s", want, s)
 		}
 	}
-	send(m, "f")
-	d, ok := m.topDialog().(*pickDialog)
-	if !ok || len(d.options) != 3 || d.options[2].label != "+ New feed" {
-		t.Fatalf("f did not open the feed list: %#v", m.topDialog())
+	if strings.Contains(s, "Edit feeds") || m.topDialog() != nil {
+		t.Errorf("the feeds are behind a button or a dialog:\n%s", s)
 	}
-	send(m, "enter") // the feed agent
-	if m.feedForm != "lin/agent" || m.form == nil || !strings.Contains(screen(m), "Linear · feed agent") {
-		t.Fatalf("enter did not open the feed form of agent: %q\n%s", m.feedForm, screen(m))
+	if m.form.dirty() {
+		t.Error("a new account form is dirty")
 	}
-	focusField(t, m, "labels")
+}
+
+func TestFeedLabelFromList(t *testing.T) {
+	m := newLinearModel(t, nil)
+	focusField(t, m, "f0.labels")
 	send(m, "enter")
 	nd, ok := m.topDialog().(*namesDialog)
 	if !ok {
@@ -110,37 +109,41 @@ func TestFeedLabelFromList(t *testing.T) {
 		t.Fatalf("the search inf shows %v", rows)
 	}
 	send(m, "enter", "ctrl+s")
-	if got := m.form.field("labels").value(); got != "Infra" {
+	if got := m.form.field("f0.labels").value(); got != "Infra" {
 		t.Fatalf("labels field = %q", got)
 	}
-	send(m, "ctrl+s") // Save feed
+	send(m, "ctrl+s") // Save changes
 	if f := linFeeds(t, m)[0]; !slices.Equal(f.Labels, []string{"Infra"}) || f.Prefix != "/agent" || !slices.Equal(f.From, []string{"me"}) {
 		t.Fatalf("saved feed = %+v; form error %q", f, m.form.err)
 	}
+	if !strings.Contains(fileText(t, m), "labels = ['Infra']") || !strings.Contains(m.status, "Saved account Linear.") {
+		t.Errorf("status %q, config.toml:\n%s", m.status, fileText(t, m))
+	}
 	// The checked names come first when the list opens again.
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	focusField(t, m, "labels")
+	focusField(t, m, "f0.labels")
 	send(m, "enter")
 	if rows := m.topDialog().(*namesDialog).rows(); len(rows) != 2 || rows[0].value != "Infra" || rows[1].value != "Bug" {
 		t.Errorf("rows = %v, want Infra first", rows)
 	}
-	send(m, "esc", "esc")
-	if !strings.Contains(fileText(t, m), "labels = ['Infra']") {
-		t.Errorf("config.toml has no labels:\n%s", fileText(t, m))
-	}
-	if m.feedForm != "" || !strings.Contains(screen(m), "Feed        agent · comments · from me · prefix /agent · labels Infra") {
-		t.Errorf("after the save, the account panel does not show the label:\n%s", screen(m))
-	}
 }
 
-func TestFeedTypedProjectsAndTeam(t *testing.T) {
+func TestFeedChooseButton(t *testing.T) {
 	m := newLinearModel(t, nil)
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	m.form.field("projects").input.SetValue("Bridge, Mobile, bridge")
-	focusField(t, m, "teams")
-	send(m, "enter")
+	m.form.field("f0.projects").input.SetValue("Bridge, Mobile, bridge")
+	screen(m) // draw the form, so it has its click zones
+	var zone *formZone
+	for i, z := range m.form.zones {
+		if it := m.form.items()[z.item]; z.opt == optChoose && it.field != nil && it.field.key == "f0.teams" {
+			zone = &m.form.zones[i]
+		}
+	}
+	if zone == nil {
+		t.Fatal("the Teams field has no Choose button")
+	}
+	run(m, m.focusForm(), 0) // a click in the panel gives the keyboard to the form, as model.click does
+	run(m, m.form.click(zone.x0+1, zone.y), 0)
 	if s := screen(m); !strings.Contains(s, "[ ] ENG  Engineering") {
-		t.Fatalf("the team list does not show the key and the name:\n%s", s)
+		t.Fatalf("Choose did not open the team list with the key and the name:\n%s", s)
 	}
 	send(m, "enter", "ctrl+s", "ctrl+s")
 	f := linFeeds(t, m)[0]
@@ -149,30 +152,27 @@ func TestFeedTypedProjectsAndTeam(t *testing.T) {
 	}
 }
 
-func TestNewFeed(t *testing.T) {
+func TestAddFeedInPanel(t *testing.T) {
 	m := newLinearModel(t, nil)
-	send(m, "f", "down", "down", "enter")
-	if m.feedForm != "lin/+" || !strings.Contains(screen(m), "Linear · new feed") {
-		t.Fatalf("+ New feed did not open the form: %q\n%s", m.feedForm, screen(m))
+	press(t, m, "addfeed")
+	if !m.form.dirty() || !strings.Contains(screen(m), "New feed · a new conversation in Everything else") {
+		t.Fatalf("+ Add feed did not add a section:\n%s", screen(m))
 	}
-	if strings.Contains(screen(m), "Remove feed") {
-		t.Error("the form of a new feed has Remove feed")
+	if it := m.form.current(); it.field == nil || it.field.key != "f2.id" {
+		t.Fatalf("the keyboard is not in the new Feed ID: %+v", it.field)
 	}
-	m.form.field("id").input.SetValue("agent")
+	m.form.field("f2.id").input.SetValue("agent")
 	send(m, "ctrl+s")
-	if f := m.form.field("id"); f.err == "" || len(linFeeds(t, m)) != 2 {
+	if f := m.form.field("f2.id"); f.err == "" || len(linFeeds(t, m)) != 2 {
 		t.Fatalf("a used feed ID was saved: %q", f.err)
 	}
-	m.form.field("id").input.SetValue("bridge")
-	m.form.field("prefix").input.SetValue(">agent")
+	m.form.field("f2.id").input.SetValue("bridge")
+	m.form.field("f2.prefix").input.SetValue(">agent")
 	send(m, "ctrl+s")
 	feeds := linFeeds(t, m)
 	if len(feeds) != 3 || feeds[2].ID != "bridge" || feeds[2].Kind != config.FeedComments || feeds[2].Prefix != ">agent" ||
 		!slices.Equal(feeds[2].From, []string{"me"}) {
 		t.Fatalf("feeds = %+v; form error %q", feeds, m.form.err)
-	}
-	if !strings.Contains(m.status, "Added the feed bridge. It is in Everything else") {
-		t.Errorf("status = %q", m.status)
 	}
 	found := false
 	for _, r := range m.convRows() {
@@ -183,42 +183,44 @@ func TestNewFeed(t *testing.T) {
 	if !found {
 		t.Error("the feed bridge is not a conversation in Everything else")
 	}
+	if !strings.Contains(screen(m), "Feed bridge · its conversation is in Everything else") {
+		t.Errorf("the saved feed has no section:\n%s", screen(m))
+	}
 }
 
-func TestRemoveFeed(t *testing.T) {
+func TestRemoveFeedInPanel(t *testing.T) {
 	m := newLinearModel(t, nil)
-	run(m, m.openFeedForm("lin", "inbox"), 0)
-	pressButton(t, m, "Remove feed")
-	if _, ok := m.topDialog().(*confirmDialog); !ok {
-		t.Fatal("Remove feed did not ask")
+	press(t, m, "f1.remove")
+	s := screen(m)
+	if !m.form.dirty() || !strings.Contains(s, "Keep feed inbox") || !strings.Contains(s, "Feed inbox · removed when you save") ||
+		m.form.field("f1.prefix").visible() {
+		t.Fatalf("Remove feed inbox did not mark the section:\n%s", s)
 	}
-	send(m, "y")
+	send(m, "ctrl+s")
 	if feeds := linFeeds(t, m); len(feeds) != 1 || feeds[0].ID != "agent" {
-		t.Fatalf("feeds = %+v", feeds)
+		t.Fatalf("feeds = %+v; form error %q", feeds, m.form.err)
 	}
-	s, _ := m.u.cfg.Space("acme")
-	if slices.ContainsFunc(s.Conversations, func(cv config.Conversation) bool { return cv.Account == "lin" }) {
-		t.Errorf("acme still lists the removed feed: %+v", s.Conversations)
-	}
-	if m.feedForm != "" || !strings.Contains(m.status, "Removed the feed Inbox.") {
-		t.Errorf("feed form %q, status %q", m.feedForm, m.status)
+	sp, _ := m.u.cfg.Space("acme")
+	if slices.ContainsFunc(sp.Conversations, func(cv config.Conversation) bool { return cv.Account == "lin" }) {
+		t.Errorf("acme still lists the removed feed: %+v", sp.Conversations)
 	}
 
 	// The last feed stays.
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	pressButton(t, m, "Remove feed")
+	press(t, m, "f0.remove")
+	send(m, "ctrl+s")
 	if !strings.Contains(m.form.err, "A Linear account needs one feed or more") || len(linFeeds(t, m)) != 1 {
 		t.Fatalf("the last feed: form error %q, feeds %+v", m.form.err, linFeeds(t, m))
 	}
-	if _, ok := m.topDialog().(*confirmDialog); ok {
-		t.Error("the last feed opened the question")
+	// Keep feed undoes the mark.
+	press(t, m, "f0.remove")
+	if !m.form.field("f0.prefix").visible() || !strings.Contains(screen(m), "Remove feed agent") {
+		t.Error("Keep feed agent did not show the section again")
 	}
 }
 
 func TestFeedNamesCannotBeRead(t *testing.T) {
 	m := newLinearModel(t, errors.New("linear: the API key is rejected"))
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	focusField(t, m, "labels")
+	focusField(t, m, "f0.labels")
 	send(m, "enter")
 	if s := screen(m); !strings.Contains(s, "Cannot read the names: linear: the API key is rejected") {
 		t.Fatalf("the names dialog does not show the error:\n%s", s)
@@ -229,34 +231,14 @@ func TestFeedNamesCannotBeRead(t *testing.T) {
 		t.Fatalf("enter on + Add did not check infra:\n%s", s)
 	}
 	send(m, "ctrl+s")
-	if got := m.form.field("labels").value(); got != "infra" {
+	if got := m.form.field("f0.labels").value(); got != "infra" {
 		t.Fatalf("labels field = %q", got)
-	}
-}
-
-func TestFeedFormEscAsks(t *testing.T) {
-	m := newLinearModel(t, nil)
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	send(m, "esc")
-	if m.feedForm != "" || m.formFor != "acc:lin" {
-		t.Fatalf("esc on a clean feed form: feed form %q, form %q", m.feedForm, m.formFor)
-	}
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	m.form.field("prefix").input.SetValue(">agent")
-	send(m, "esc")
-	if _, ok := m.topDialog().(*confirmDialog); !ok || m.feedForm != "lin/agent" {
-		t.Fatalf("esc on a changed feed form did not ask: %q", m.feedForm)
-	}
-	send(m, "d")
-	if m.feedForm != "" || linFeeds(t, m)[0].Prefix != "/agent" {
-		t.Fatalf("discard: feed form %q, prefix %q", m.feedForm, linFeeds(t, m)[0].Prefix)
 	}
 }
 
 func TestFeedFormConflict(t *testing.T) {
 	m := newLinearModel(t, nil)
-	run(m, m.openFeedForm("lin", "agent"), 0)
-	// Another process changes the account after the form opens.
+	// Another process changes a feed after the form opens.
 	if _, _, err := config.Update(m.u.d.Paths.ConfigFile, func(c *config.Config) error {
 		a, _ := c.Account("lin")
 		a.Feeds[1].Labels = []string{"Bug"}
@@ -264,7 +246,8 @@ func TestFeedFormConflict(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	m.form.field("prefix").input.SetValue(">agent")
+	m.form.field("f0.prefix").input.SetValue(">agent")
+	focusField(t, m, "f0.prefix")
 	send(m, "ctrl+s")
 	if d, ok := m.topDialog().(*confirmDialog); !ok || d.name != "Changed in another process" {
 		t.Fatalf("no conflict dialog: %#v", m.topDialog())

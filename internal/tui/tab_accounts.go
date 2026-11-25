@@ -48,12 +48,8 @@ func validURL(s string) error {
 }
 
 func (m *model) hintsAccounts() []hint {
-	a := m.selectedAccount()
-	if a == nil {
+	if m.selectedAccount() == nil {
 		return []hint{{"↑↓", "move"}, {"enter", "add an account"}}
-	}
-	if a.Platform == config.PlatformLinear {
-		return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"f", "feeds"}, {"x", "remove"}, {"a", "add an account"}}
 	}
 	return []hint{{"↑↓", "move"}, {"enter", "edit"}, {"x", "remove"}, {"a", "add an account"}}
 }
@@ -80,10 +76,6 @@ func (m *model) keyAccounts(k string) tea.Cmd {
 		if a := m.selectedAccount(); a != nil {
 			return m.removeAccount(a.ID)
 		}
-	case "f":
-		if a := m.selectedAccount(); a != nil {
-			return m.openFeedList(a.ID)
-		}
 	}
 	return nil
 }
@@ -99,12 +91,6 @@ func (m *model) viewAccounts(w, h int) string {
 	title := "New account"
 	if a := m.selectedAccount(); a != nil {
 		title = a.Title() + " · " + platformName(a.Platform) + " · ID " + a.ID
-		if _, feed, ok := strings.Cut(m.feedForm, "/"); ok && strings.HasPrefix(m.formFor, "feed:") {
-			title = a.Title() + " · new feed"
-			if feed != "+" {
-				title = a.Title() + " · feed " + feed
-			}
-		}
 	}
 	return m.masterDetail("Accounts", items, m.acc, &m.accOff, title, w, h)
 }
@@ -143,10 +129,7 @@ func (m *model) accountInfo(a config.Account) []string {
 		if ws != "" {
 			lines = append(lines, "Workspace   "+ws)
 		}
-		for _, f := range a.Feeds {
-			lines = append(lines, "Feed        "+feedLine(f))
-		}
-		return append(lines, "Edit feeds (key f) adds a feed or changes its filters: from, prefix, projects, labels, teams.")
+		return lines
 	}
 	return nil
 }
@@ -206,16 +189,14 @@ func (m *model) accountForm(id string) *form {
 			"Advanced. Time between two reads of this account. This is not when the agent gets messages: that is the schedule of each space.",
 			minDuration(5*time.Second)),
 	)
+	if lin {
+		fm.fields = append(fm.fields, m.feedFields(fm, *a)...)
+	}
 	fm.buttons = []button{
 		{label: "Save changes", primary: true, run: func() tea.Cmd { return m.saveAccount(id) }},
+		{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
+		{label: "Remove account", danger: true, run: func() tea.Cmd { m.form.deactivate(); return m.removeAccount(id) }},
 	}
-	if lin {
-		fm.buttons = append(fm.buttons, button{label: "Edit feeds", run: func() tea.Cmd { return m.openFeedList(id) }})
-	}
-	fm.buttons = append(fm.buttons,
-		button{label: "Cancel", run: func() tea.Cmd { m.buildForm(true); return nil }},
-		button{label: "Remove account", danger: true, run: func() tea.Cmd { m.form.deactivate(); return m.removeAccount(id) }},
-	)
 	return fm
 }
 
@@ -237,8 +218,14 @@ func (m *model) saveAccount(id string) tea.Cmd {
 		a.URL = strings.TrimRight(fm.field("url").value(), "/")
 	}
 	newToken := fm.field("token").value()
+	var removed []string
 	if a.Platform == config.PlatformLinear {
 		newToken = fm.field("key").value()
+		a.Feeds, removed = formFeeds(fm)
+		if len(a.Feeds) == 0 {
+			fm.err = "A Linear account needs one feed or more. Keep a feed or add one."
+			return nil
+		}
 	}
 	commit := func(user string) tea.Cmd {
 		var tokens map[string]string
@@ -254,6 +241,7 @@ func (m *model) saveAccount(id string) tea.Cmd {
 				return config.MissingError{Kind: config.KindAccount, ID: id}
 			}
 			*x = *a
+			dropConversations(c, id, removed)
 			return nil
 		}, tokens); err != nil {
 			saveError(fm, err)
@@ -377,7 +365,7 @@ func (m *model) newAccountForm() *form {
 			}
 			return nil
 		})),
-		linOnly(noteField("The account gets two feeds, each one a conversation: agent (your comments that start with /agent) and inbox (your Linear notifications). After the connection, Edit feeds changes them.", faint)),
+		linOnly(noteField("The account gets two feeds, each one a conversation: agent (your comments that start with /agent) and inbox (your Linear notifications). After the connection, the account panel shows the feeds and their filters.", faint)),
 		phone,
 		warn,
 	}
